@@ -63,14 +63,26 @@ A node's **type** encodes role, not a distinct object. Strength accrues identica
   mid-chain "impact" is functioning as an internal link and is treated as one. Links and impacts may
   carry offensive and defensive relations with one another through the same magnitude channel.
 - **Framework / Weighing:** resolve sub-debates that gate and rank impacts (§5, §7).
-- **Advocacy / BallotDirective:** structural anchors; BDs are the discovery roots (§4) and the
-  validated contributors at the ballot (§7).
+- **Advocacy:** the **shared premise** both sides litigate. Offense chains attach to it by a
+  support-type dependency; an advantage (AFF) and a disad (NEG) both root in the advocacy and differ
+  only by side + sign. Advocacy is **not** a valid `OffensiveAttack` target — you outweigh a proposal,
+  you do not turn it; offense aimed at an advocacy is inert (§3.4). There is no "advantage edge" /
+  "disad edge" type; advantage-vs-disad is derived, never stamped. (Full commitment:
+  `extension_migration_spec.md` §2.1.)
+- **BallotDirective:** structural anchor; BDs are the discovery roots (§4) and the validated
+  contributors at the ballot (§7).
 
-**Edges.** A `Support` raises its target's strength. A `DefensiveAttack` lowers its target's
-magnitude. An `OffensiveAttack` is a competing-polarity claim on a link or impact. An `Extension`
-marks temporal re-assertion. A `Comparison` connects a Weighing to the pair it ranks. Support and
-attack are the *same accrual operation* regardless of whether the target is a chain member or
-someone else's attacker — role is read off topology, not off an edge subtype.
+**Edges (4 types under Model C).** A `Support` raises its target's strength (and forms chain/premise
+dependencies). A `DefensiveAttack` lowers its target's magnitude. An `OffensiveAttack` is a
+competing-polarity claim on a link or impact. A `Comparison` connects a Weighing to the pair it
+ranks. Support and attack are the *same accrual operation* regardless of whether the target is a
+chain member or someone else's attacker — role is read off topology, not off an edge subtype.
+
+**Extension is per-node state, not an edge.** The former `ExtensionEdge` is **retired**. Each node
+carries a **liveness record** — the speeches it was carried through, each tagged `contested` or
+`conceded` — and extension is the act of stamping that record. The judge reads liveness from the
+record, never by walking edges (§6). Full model, migration, and converter:
+`extension_migration_spec.md`.
 
 ### 2.1 Speech order and side (judge-owned)
 
@@ -96,9 +108,9 @@ orientation from two reliable signals instead:
 
 - **Node type** orients chains: Uniqueness is the pre-world root, Impact is the terminal sink,
   BallotDirective is the ballot sink. Discovery and chain direction follow type, not arrows.
-- **Speech recency** orients clashes and re-assertions: in any cross-side clash the node in the
-  **later speech is the attacker/responder** (you can only answer what was already said); in any
-  extension the **later-speech endpoint is the re-assertion**.
+- **Speech recency** orients clashes: in any cross-side clash the node in the **later speech is the
+  attacker/responder** (you can only answer what was already said). (Extension no longer needs
+  orienting — it is per-node state, §6, not an edge.)
 
 Because every speech is single-side, every cross-side attack necessarily spans two speeches, so
 speech recency assigns attacker/target unambiguously. Same-side "attacks" are incoherent and inert
@@ -191,10 +203,11 @@ until something is argued; the judge never derives any factor from claim content
 ### 3.4 Coherence is inert, not illegal
 
 Channel-typed attacks: a defensive/offensive attack operates on a specific factor of the target. An
-attack with no matching factor to operate on (e.g. offense aimed at a pre-world uniqueness node, or a
-cross-channel attack with nothing to attenuate) **contributes nothing** — it is inert. The judge does
-not reject it; it simply has no effect on any sigma. This keeps the judge robust to malformed graphs
-and defers the uncertain link-vs-impact boundary to behavior rather than a hard ban.
+attack with no matching factor to operate on (e.g. offense aimed at a pre-world uniqueness node, an
+`OffensiveAttack` on an advocacy — a proposal is outweighed, not turned — or a cross-channel attack
+with nothing to attenuate) **contributes nothing** — it is inert. The judge does not reject it; it
+simply has no effect on any sigma. This keeps the judge robust to malformed graphs and defers the
+uncertain link-vs-impact boundary to behavior rather than a hard ban.
 
 ---
 
@@ -216,10 +229,17 @@ edge's `source` — direction is ignored; recency decides.
 - **Dropped** — the window speech passed with no opposing clash -> the node **locks at its strength**
   (conceded; under tau = 1.0 that is full strength). Emit `DROP`.
 - **No window** — introduced in the final speech of its side, opponent never had standing ->
-  **unresolved**, cannot establish offense. Emit `UNRESOLVED`.
+  **unresolved**, cannot establish offense. Emit `UNRESOLVED`. **Refinement (final-speech offense):**
+  a final-speech node *does* engage if it continues a clash that was **contested** entering that
+  speech (the attachment point's liveness status for the prior opposing speech is `contested`) —
+  e.g. answering a turn the opponent carried in. A node that is **conceded-live but not contested**
+  is not a legitimate site of new final-speech offense; spiking a conceded link into an impact in the
+  2AR is inert (the offense had to be established while the opponent had standing). The test is
+  structural, read off liveness status — never off the node's label. (Full rule:
+  `extension_migration_spec.md` §4.)
 
 Then apply **extension** (§6): drop any chain whose spine is not carried through every one of its
-side's speeches from introduction on.
+side's speeches from introduction on — read from each node's **liveness record**, not from edges.
 
 ---
 
@@ -231,27 +251,38 @@ tally entirely. In-scope or out, no continuous reweighting. Emit `FRAMEWORK_GATE
 
 ---
 
-## 6. Extension (binary, total over the spine)
+## 6. Extension (binary, total over the spine — read from liveness records)
 
-Extension is **not** a continuous score. An argument counts iff every **spine node** — the relevant
-uniqueness, link, impact, and advocacy — is re-asserted in **every one of its own side's speeches
-from its introduction onward**, with the neg block (2NC/1NR) counted as one speech. A re-assertion
-is a new node in the later speech joined to the prior instance by an `Extension` edge; the judge
-reads the **later-speech endpoint as the re-assertion** regardless of which way the edge is drawn
-(§2.2), and does not require the two endpoints to share an `ntype`.
+Extension is **not** a continuous score, and under Model C it is **not** an edge. Each node carries a
+**liveness record**: the speeches it was carried through, each tagged `contested` or `conceded`. An
+argument counts iff every **spine node** — the relevant uniqueness, link, impact, and advocacy — has
+its liveness record covering **every one of its own side's speeches from its introduction onward**,
+with the neg block (2NC/1NR) counted as one speech. The judge reads this by record lookup, never by
+walking edges. (Full model, the extend act, side-agnostic liveness, shared-node union, and the
+converter: `extension_migration_spec.md`.)
 
 - AFF spine speeches: whichever of 2AC, 1AR, 2AR follow introduction. NEG spine speeches: the block,
   then 2NR. An AFF argument is **not** dropped for failing to appear during NEG speeches.
-- **No new chains in rebuttals** — a chain first introduced in a rebuttal speech does not count.
+- **No new chains in rebuttals** — a chain whose *introduction* speech is a rebuttal does not count
+  (reads the node's introduction `speech`).
 - Non-spine nodes need not be extended.
-- **Inheritance is just extension.** When a turn flips a link, the flipped link and any inherited
-  impact are ordinary nodes: they count only if extended through the turning side's subsequent
-  speeches. Example: AFF impact in 1AC, NEG turn in 1NC, AFF concedes — NEG must extend **both** the
-  link turn **and** the original impact, or the offense evaluates to nothing. No special turn rule;
-  the ordinary spine-extension check produces this.
+- **Liveness is side-agnostic.** A node stays live as long as *any* live argument routes through it,
+  regardless of which side introduced it. **Inheritance is just this + extension:** when a turn
+  flips a link, the flipped link and any inherited impact are ordinary nodes on the turning side's
+  chain; they count only if that side's extension keeps them in the record. Example: AFF impact in
+  1AC, NEG turn in 1NC, AFF concedes — NEG must carry **both** the link turn **and** the original
+  impact in its liveness, or the offense evaluates to nothing. The turned AFF node staying live is
+  the side-agnostic rule; AFF walking away does not kill it while NEG carries it. No special turn
+  rule — the ordinary spine check produces this.
+- **Shared trunk nodes live by union.** Advocacy/uniqueness shared across a branch's paths stay live
+  while any live path through them is extended; collapsing one path never un-stamps a shared node
+  another live path still needs.
+- **Re-engagement is allowed.** A side may extend/answer a node it had stopped extending once it is
+  live again (e.g. the opponent turned it and carried it forward).
 
-A chain that fails extension contributes **zero** to net offense (this replaces any separate `C_ext`
-term — extension is a boolean gate, not a multiplier).
+A chain that fails extension contributes **zero** to net offense (extension is a boolean gate, not a
+multiplier — this replaces any separate `C_ext` term). Emit `EXTENSION_FAIL` naming the spine node
+and the missing speech.
 
 ---
 
@@ -266,11 +297,12 @@ or its clash is unresolved**, no preference is established and the judge falls b
 comparison. Meta-weighing is the same node type recursed. Emit `WEIGH`.
 
 ### Ballot (BD validation + net offense)
-**Validate each BD.** A `BallotDirective` carries only `label`/`side`/`speech` (no stored
-`claimed_direction` or `target_node`), so the judge derives both: its **claimed direction is its
-side** (an AFF BD claims AFF offense prevails; a NEG BD claims NEG), and its **anchored node(s)** are
-those it is incident to in the undirected graph (§2.2). A BD whose anchored argument resolves to `?`,
-or to offense favoring the opposing side, **fails and contributes nothing**. Emit `BD_VALIDATE`.
+**Validate each BD.** A `BallotDirective` carries no stored `claimed_direction` or `target_node`
+(the model's nodes carry `label`/`side`/`speech`/`liveness`), so the judge derives both: its
+**claimed direction is its side** (an AFF BD claims AFF offense prevails; a NEG BD claims NEG), and
+its **anchored node(s)** are those it is incident to in the undirected graph (§2.2). A BD whose
+anchored argument resolves to `?`, or to offense favoring the opposing side, **fails and contributes
+nothing**. Emit `BD_VALIDATE`.
 
 From surviving, extended, in-scope, BD-anchored arguments, accumulate net offense:
 
@@ -282,10 +314,13 @@ applying won-weighing preferences to the comparison. Then the **asymmetric win c
 
 - **AFF wins** iff **all**: advocacy present; a complete chain with non-zero surviving magnitude; at
   least one in-scope impact; **and N > epsilon**.
-- **NEG wins** otherwise: any AFF structural failure, framework lock-out, **N < -epsilon**, or
-  **abs(N) <= epsilon** (indeterminate -> presumption, hardcoded NEG).
+- **NEG wins** otherwise. The `reason_class` distinguishes *why*: `AFF structural failure` (an AFF
+  chain existed but collapsed / missing gate), `framework lock-out`, `NEG offense` (N < -epsilon), or
+  `presumption` (abs(N) <= epsilon, or no AFF offense ever existed — indeterminate drains to NEG).
+  "AFF structural failure" and "presumption" are distinct outcomes and must not be conflated: the
+  former means AFF built offense that failed, the latter means the round is indeterminate.
 
-Emit a final `BALLOT`. The result is binary.
+Emit a final `BALLOT` (carrying N, reason_class, and the offense decomposition). The result is binary.
 
 ---
 
@@ -293,12 +328,8 @@ Emit a final `BALLOT`. The result is binary.
 
 One record per consequential decision, emitted as the passes run. The trace is the debugging tool:
 when a verdict disagrees with your read, the first diverging record localizes the bug to one pass.
-
-The **Core fields** are the §8 decision data — what the pass actually computed.
-The **Descriptive fields** are added context the judge populates so a decision can be
-reconstructed and narrated without recomputation; they are consumed by the RFD renderer
-(`judge/rfd.py`) and the dashboard verdict panel. Descriptive fields never change a verdict
-— a reader that ignores them still sees the full decision.
+Each record has **core** fields (the decision data) and, for some, **descriptive** fields that the
+RFD/panel reads — judge-populated, consumed downstream, and never able to change a verdict.
 
 | Record | Core fields | Descriptive fields (RFD support) | Pass |
 |---|---|---|---|
@@ -308,11 +339,11 @@ reconstructed and narrated without recomputation; they are consumed by the RFD r
 | `MAGNITUDE` | node_id, base_tau, surviving_sigma, attackers[], supporters[] | — | 3 |
 | `POLARITY_FLIP` | link_id, from_sign, to_sign, sigma, via (preference/dfquad) | — | 3 |
 | `INERT_ATTACK` | edge_id, reason | — | 3 |
-| `CHAIN` | chain_id, sign, mag, delta | side, extended, in_scope, collapse_reason (extension_fail / sign_flip / defensive_kill / unresolved_sign / none), responsible (node id) | 3 |
+| `CHAIN` | chain_id, sign, mag, delta | side, extended, in_scope, collapse_reason, responsible | 3 |
 | `FRAMEWORK_GATE` | impact_id, framework_id, in_scope | — | 5 |
-| `WEIGH` | weighing_id, outcome (resolved/symmetric), preferred_node, via | pair[] (compared node ids), overrode (preference beat raw delta) | 5 |
-| `BD_VALIDATE` | bd_id, result, reason | side (BD's claimed direction) | 6 |
-| `BALLOT` | N, gates_passed[], winner | reason_class (AFF offense / NEG offense / presumption / framework lock-out / AFF structural failure), aff_sum, neg_sum, decomposition[] ({chain_id, side, delta, contributed}) | 6 |
+| `WEIGH` | weighing_id, outcome (resolved/symmetric), preferred_node, via | pair[], overrode | 5 |
+| `BD_VALIDATE` | bd_id, result, reason | side | 6 |
+| `BALLOT` | N, gates_passed[], winner | reason_class, aff_sum, neg_sum, decomposition[] | 6 |
 
 ---
 
