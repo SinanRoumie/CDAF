@@ -29,6 +29,15 @@ import dash_cytoscape as cyto
 from dash import (Dash, Input, Output, State, ctx, dcc, html, no_update)
 from dash.dependencies import ClientsideFunction
 
+# Domain schema lives in model/ (pure Python, no UI deps) -- single source of truth.
+from model import (NODE_CLASSES, EDGE_CLASSES, NODE_TYPE_NAMES, EDGE_TYPE_NAMES, Position)
+from model import serialize as mser
+
+# Deterministic judge + RFD live in judge/ (pure Python: imports only model/ and
+# the stdlib, NEVER anything app-side). The app depends on judge; not vice versa.
+from judge import judge as run_judge
+from judge import rfd as judge_rfd
+
 # ---------------------------------------------------------------------------
 # Domain model
 # ---------------------------------------------------------------------------
@@ -36,16 +45,18 @@ from dash.dependencies import ClientsideFunction
 LAYERS = ["content", "framework", "ballot"]
 LAYER_DEPTH = {"content": 0, "framework": 1, "ballot": 2}
 
+# UI metadata per node type. The type NAMES + order come from model/ (one
+# source of truth for the schema); layer/color are app-side presentation only.
+_NODE_LAYER = {
+    "Uniqueness": "content", "Link": "content", "Impact": "content", "Advocacy": "content",
+    "Framework": "framework", "Weighing": "framework", "BallotDirective": "ballot",
+}
+_NODE_COLOR = {
+    "Uniqueness": "#4C9F70", "Link": "#3A7CA5", "Impact": "#D1495B", "Advocacy": "#9B5DE5",
+    "Framework": "#E08E45", "Weighing": "#C9A227", "BallotDirective": "#5C6672",
+}
 # (name, layer, color)
-NODE_TYPES = [
-    ("Uniqueness", "content", "#4C9F70"),
-    ("Link", "content", "#3A7CA5"),
-    ("Impact", "content", "#D1495B"),
-    ("Advocacy", "content", "#9B5DE5"),
-    ("Framework", "framework", "#E08E45"),
-    ("Weighing", "framework", "#C9A227"),
-    ("BallotDirective", "ballot", "#5C6672"),
-]
+NODE_TYPES = [(name, _NODE_LAYER[name], _NODE_COLOR[name]) for name in NODE_TYPE_NAMES]
 NODE_LAYER = {name: layer for name, layer, _ in NODE_TYPES}
 NODE_COLOR = {name: color for name, _, color in NODE_TYPES}
 
@@ -59,14 +70,16 @@ SPEECH_SIDE = {
     "1AR": "AFF", "2NR": "NEG", "2AR": "AFF",
 }
 
+# UI style per edge type, keyed by the on-disk etype string (names + order from model/).
+_EDGE_STYLE = {
+    "SupportEdge": ("#2A9D8F", "solid", "triangle", 3, False),
+    "ExtensionEdge": ("#457B9D", "dashed", "triangle", 3, False),
+    "DefensiveAttackEdge": ("#E76F51", "dotted", "tee", 3, False),
+    "OffensiveAttackEdge": ("#D62828", "solid", "triangle", 5, False),
+    "ComparisonEdge": ("#6A4C93", "dashed", "diamond", 3, True),
+}
 # (name, color, line-style, target-arrow, width, comparison?)
-EDGE_TYPES = [
-    ("SupportEdge", "#2A9D8F", "solid", "triangle", 3, False),
-    ("ExtensionEdge", "#457B9D", "dashed", "triangle", 3, False),
-    ("DefensiveAttackEdge", "#E76F51", "dotted", "tee", 3, False),
-    ("OffensiveAttackEdge", "#D62828", "solid", "triangle", 5, False),
-    ("ComparisonEdge", "#6A4C93", "dashed", "diamond", 3, True),
-]
+EDGE_TYPES = [(name, *_EDGE_STYLE[name]) for name in EDGE_TYPE_NAMES]
 
 # AFF vs NEG node border color (green / red).
 SIDE_BORDER = {"AFF": "#2E8B57", "NEG": "#C0392B"}
@@ -161,6 +174,14 @@ def relayout_positions(nodes):
     return nodes
 
 
+def ensure_positions(model):
+    """Give every node a position. No-op for app-saved rounds (which always carry
+    positions); fills in positions for hand-authored rounds that omit them."""
+    nodes = [n for n in model if is_node(n)]
+    if any(("position" not in n) or (n.get("position") is None) for n in nodes):
+        relayout_positions(nodes)
+
+
 def find(elements, el_id):
     for el in model_elements(elements):
         if el["data"]["id"] == el_id:
@@ -177,15 +198,14 @@ def edge_exists_between(elements, a, b):
 
 
 def make_node(node_id, label, ntype, speech, position):
-    return {
-        "data": {"id": node_id, "label": label, "ntype": ntype,
-                 "side": infer_side(speech), "speech": speech},
-        "position": position,
-    }
+    node = NODE_CLASSES[ntype](id=node_id, label=label, side=infer_side(speech),
+                               speech=speech, position=Position(position["x"], position["y"]))
+    return mser.node_to_element(node)
 
 
 def make_edge(edge_id, source, target, etype):
-    return {"data": {"id": edge_id, "source": source, "target": target, "etype": etype}}
+    edge = EDGE_CLASSES[etype](id=edge_id, source=source, target=target)
+    return mser.edge_to_element(edge)
 
 
 def background_elements():
@@ -393,20 +413,37 @@ add_edge_panel = section("Add edge", [
     html.Div(id="edge-msg", className="msg"),
 ])
 
+def make_upload():
+    """A fresh dcc.Upload. Re-created after each load so its underlying
+    <input type=file> is reset and the same file can be uploaded again."""
+    return dcc.Upload(id="upload-json", children=html.Div(["⤒ Load JSON (drag or click)"]),
+                      className="upload-box", multiple=False)
+
+
 file_panel = section("Save / load", [
+    labeled("File name", dcc.Input(id="save-name", type="text", value="",
+                                   placeholder="cdaf_graph", style={"width": "100%"})),
     html.Button("⤓ Save JSON", id="save-btn", className="btn"),
     dcc.Download(id="download-json"),
     html.Div(style={"height": "8px"}),
-    dcc.Upload(id="upload-json", children=html.Div(["⤒ Load JSON (drag or click)"]),
-               className="upload-box", multiple=False),
+    html.Div(id="upload-wrapper", children=make_upload()),
     html.Div(style={"height": "8px"}),
     html.Button("Re-run layout", id="relayout-btn", className="btn"),
     html.Button("Clear graph", id="clear-btn", className="btn danger"),
 ])
 
+judge_panel = section("Judge round", [
+    html.Div("Evaluates the current graph with the deterministic judge. "
+             "Runs only when you press the button.", className="hint small"),
+    html.Button("⚖ Judge Round", id="judge-btn", className="btn primary"),
+    html.Div(id="judge-output",
+             children=html.Div("Press “Judge Round” to evaluate the current graph.",
+                               className="hint small")),
+])
+
 left_panel = html.Div([
     html.H2("CDAF Builder", className="app-title"),
-    add_node_panel, add_edge_panel, file_panel,
+    add_node_panel, add_edge_panel, file_panel, judge_panel,
 ], className="left-panel")
 
 
@@ -415,6 +452,8 @@ left_panel = html.Div([
 node_editor = html.Div(id="node-editor", style=HIDDEN, children=[
     html.Div("Node", className="section-title"),
     html.Div(id="edit-node-meta", className="meta"),
+    labeled("Type", dcc.Dropdown(id="edit-node-type", options=node_type_options,
+                                 clearable=False)),
     labeled("Claim / label", dcc.Textarea(id="edit-node-label",
                                            style={"width": "100%", "height": "70px"})),
     labeled("Speech (side is inferred)",
@@ -560,6 +599,7 @@ def side_hint(speech):
     Output("choose-modal", "style"),
     Output("edge-dialog", "style"),
     Output("weighing-dialog", "style"),
+    Output("edit-node-type", "value"),
     Output("edit-node-label", "value"),
     Output("edit-node-speech", "value"),
     Output("edit-node-meta", "children"),
@@ -582,7 +622,7 @@ def reflect_selection(sel, elements):
             f"{(src['data']['label'][:22] if src else '?')}  →  "
             f"{(tgt['data']['label'][:22] if tgt else '?')}")
         return (HIDDEN, VISIBLE, POPUP_HIDDEN, MODAL_HIDDEN, MODAL_HIDDEN,
-                no_update, no_update, no_update,
+                no_update, no_update, no_update, no_update,
                 (e["data"]["etype"] if e else "SupportEdge"), meta, no_update)
 
     if len(nodes) == 1:
@@ -590,7 +630,7 @@ def reflect_selection(sel, elements):
         if n:
             meta = html.Span(f"{n['data']['ntype']}  ·  {n['data']['side']}  ·  {n['data']['speech']}")
             return (VISIBLE, HIDDEN, POPUP_HIDDEN, MODAL_HIDDEN, MODAL_HIDDEN,
-                    n["data"]["label"], n["data"]["speech"], meta,
+                    n["data"]["ntype"], n["data"]["label"], n["data"]["speech"], meta,
                     no_update, no_update, no_update)
 
     if len(nodes) == 2:
@@ -598,11 +638,11 @@ def reflect_selection(sel, elements):
         info = html.Span(f"{(a['data']['label'][:22] if a else nodes[0])}  ↔  "
                          f"{(b['data']['label'][:22] if b else nodes[1])}")
         return (HIDDEN, HIDDEN, POPUP_VISIBLE, MODAL_HIDDEN, MODAL_HIDDEN,
-                no_update, no_update, no_update, no_update, no_update, info)
+                no_update, no_update, no_update, no_update, no_update, no_update, info)
 
     # nothing selected -> blank inspector, no modals
     return (HIDDEN, HIDDEN, POPUP_HIDDEN, MODAL_HIDDEN, MODAL_HIDDEN,
-            no_update, no_update, no_update, no_update, no_update, no_update)
+            no_update, no_update, no_update, no_update, no_update, no_update, no_update)
 
 
 # ---------------------------------------------------------------------------
@@ -692,6 +732,7 @@ def cancel_modals(_c, _d, _w):
     Output("dialog-msg", "children", allow_duplicate=True),
     Output("edge-dialog", "style", allow_duplicate=True),
     Output("edit-edge-meta", "children", allow_duplicate=True),
+    Output("upload-wrapper", "children", allow_duplicate=True),
     Input("add-node-btn", "n_clicks"),
     Input("add-edge-btn", "n_clicks"),
     Input("dialog-create", "n_clicks"),
@@ -712,6 +753,7 @@ def cancel_modals(_c, _d, _w):
     State("edge-source", "value"),
     State("edge-target", "value"),
     State("edge-type", "value"),
+    State("edit-node-type", "value"),
     State("edit-node-label", "value"),
     State("edit-node-speech", "value"),
     State("edit-edge-type", "value"),
@@ -724,9 +766,16 @@ def cancel_modals(_c, _d, _w):
 def mutate(_an, _ae, _dc, _wc, _ens, _end, _ees, _eer, _eed, _rl, _clr, upload_contents,
            elements, sel, nt_type, nt_label, nt_speech,
            edge_source, edge_target, edge_type,
-           e_label, e_speech, e_etype, dlg_etype, dlg_dir,
+           e_ntype, e_label, e_speech, e_etype, dlg_etype, dlg_dir,
            wgt_label, wgt_speech):
     trigger = ctx.triggered_id
+
+    # `dcc.Upload.contents` is reset to None after each load (see below). That
+    # reset re-fires this callback with empty contents -- ignore that echo so a
+    # later upload of the *same* file still registers as a real change.
+    if trigger == "upload-json" and not upload_contents:
+        return (no_update,) * 11
+
     model = copy.deepcopy(model_elements(elements))
     sel = sel or EMPTY_SELECTION
     sel_nodes = sel.get("nodes", [])
@@ -741,6 +790,7 @@ def mutate(_an, _ae, _dc, _wc, _ens, _end, _ees, _eer, _eed, _rl, _clr, upload_c
     dialog_msg = no_update
     dialog_style = no_update
     edge_meta_out = no_update
+    upload_out = no_update
 
     def repack():
         return render_elements(model)
@@ -766,14 +816,14 @@ def mutate(_an, _ae, _dc, _wc, _ens, _end, _ees, _eer, _eed, _rl, _clr, upload_c
 
     elif trigger == "dialog-create":
         if len(sel_nodes) != 2:
-            return (no_update,) * 10
+            return (no_update,) * 11
         a, b = sel_nodes[0], sel_nodes[1]
         src, tgt = (a, b) if dlg_dir == "ab" else (b, a)
         if edge_exists_between(model, a, b):
             # keep the dialog open and report the violation
             return (no_update, no_update, no_update, no_update, no_update, no_update,
                     no_update, "An edge already exists between these nodes.", no_update,
-                    no_update)
+                    no_update, no_update)
         model.append(make_edge(next_id(model, "e"), src, tgt, dlg_etype))
         selection_out = EMPTY_SELECTION
         dialog_msg, dialog_style = "", MODAL_HIDDEN
@@ -794,6 +844,8 @@ def mutate(_an, _ae, _dc, _wc, _ens, _end, _ees, _eer, _eed, _rl, _clr, upload_c
     elif trigger == "edit-node-save" and len(sel_nodes) == 1:
         n = next((x for x in model if x["data"]["id"] == sel_nodes[0]), None)
         if n:
+            if e_ntype in NODE_LAYER:
+                n["data"]["ntype"] = e_ntype
             n["data"]["label"] = (e_label or "").strip() or n["data"]["ntype"]
             n["data"]["speech"] = e_speech
             n["data"]["side"] = infer_side(e_speech)
@@ -833,19 +885,24 @@ def mutate(_an, _ae, _dc, _wc, _ens, _end, _ees, _eer, _eed, _rl, _clr, upload_c
         selection_out = EMPTY_SELECTION
 
     elif trigger == "upload-json" and upload_contents:
+        # Remount the Upload (fresh <input>) so the same file can be re-uploaded.
+        upload_out = make_upload()
         try:
             _, content_string = upload_contents.split(",", 1)
-            loaded = json.loads(base64.b64decode(content_string))
-            model = [el for el in loaded.get("elements", []) if not is_bg(el)]
+            raw = json.loads(base64.b64decode(content_string))
+            # drop any stray background elements, then parse via the model schema
+            raw["elements"] = [el for el in raw.get("elements", []) if not is_bg(el)]
+            model = mser.elements_from_round(mser.from_dict(raw))
+            ensure_positions(model)
             selection_out = EMPTY_SELECTION
         except Exception as exc:  # noqa: BLE001
             return (no_update, no_update, f"Could not load file: {exc}",
                     no_update, no_update, no_update, no_update, no_update, no_update,
-                    no_update)
+                    no_update, make_upload())
 
     posmap = {n["data"]["id"]: n["position"] for n in model if is_node(n)}
     return (repack(), posmap, msg, nt_label_out, edge_source_out, edge_target_out,
-            selection_out, dialog_msg, dialog_style, edge_meta_out)
+            selection_out, dialog_msg, dialog_style, edge_meta_out, upload_out)
 
 
 # ---------------------------------------------------------------------------
@@ -867,15 +924,87 @@ def edge_node_options(elements):
 # Save graph to JSON
 # ---------------------------------------------------------------------------
 
+def save_filename(name):
+    """Turn the user's text into a safe, bare `<name>.json` filename."""
+    name = (name or "").strip()
+    name = name.replace("\\", "/").split("/")[-1]        # no directory components
+    if name.lower().endswith(".json"):
+        name = name[:-5]
+    name = "".join(c for c in name if c.isalnum() or c in " -_.").strip()
+    return f"{name or 'cdaf_graph'}.json"
+
+
 @app.callback(
     Output("download-json", "data"),
     Input("save-btn", "n_clicks"),
     State("cytoscape", "elements"),
+    State("save-name", "value"),
     prevent_initial_call=True,
 )
-def save_graph(_n, elements):
-    payload = json.dumps({"elements": model_elements(elements)}, indent=2)
-    return dict(content=payload, filename="cdaf_graph.json")
+def save_graph(_n, elements, name):
+    rnd = mser.from_dict({"elements": model_elements(elements)})
+    return dict(content=mser.dumps(rnd), filename=save_filename(name))
+
+
+# ---------------------------------------------------------------------------
+# Judge the current round  (verdict + RFD panel; click-only)
+# ---------------------------------------------------------------------------
+
+_NODE_ID_RE = re.compile(r"\bn\d+\b")
+
+
+def label_display_map(round_elements):
+    """id -> display label for the current round. Duplicate labels get the id
+    appended so they disambiguate. App-side display only -- rfd.py stays pure
+    and id-based; this substitution happens entirely here."""
+    labels = {el["data"]["id"]: (el["data"].get("label") or el["data"]["id"])
+              for el in round_elements if is_node(el)}
+    freq = {}
+    for lab in labels.values():
+        freq[lab] = freq.get(lab, 0) + 1
+    return {nid: (f"{lab} ({nid})" if freq[lab] > 1 else lab) for nid, lab in labels.items()}
+
+
+def labelize(text, disp):
+    """Swap node ids in the rendered RFD for human labels (display only)."""
+    text = _NODE_ID_RE.sub(lambda m: disp.get(m.group(0), m.group(0)), text)
+    return text.replace("chain:", "")
+
+
+def verdict_panel(ballot, rfd_text):
+    color = "#2E8B57" if ballot == "AFF" else "#C0392B"
+    return html.Div([
+        html.Div(f"{ballot} wins", style={
+            "fontSize": "20px", "fontWeight": "bold", "color": color,
+            "padding": "4px 0", "borderBottom": f"2px solid {color}", "marginBottom": "8px"}),
+        html.Pre(rfd_text, style={
+            "whiteSpace": "pre-wrap", "fontSize": "12px", "lineHeight": "1.45",
+            "maxHeight": "340px", "overflowY": "auto", "margin": 0, "fontFamily": "inherit"}),
+    ])
+
+
+@app.callback(
+    Output("judge-output", "children"),
+    Input("judge-btn", "n_clicks"),
+    State("cytoscape", "elements"),
+    prevent_initial_call=True,
+)
+def judge_round(_n, elements):
+    """Read the CURRENT graph once and judge it. Fires ONLY on button click
+    (`elements` is a State, not an Input) -- it never re-judges on edits. The
+    conversion is the SAME serialize path that Save uses (elements -> Round), so
+    judging the live graph is identical to saving it and judging that JSON."""
+    try:
+        round_elements = model_elements(elements)
+        rnd = mser.from_dict({"elements": round_elements})
+        ballot, trace = run_judge(rnd)
+        rfd_text = labelize(judge_rfd.render(ballot, trace),
+                            label_display_map(round_elements))
+        return verdict_panel(ballot, rfd_text)
+    except Exception as exc:  # noqa: BLE001  -- never crash the app on a bad graph
+        return html.Div(f"Could not judge this graph: {exc}",
+                        style={"color": "#C0392B", "fontSize": "12px",
+                               "whiteSpace": "pre-wrap"})
 
 
 if __name__ == "__main__":

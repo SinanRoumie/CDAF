@@ -114,10 +114,22 @@ Then open **http://127.0.0.1:8050** in your browser.
 ## Files
 
 ```
-cdaf_app.py        # the entire app: domain model, stylesheet, layout, callbacks
+cdaf_app.py        # the Dash app: layout, callbacks, UI styling/geometry
 assets/style.css   # styling (auto-served by Dash)
+assets/cdaf.js     # client-side cytoscape logic (selection, drag/pan, headers)
 requirements.txt   # dependencies
+
+model/             # pure-Python domain schema (no Dash / dash-cytoscape deps)
+  nodes.py         #   Position, Node base, the 7 node-type dataclasses
+  edges.py         #   Edge base, the 5 edge-type dataclasses
+  round.py         #   Round (ordered nodes + edges + schema version)
+  serialize.py     #   JSON (de)serialize -- the save/load format lives here
 ```
+
+`model/` is the single source of truth for what a node / edge / round is. It imports
+nothing app-side, so a separate evaluator can read saved graphs without the UI. The app
+imports the dataclasses and serializer from `model/` and adds only presentation metadata
+(layer, color) on top.
 
 ## Saved-file format
 
@@ -125,14 +137,21 @@ A saved graph is a JSON document:
 
 ```json
 {
+  "version": 1,
   "elements": [
     {"data": {"id": "n1", "label": "…", "ntype": "Link",
-              "side": "AFF", "speech": "1AC"}, "position": {"x": 210, "y": 640}},
+              "side": "AFF", "speech": "1AC"}, "position": {"x": 214, "y": 80}},
     {"data": {"id": "e2", "source": "n1", "target": "n3", "etype": "SupportEdge"}}
-  ],
-  "counter": 4
+  ]
 }
 ```
 
-This is the same shape Dash Cytoscape consumes, so the file is both the save format
-and the live graph state.
+- `version` is the schema version (currently `1`). Files saved before versioning load
+  fine and are treated as version 1.
+- Node elements carry `data` (`id, label, ntype, side, speech`) and a `position`. Edge
+  elements carry `data` (`id, source, target, etype`) and no position.
+- `position` is optional on load: hand-authored or generated rounds may omit it. The app
+  always writes positions when it saves.
+
+This is the same shape Dash Cytoscape consumes, so the file is both the save format and
+the live graph state.

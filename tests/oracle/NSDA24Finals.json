@@ -1,0 +1,1873 @@
+{
+  "version": 1,
+  "elements": [
+    {
+      "data": {
+        "id": "n1",
+        "label": "SS is a vital safety net for retirees",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC"
+      },
+      "position": {
+        "x": 237.1610671243443,
+        "y": 244.05755879743893
+      }
+    },
+    {
+      "data": {
+        "id": "n2",
+        "label": "SS Funding crisis, Will run out of money in 10 years",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC"
+      },
+      "position": {
+        "x": 239.091156051373,
+        "y": 366.7991594839555
+      }
+    },
+    {
+      "data": {
+        "id": "n3",
+        "label": "83 million retirees reduction in benefits",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC"
+      },
+      "position": {
+        "x": 237.16106712434436,
+        "y": 487.61067124344333
+      }
+    },
+    {
+      "data": {
+        "id": "n4",
+        "label": "USFG should substantially increase fiscal redistribution by expanding social security by passing the SS 20100 Act",
+        "ntype": "Advocacy",
+        "side": "AFF",
+        "speech": "1AC"
+      },
+      "position": {
+        "x": 246.23097819731564,
+        "y": 120.41057373495849
+      }
+    },
+    {
+      "data": {
+        "id": "n5",
+        "label": "SS Bankrupt by 2035",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC"
+      },
+      "position": {
+        "x": 237.1610671243443,
+        "y": 601.8478255785251
+      }
+    },
+    {
+      "data": {
+        "id": "n6",
+        "label": "Wealthy Americans don't pay the same amount of money as poor people",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC"
+      },
+      "position": {
+        "x": 239.091156051373,
+        "y": 714.9389816298981
+      }
+    },
+    {
+      "data": {
+        "id": "n7",
+        "label": "0.08% effective tax rate on the wealthy",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC"
+      },
+      "position": {
+        "x": 239.09115605137305,
+        "y": 831.8903155353285
+      }
+    },
+    {
+      "data": {
+        "id": "n8",
+        "label": "AFF removes pay roll tax gap. + taxing investments",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AC"
+      },
+      "position": {
+        "x": 217.3011476353546,
+        "y": 925.9292384060175
+      }
+    },
+    {
+      "data": {
+        "id": "n9",
+        "label": "Funds SS w/o a radical expansion of taxes",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AC"
+      },
+      "position": {
+        "x": 230.65018627007584,
+        "y": 1085.5742819985983
+      }
+    },
+    {
+      "data": {
+        "id": "n10",
+        "label": "Boost economic Growth -- Stimulus effect in local communities. 1.3T nationally",
+        "ntype": "Impact",
+        "side": "AFF",
+        "speech": "1AC"
+      },
+      "position": {
+        "x": 244.88142283245912,
+        "y": 1202.0452065219065
+      }
+    },
+    {
+      "data": {
+        "id": "n11",
+        "label": "# of americans recieving benefits > # of taxpayers funding the system",
+        "ntype": "Uniqueness",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 522.6248485013109,
+        "y": 235.01273423351196
+      }
+    },
+    {
+      "data": {
+        "id": "n12",
+        "label": "SQUO US recession recovery",
+        "ntype": "Uniqueness",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 550.2845297271745,
+        "y": 377.72680920861245
+      }
+    },
+    {
+      "data": {
+        "id": "n13",
+        "label": "1. Increases pay roll tax rate  - businesses have to match the payroll tax rate",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 539.1846449229234,
+        "y": 587.3484209094854
+      }
+    },
+    {
+      "data": {
+        "id": "n14",
+        "label": "Pause GPT 1.2%, Cuts jobs 580k",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 521.3703117939464,
+        "y": 676.076237999361
+      }
+    },
+    {
+      "data": {
+        "id": "n15",
+        "label": "2. Investment Tax - Investors put capital into businesses",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 533.3090335501444,
+        "y": 804.2523740201347
+      }
+    },
+    {
+      "data": {
+        "id": "n16",
+        "label": "Tax on investments -> investors pull money out, Decrease capital by 7%",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 526.1212792161139,
+        "y": 900.2658750896384
+      }
+    },
+    {
+      "data": {
+        "id": "n17",
+        "label": "Reduce GDP by 1.8%,",
+        "ntype": "Impact",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 528.4825971709798,
+        "y": 1020.1491376150449
+      }
+    },
+    {
+      "data": {
+        "id": "n18",
+        "label": "Aff doesn't take into account effect on the economy",
+        "ntype": "Weighing",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 525.22174406958,
+        "y": 1149.1998485328781
+      }
+    },
+    {
+      "data": {
+        "id": "n19",
+        "label": "Their evidence agrees that bankrupcy is being caused by demographic shift",
+        "ntype": "Uniqueness",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 485,
+        "y": 489.8671732216347
+      }
+    },
+    {
+      "data": {
+        "id": "n20",
+        "label": "Increasing taxes decreases revenue because it leads to tax avoidance and evasion",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 499.67196783354325,
+        "y": 1302.718334797151
+      }
+    },
+    {
+      "data": {
+        "id": "n21",
+        "label": "Can't fund SS because of Offshoring",
+        "ntype": "Impact",
+        "side": "NEG",
+        "speech": "1NC"
+      },
+      "position": {
+        "x": 503.01328156738566,
+        "y": 1537.5637580256926
+      }
+    },
+    {
+      "data": {
+        "id": "n22",
+        "label": "SS funding crisis in 10 years",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 850.3977047292907,
+        "y": 279.62916268504665
+      }
+    },
+    {
+      "data": {
+        "id": "n24",
+        "label": "SS 20100 Act",
+        "ntype": "Advocacy",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 815.1276859803729,
+        "y": 165.14183981800562
+      }
+    },
+    {
+      "data": {
+        "id": "n25",
+        "label": "Taxing top 1.8% wont hurt the economy. Only the higehst earners effected",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 836.8940971374777,
+        "y": 621.5064081600799
+      }
+    },
+    {
+      "data": {
+        "id": "n26",
+        "label": "Their evidence is talking about medicare and social security fair share act, not SS 20100",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 778.2836337879374,
+        "y": 746.2393671403715
+      }
+    },
+    {
+      "data": {
+        "id": "n27",
+        "label": "Tax foundation is biased",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 782.2162703428514,
+        "y": 846.909482901543
+      }
+    },
+    {
+      "data": {
+        "id": "n28",
+        "label": "SS has a critical Stimulus Effect",
+        "ntype": "Impact",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 852.0573810601184,
+        "y": 1184.936084566048
+      }
+    },
+    {
+      "data": {
+        "id": "n29",
+        "label": "Net investment income tax will not effect small businesses",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 784.0897567904516,
+        "y": 983.4767544384673
+      }
+    },
+    {
+      "data": {
+        "id": "n30",
+        "label": "Past projections failed because they do not account for rising inequality",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 767.7916148868462,
+        "y": 383.96129317535195
+      }
+    },
+    {
+      "data": {
+        "id": "n31",
+        "label": "1. the reason why people don't pay into the system is bc of the payroll tax cap",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 837.187443143456,
+        "y": 1476.9632752187679
+      }
+    },
+    {
+      "data": {
+        "id": "n32",
+        "label": "2. Off shoring will not cause tax avoidance- they need to prove there is an incentive to move to other countries",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 843.2593621494268,
+        "y": 1655.6750616024153
+      }
+    },
+    {
+      "data": {
+        "id": "n33",
+        "label": "3. Wealthy americans in america hide their money in stocks and bonds, not offshoring",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 819.4877214685825,
+        "y": 1829.1389536563415
+      }
+    },
+    {
+      "data": {
+        "id": "n34",
+        "label": "AFF removes pay roll tax gap",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AC"
+      },
+      "position": {
+        "x": 824.097192742278,
+        "y": 537.7135086519936
+      }
+    },
+    {
+      "data": {
+        "id": "n35",
+        "label": "Demographic Changes bankrupt social security",
+        "ntype": "Uniqueness",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1077.6543285948385,
+        "y": 201.3831878876305
+      }
+    },
+    {
+      "data": {
+        "id": "n36",
+        "label": "The AFF doesn't solve for Demographic changes in the long term",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1050.77222732209,
+        "y": 541.4252060820199
+      }
+    },
+    {
+      "data": {
+        "id": "n37",
+        "label": "Steven Gauss has extraordinary uncertainty about long term solvency",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1105.6864480115785,
+        "y": 649.8624356335076
+      }
+    },
+    {
+      "data": {
+        "id": "n38",
+        "label": "Their Authors are too optimistic- they over project",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1045,
+        "y": 781.0188486698023
+      }
+    },
+    {
+      "data": {
+        "id": "n39",
+        "label": "Raise the Retirement age, means test, streamline immigration. Social security as insurance",
+        "ntype": "Advocacy",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1125.7466501576685,
+        "y": 981.9724465630469
+      }
+    },
+    {
+      "data": {
+        "id": "n40",
+        "label": "revenue maximizing point leads to tax avoidance and evasion",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1108.2938107182179,
+        "y": 1328.2705401909093
+      }
+    },
+    {
+      "data": {
+        "id": "n41",
+        "label": "Makes SS deteriorate faster",
+        "ntype": "Impact",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1130.2058509015408,
+        "y": 1571.394564650797
+      }
+    },
+    {
+      "data": {
+        "id": "n42",
+        "label": "our Specific to the investment tax",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1131.2553913714928,
+        "y": 1703.9799044691094
+      }
+    },
+    {
+      "data": {
+        "id": "n43",
+        "label": "Clearly there is an incentive if their being taxed",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1122.0015015167405,
+        "y": 1858.1415664465183
+      }
+    },
+    {
+      "data": {
+        "id": "n44",
+        "label": "Secure footing and not allow for finances",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1133.2839679535605,
+        "y": 1137.2832677818287
+      }
+    },
+    {
+      "data": {
+        "id": "n45",
+        "label": "Solves for Demographic changes by limiting the amount of payouts",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1071.3939655560205,
+        "y": 1240.8763908679712
+      }
+    },
+    {
+      "data": {
+        "id": "n46",
+        "label": "Covid recession",
+        "ntype": "Uniqueness",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1107.0910566336988,
+        "y": 320.6245933157261
+      }
+    },
+    {
+      "data": {
+        "id": "n47",
+        "label": "Payroll taxes",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1108.822181423279,
+        "y": 426.81916742461317
+      }
+    },
+    {
+      "data": {
+        "id": "n48",
+        "label": "580K people leave the labor force",
+        "ntype": "Impact",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1129.775926034878,
+        "y": 695.8260735434255
+      }
+    },
+    {
+      "data": {
+        "id": "n49",
+        "label": "Specific Provision is the same as Gauss evidence",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1045.9896308991533,
+        "y": 873.8371563739183
+      }
+    },
+    {
+      "data": {
+        "id": "n50",
+        "label": "Economy is cyclical, Decreases spending power, cascade effect",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1148.7982938803248,
+        "y": 791.2229588908763
+      }
+    },
+    {
+      "data": {
+        "id": "n51",
+        "label": "Inflationary pressures",
+        "ntype": "Impact",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1147.6734901644256,
+        "y": 894.1031762529058
+      }
+    },
+    {
+      "data": {
+        "id": "n52",
+        "label": "Investors pull out of the businesses",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NC/1NR"
+      },
+      "position": {
+        "x": 1056.0914517946344,
+        "y": 1041.0583011989434
+      }
+    },
+    {
+      "data": {
+        "id": "e1",
+        "source": "n4",
+        "target": "n1",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e2",
+        "source": "n1",
+        "target": "n2",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e3",
+        "source": "n2",
+        "target": "n3",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e4",
+        "source": "n3",
+        "target": "n5",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e5",
+        "source": "n5",
+        "target": "n6",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e6",
+        "source": "n6",
+        "target": "n7",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e7",
+        "source": "n7",
+        "target": "n8",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e8",
+        "source": "n8",
+        "target": "n9",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e9",
+        "source": "n9",
+        "target": "n10",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e10",
+        "source": "n18",
+        "target": "n10",
+        "etype": "ComparisonEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e11",
+        "source": "n18",
+        "target": "n17",
+        "etype": "ComparisonEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e12",
+        "source": "n4",
+        "target": "n11",
+        "etype": "OffensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e13",
+        "source": "n11",
+        "target": "n12",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e18",
+        "source": "n16",
+        "target": "n17",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e15",
+        "source": "n13",
+        "target": "n14",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e16",
+        "source": "n14",
+        "target": "n15",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e17",
+        "source": "n15",
+        "target": "n16",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e19",
+        "source": "n6",
+        "target": "n19",
+        "etype": "OffensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e20",
+        "source": "n12",
+        "target": "n13",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e22",
+        "source": "n20",
+        "target": "n21",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e23",
+        "source": "n8",
+        "target": "n20",
+        "etype": "OffensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e34",
+        "source": "n2",
+        "target": "n22",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e24",
+        "source": "n25",
+        "target": "n13",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e25",
+        "source": "n26",
+        "target": "n13",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e26",
+        "source": "n13",
+        "target": "n27",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e27",
+        "source": "n15",
+        "target": "n29",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e28",
+        "source": "n19",
+        "target": "n30",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e29",
+        "source": "n31",
+        "target": "n20",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e30",
+        "source": "n32",
+        "target": "n20",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e31",
+        "source": "n33",
+        "target": "n20",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e32",
+        "source": "n10",
+        "target": "n28",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e33",
+        "source": "n4",
+        "target": "n24",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e35",
+        "source": "n24",
+        "target": "n22",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e36",
+        "source": "n22",
+        "target": "n34",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e37",
+        "source": "n34",
+        "target": "n28",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e38",
+        "source": "n11",
+        "target": "n35",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e39",
+        "source": "n8",
+        "target": "n36",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e40",
+        "source": "n35",
+        "target": "n36",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e41",
+        "source": "n34",
+        "target": "n37",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e42",
+        "source": "n34",
+        "target": "n38",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e43",
+        "source": "n20",
+        "target": "n40",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e44",
+        "source": "n21",
+        "target": "n41",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e45",
+        "source": "n40",
+        "target": "n41",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e46",
+        "source": "n31",
+        "target": "n42",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e47",
+        "source": "n32",
+        "target": "n43",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e48",
+        "source": "n35",
+        "target": "n39",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e49",
+        "source": "n39",
+        "target": "n44",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e50",
+        "source": "n44",
+        "target": "n45",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e51",
+        "source": "n13",
+        "target": "n47",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e52",
+        "source": "n12",
+        "target": "n46",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e53",
+        "source": "n27",
+        "target": "n49",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e54",
+        "source": "n47",
+        "target": "n48",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e55",
+        "source": "n48",
+        "target": "n14",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e56",
+        "source": "n48",
+        "target": "n50",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e57",
+        "source": "n50",
+        "target": "n51",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e58",
+        "source": "n29",
+        "target": "n52",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e59",
+        "source": "n28",
+        "target": "n54",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n54",
+        "label": "SS Stimulus Effect",
+        "ntype": "Impact",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1387.9112260233571,
+        "y": 1349.2333666293096
+      }
+    },
+    {
+      "data": {
+        "id": "n55",
+        "label": "Gives retirees Disposable income",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1407.638337650106,
+        "y": 805.6353859707916
+      }
+    },
+    {
+      "data": {
+        "id": "e60",
+        "source": "n50",
+        "target": "n55",
+        "etype": "OffensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e61",
+        "source": "n55",
+        "target": "n54",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n56",
+        "label": "Taxting top 1.8% wont hurt economy --",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1351.6524865432684,
+        "y": 558.0628978073734
+      }
+    },
+    {
+      "data": {
+        "id": "e62",
+        "source": "n25",
+        "target": "n56",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n57",
+        "label": "Center for budget and policy priorities -- Has a conflict of interest and overstate the impact of taxes on the economy",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1382.9090024743161,
+        "y": 690.9785917369519
+      }
+    },
+    {
+      "data": {
+        "id": "e63",
+        "source": "n27",
+        "target": "n57",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n58",
+        "label": "Taxes Remove money from the economy, decreases inflation",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1421.0747179778764,
+        "y": 942.9227027749213
+      }
+    },
+    {
+      "data": {
+        "id": "e64",
+        "source": "n51",
+        "target": "n58",
+        "etype": "OffensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n59",
+        "label": "Would not disincentives investments, investments are still profitable even if there are taxes.",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1416.5142470089427,
+        "y": 1092.402627151145
+      }
+    },
+    {
+      "data": {
+        "id": "e65",
+        "source": "n52",
+        "target": "n59",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n60",
+        "label": "Their ev is not talking about SS2100 act",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1337.5407612911958,
+        "y": 1184.6974520696888
+      }
+    },
+    {
+      "data": {
+        "id": "e66",
+        "source": "n26",
+        "target": "n60",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n61",
+        "label": "Gauss takes Demographic changes into account-- calcualtions still accurate",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1364.2501157821016,
+        "y": 322.05998975897825
+      }
+    },
+    {
+      "data": {
+        "id": "e67",
+        "source": "n35",
+        "target": "n61",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n62",
+        "label": "NO speciifc, means testing no solvency evidence",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1358.213316861749,
+        "y": 874.4258735916567
+      }
+    },
+    {
+      "data": {
+        "id": "n63",
+        "label": "Stimulating labor force Too long term",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1383.4541640016425,
+        "y": 1016.0621299178283
+      }
+    },
+    {
+      "data": {
+        "id": "e68",
+        "source": "n39",
+        "target": "n62",
+        "etype": "OffensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e69",
+        "source": "n39",
+        "target": "n63",
+        "etype": "OffensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n64",
+        "label": "People are already not paying into SS",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1400.7817117676761,
+        "y": 1804.417644351282
+      }
+    },
+    {
+      "data": {
+        "id": "n65",
+        "label": "US markets still important so people buy in",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1391.877483531986,
+        "y": 1902.8059106262547
+      }
+    },
+    {
+      "data": {
+        "id": "e70",
+        "source": "n43",
+        "target": "n64",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e71",
+        "source": "n43",
+        "target": "n65",
+        "etype": "DefensiveAttackEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n66",
+        "label": "1. SS is structurally broken program",
+        "ntype": "Uniqueness",
+        "side": "NEG",
+        "speech": "2NR"
+      },
+      "position": {
+        "x": 1643.9536341786231,
+        "y": 237.01362691967825
+      }
+    },
+    {
+      "data": {
+        "id": "e75",
+        "source": "n37",
+        "target": "n72",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n68",
+        "label": "Their studies oversimplfy a complex issue?",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NR"
+      },
+      "position": {
+        "x": 1673.3984542921742,
+        "y": 806.5020035362014
+      }
+    },
+    {
+      "data": {
+        "id": "n69",
+        "label": "Taxes decrease labor force particiaption, increase production cost and cut workers",
+        "ntype": "Impact",
+        "side": "NEG",
+        "speech": "2NR"
+      },
+      "position": {
+        "x": 1679.8875780525423,
+        "y": 971.9034257258584
+      }
+    },
+    {
+      "data": {
+        "id": "n70",
+        "label": "Push the revenue maximizing point",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NR"
+      },
+      "position": {
+        "x": 1661.9273284873932,
+        "y": 1698.2811165166572
+      }
+    },
+    {
+      "data": {
+        "id": "n71",
+        "label": "Businesses must match payroll taxes-- pushes onto consumers",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NR"
+      },
+      "position": {
+        "x": 1655.78487572971,
+        "y": 472.8340505823202
+      }
+    },
+    {
+      "data": {
+        "id": "n72",
+        "label": "Gauss- has a high degree of uncertainty",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NR"
+      },
+      "position": {
+        "x": 1652.205991494156,
+        "y": 633.4961696013347
+      }
+    },
+    {
+      "data": {
+        "id": "e77",
+        "source": "n83",
+        "target": "n54",
+        "etype": "ComparisonEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e86",
+        "source": "n87",
+        "target": "n84",
+        "etype": "ComparisonEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n75",
+        "label": "UQ 83 milion americans",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "2AR"
+      },
+      "position": {
+        "x": 1944.8292690666794,
+        "y": 292.62479677166715
+      }
+    },
+    {
+      "data": {
+        "id": "n76",
+        "label": "Stimulate the economy",
+        "ntype": "Impact",
+        "side": "AFF",
+        "speech": "2AR"
+      },
+      "position": {
+        "x": 1908.8334583748524,
+        "y": 1143.6592803541828
+      }
+    },
+    {
+      "data": {
+        "id": "n77",
+        "label": "! increases GDP, local economies",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AR"
+      },
+      "position": {
+        "x": 1934.2487834471297,
+        "y": 1404.7049038273258
+      }
+    },
+    {
+      "data": {
+        "id": "n78",
+        "label": "No payroll tax contributions, does not effect majority of corporations.",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AR"
+      },
+      "position": {
+        "x": 1912.4470588235295,
+        "y": 754.4470588235295
+      }
+    },
+    {
+      "data": {
+        "id": "n79",
+        "label": "only 1.8% are effected",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AR"
+      },
+      "position": {
+        "x": 1931.3275837891495,
+        "y": 871.8348947441615
+      }
+    },
+    {
+      "data": {
+        "id": "e95",
+        "source": "n88",
+        "target": "n78",
+        "etype": "ComparisonEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n81",
+        "label": "Net investment income tax bias ev",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AR"
+      },
+      "position": {
+        "x": 1894,
+        "y": 608
+      }
+    },
+    {
+      "data": {
+        "id": "n82",
+        "label": "2033 deadline",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "2AR"
+      },
+      "position": {
+        "x": 1915.8313166697546,
+        "y": 477.90118955247345
+      }
+    },
+    {
+      "data": {
+        "id": "e72",
+        "source": "n35",
+        "target": "n66",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e73",
+        "source": "n48",
+        "target": "n69",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e74",
+        "source": "n47",
+        "target": "n71",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n83",
+        "label": "Does Not solve long term",
+        "ntype": "Weighing",
+        "side": "NEG",
+        "speech": "2NR"
+      },
+      "position": {
+        "x": 1680.33315145476,
+        "y": 1114.5600843510376
+      }
+    },
+    {
+      "data": {
+        "id": "e76",
+        "source": "n83",
+        "target": "n69",
+        "etype": "ComparisonEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n84",
+        "label": "CP?",
+        "ntype": "Advocacy",
+        "side": "NEG",
+        "speech": "2NR"
+      },
+      "position": {
+        "x": 1699.8332537614574,
+        "y": 1332.9848792473979
+      }
+    },
+    {
+      "data": {
+        "id": "e78",
+        "source": "n39",
+        "target": "n84",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n85",
+        "label": "SS 2100 Act",
+        "ntype": "Advocacy",
+        "side": "AFF",
+        "speech": "1AR"
+      },
+      "position": {
+        "x": 1361.6705882352942,
+        "y": 160.61176470588214
+      }
+    },
+    {
+      "data": {
+        "id": "e79",
+        "source": "n24",
+        "target": "n85",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n86",
+        "label": "ss2100 ACt",
+        "ntype": "Advocacy",
+        "side": "AFF",
+        "speech": "2AR"
+      },
+      "position": {
+        "x": 1930.894117647059,
+        "y": 175.2470588235293
+      }
+    },
+    {
+      "data": {
+        "id": "e80",
+        "source": "n85",
+        "target": "n86",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e81",
+        "source": "n86",
+        "target": "n75",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e82",
+        "source": "n75",
+        "target": "n82",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e83",
+        "source": "n61",
+        "target": "n75",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e84",
+        "source": "n40",
+        "target": "n70",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n87",
+        "label": "Better solutions are preferable because there have no effects on the economy",
+        "ntype": "Weighing",
+        "side": "NEG",
+        "speech": "2NR"
+      },
+      "position": {
+        "x": 1628.8334583748522,
+        "y": 1478.864671780121
+      }
+    },
+    {
+      "data": {
+        "id": "e85",
+        "source": "n87",
+        "target": "n85",
+        "etype": "ComparisonEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e87",
+        "source": "n38",
+        "target": "n68",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e88",
+        "source": "n66",
+        "target": "n71",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e89",
+        "source": "n71",
+        "target": "n69",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e90",
+        "source": "n82",
+        "target": "n79",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e91",
+        "source": "n79",
+        "target": "n76",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e92",
+        "source": "n54",
+        "target": "n76",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e93",
+        "source": "n79",
+        "target": "n56",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n88",
+        "label": "Tax foundation is biased, arnau evidence is 1.8% effected",
+        "ntype": "Weighing",
+        "side": "AFF",
+        "speech": "2AR"
+      },
+      "position": {
+        "x": 1887.1666780340774,
+        "y": 977.9084220900985
+      }
+    },
+    {
+      "data": {
+        "id": "e94",
+        "source": "n88",
+        "target": "n71",
+        "etype": "ComparisonEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n89",
+        "label": "Vote to stimulate the economy",
+        "ntype": "BallotDirective",
+        "side": "AFF",
+        "speech": "2AR"
+      },
+      "position": {
+        "x": 1924.2612883001898,
+        "y": 1283.1332058002588
+      }
+    },
+    {
+      "data": {
+        "id": "e96",
+        "source": "n76",
+        "target": "n89",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "n90",
+        "label": "Vote on the Disad",
+        "ntype": "BallotDirective",
+        "side": "NEG",
+        "speech": "2NR"
+      },
+      "position": {
+        "x": 1605,
+        "y": 1215.1556118894766
+      }
+    },
+    {
+      "data": {
+        "id": "e97",
+        "source": "n90",
+        "target": "n69",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e98",
+        "source": "n22",
+        "target": "n61",
+        "etype": "ExtensionEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e99",
+        "source": "n8",
+        "target": "n34",
+        "etype": "ExtensionEdge"
+      }
+    }
+  ]
+}
