@@ -13,7 +13,7 @@ from typing import List, Union
 from .edges import Edge
 from .nodes import Node
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2   # v2: per-node `liveness` (extension migration, Model C)
 
 
 @dataclass

@@ -1,36 +1,43 @@
 """JSON (de)serialization for CDAF rounds.
 
-Round-trips the app's existing save format exactly, with one added top-level
-field, "version". The element shape is:
+Round-trips the app's save format, with a top-level "version" field. The element
+shape is:
 
-    node:  {"data": {"id", "label", "ntype", "side", "speech"}, "position": {"x", "y"}}
+    node:  {"data": {"id", "label", "ntype", "side", "speech", "liveness"},
+            "position": {"x", "y"}}
     edge:  {"data": {"id", "source", "target", "etype"}}
 
 `position` is written only when present and is tolerated as absent on load.
-Files without a "version" key load as version 1.
+`liveness` is a {speech: status} map written ordered by SPEECH_ORDER (v2). Files
+without a "version" key are v1; the loader auto-normalizes any sub-v2 round to v2
+via the one-time converter (collapsing ExtensionEdge duplicates into liveness).
 """
 
 from __future__ import annotations
 
 import json
 
-from .edges import EDGE_CLASSES, Edge
+from .convert import convert
+from .edges import EDGE_CLASSES, Edge, Extension
 from .nodes import NODE_CLASSES, Node, Position
 from .round import SCHEMA_VERSION, Round
+from .speeches import speech_index
 
 
 # --- single element <-> object -------------------------------------------------
 
 def node_to_element(node: Node) -> dict:
-    element = {
-        "data": {
-            "id": node.id,
-            "label": node.label,
-            "ntype": node.ntype,
-            "side": node.side,
-            "speech": node.speech,
-        }
+    data = {
+        "id": node.id,
+        "label": node.label,
+        "ntype": node.ntype,
+        "side": node.side,
+        "speech": node.speech,
     }
+    if node.liveness:
+        data["liveness"] = {s: node.liveness[s]
+                            for s in sorted(node.liveness, key=speech_index)}
+    element = {"data": data}
     if node.position is not None:
         element["position"] = {"x": node.position.x, "y": node.position.y}
     return element
@@ -54,7 +61,12 @@ def element_to_obj(element: dict):
         etype = data["etype"]
         cls = EDGE_CLASSES.get(etype)
         if cls is None:
-            raise ValueError(f"Unknown edge type: {etype!r}")
+            # Legacy: ExtensionEdge is retired from EDGE_CLASSES but still appears
+            # in v1 files; parse it so the converter can collapse it into liveness.
+            if etype == Extension.etype:
+                cls = Extension
+            else:
+                raise ValueError(f"Unknown edge type: {etype!r}")
         return cls(id=data["id"], source=data["source"], target=data["target"])
 
     ntype = data["ntype"]
@@ -63,9 +75,10 @@ def element_to_obj(element: dict):
         raise ValueError(f"Unknown node type: {ntype!r}")
     pos = element.get("position")
     position = Position(pos["x"], pos["y"]) if pos else None  # optional on load
+    liveness = data.get("liveness")  # {speech: status} on v2; absent on v1
     return cls(
         id=data["id"], label=data["label"], side=data["side"],
-        speech=data["speech"], position=position,
+        speech=data["speech"], position=position, liveness=liveness,
     )
 
 
@@ -80,9 +93,12 @@ def to_dict(rnd: Round) -> dict:
 
 
 def from_dict(d: dict) -> Round:
-    version = d.get("version", SCHEMA_VERSION)  # default to v1 for pre-version files
+    version = d.get("version", 1)  # pre-version files are v1
     elements = [element_to_obj(el) for el in d.get("elements", [])]
-    return Round(elements=elements, version=version)
+    rnd = Round(elements=elements, version=version)
+    if version < SCHEMA_VERSION:
+        rnd = convert(rnd)  # normalize v1 -> v2 (collapse extension into liveness)
+    return rnd
 
 
 def dumps(rnd: Round, *, indent: int = 2) -> str:

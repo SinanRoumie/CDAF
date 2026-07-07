@@ -23,15 +23,18 @@ then open http://127.0.0.1:8050 in your browser.
 import base64
 import copy
 import json
+import os
 import re
 
 import dash_cytoscape as cyto
-from dash import (Dash, Input, Output, State, ctx, dcc, html, no_update)
+from dash import (ALL, Dash, Input, Output, State, ctx, dcc, html, no_update)
 from dash.dependencies import ClientsideFunction
 
 # Domain schema lives in model/ (pure Python, no UI deps) -- single source of truth.
-from model import (NODE_CLASSES, EDGE_CLASSES, NODE_TYPE_NAMES, EDGE_TYPE_NAMES, Position)
+from model import (NODE_CLASSES, EDGE_CLASSES, NODE_TYPE_NAMES, EDGE_TYPE_NAMES,
+                   Position, SCHEMA_VERSION)
 from model import serialize as mser
+from model.speeches import SPEECH_ORDER   # single source of the 7-speech order
 
 # Deterministic judge + RFD live in judge/ (pure Python: imports only model/ and
 # the stdlib, NEVER anything app-side). The app depends on judge; not vice versa.
@@ -62,18 +65,24 @@ NODE_COLOR = {name: color for name, _, color in NODE_TYPES}
 
 LAYER_SHAPE = {"content": "round-rectangle", "framework": "hexagon", "ballot": "diamond"}
 
-# Fixed, immutable speech order. "2NC/1NR" is one combined speech.
-SPEECHES = ["1AC", "1NC", "2AC", "2NC/1NR", "1AR", "2NR", "2AR"]
+# Fixed, immutable speech order. "2NC/1NR" is one combined speech. Sourced from
+# model/speeches.py -- never a second hardcoded copy (matches the model + judge).
+SPEECHES = list(SPEECH_ORDER)
 SPEECH_INDEX = {s: i for i, s in enumerate(SPEECHES)}
 SPEECH_SIDE = {
     "1AC": "AFF", "1NC": "NEG", "2AC": "AFF", "2NC/1NR": "NEG",
     "1AR": "AFF", "2NR": "NEG", "2AR": "AFF",
 }
 
+# Each side's FINAL speech -- glow measures how close a node's liveness reaches it.
+SIDE_FINAL = {"AFF": "2AR", "NEG": "2NR"}
+
+# Ambient liveness glow (a warm halo behind the node; brightness == liveness depth).
+GLOW_COLOR = "#FF9E2C"
+
 # UI style per edge type, keyed by the on-disk etype string (names + order from model/).
 _EDGE_STYLE = {
     "SupportEdge": ("#2A9D8F", "solid", "triangle", 3, False),
-    "ExtensionEdge": ("#457B9D", "dashed", "triangle", 3, False),
     "DefensiveAttackEdge": ("#E76F51", "dotted", "tee", 3, False),
     "OffensiveAttackEdge": ("#D62828", "solid", "triangle", 5, False),
     "ComparisonEdge": ("#6A4C93", "dashed", "diamond", 3, True),
@@ -224,11 +233,241 @@ def background_elements():
     return els
 
 
+# ---------------------------------------------------------------------------
+# Liveness -> glow (§2.1). Persistence is shown ON the node: brightness encodes
+# how close a node's liveness reaches its side's FINAL speech. Driven straight
+# off the `liveness` record, so it is SIDE-AGNOSTIC -- a node the opponent kept
+# alive (a turned link) glows because it is live, not because its own side
+# extended it. No glow == dropped (not live past introduction).
+# ---------------------------------------------------------------------------
+
+def node_glow(data):
+    liveness = data.get("liveness") or {}
+    live_idx = [SPEECH_INDEX[s] for s in liveness if s in SPEECH_INDEX]
+    if not live_idx:
+        return 0.0
+    last = max(live_idx)
+    intro = SPEECH_INDEX.get(data.get("speech"), 0)
+    if last <= intro:
+        return 0.0                      # never carried past introduction -> dropped
+    final = SPEECH_INDEX[SIDE_FINAL.get(data.get("side"), "2AR")]
+    span = final - intro
+    if span <= 0:
+        return 1.0                      # introduced at its side's final speech
+    return max(0.0, min(1.0, (last - intro) / span))
+
+
+def annotate_glow(model):
+    """Stamp a render-only `glow` (0..1) on each node from its liveness. Not part
+    of the model -- the serializer ignores it, so it never persists."""
+    for el in model:
+        if is_node(el):
+            el["data"]["glow"] = round(node_glow(el["data"]), 4)
+    return model
+
+
+# ---------------------------------------------------------------------------
+# Liveness STATUS is DERIVED, never hand-set (§3 / extension_migration §7). The
+# user authors which speeches a node is live in (intro + stamps); the status of
+# each -- contested vs conceded -- follows from whether an opposing attack targets
+# the node as of that speech. Recomputed every render so it always matches the
+# current attacks (and matches what the converter produces on load).
+# ---------------------------------------------------------------------------
+
+def derive_status(model, node_el, speech):
+    """contested iff an opposing attack targets this node as of `speech`: an
+    opposing-side node introduced LATER than this node (so this node is the
+    earlier target, per the direction-agnostic rule) and in play by `speech`.
+    Otherwise conceded."""
+    nid = node_el["data"]["id"]
+    side = node_el["data"]["side"]
+    n_idx = SPEECH_INDEX.get(node_el["data"].get("speech"), 0)
+    s_idx = SPEECH_INDEX.get(speech, 0)
+    nodes = {n["data"]["id"]: n["data"] for n in model_nodes(model)}
+    for e in model_edges(model):
+        d = e["data"]
+        if d.get("etype") not in ("DefensiveAttackEdge", "OffensiveAttackEdge"):
+            continue
+        if nid not in (d.get("source"), d.get("target")):
+            continue
+        other = nodes.get(d["target"] if d["source"] == nid else d["source"])
+        if not other or other.get("side") == side:
+            continue
+        if n_idx < SPEECH_INDEX.get(other.get("speech"), 0) <= s_idx:
+            return "contested"
+    return "conceded"
+
+
+def annotate_status(model):
+    """Re-derive per-speech status for every node. Keys (which speeches are live)
+    are user-authored and preserved; the intro speech is always live; values are
+    derived, ordered by SPEECH_ORDER."""
+    for el in model:
+        if not is_node(el):
+            continue
+        live = set(el["data"].get("liveness") or {})
+        live.add(el["data"]["speech"])                       # intro always live
+        el["data"]["liveness"] = {s: derive_status(model, el, s)
+                                  for s in SPEECH_ORDER if s in live}
+    return model
+
+
 def render_elements(model):
-    return background_elements() + model
+    return background_elements() + annotate_glow(annotate_status(model))
+
+
+# ---------------------------------------------------------------------------
+# Path tracing (§3 addendum). A "path" is a TRACED root-to-impact spine, not a
+# hand-picked set: from one seed node the builder walks the SupportEdge spine to
+# the root (advocacy/uniqueness) and down to a terminal impact, so a path can't
+# be half-selected. Shared upstream nodes are on the traced path; sibling
+# branches off a shared trunk are not.
+# ---------------------------------------------------------------------------
+
+SPINE_NTYPES = {"Advocacy", "Uniqueness", "Link", "Impact"}
+
+
+def _node_data_map(model):
+    return {n["data"]["id"]: n["data"] for n in model_nodes(model)}
+
+
+def _support_adj(model):
+    children, parents = {}, {}
+    for e in model_edges(model):
+        if e["data"].get("etype") == "SupportEdge":
+            s, t = e["data"]["source"], e["data"]["target"]
+            children.setdefault(s, []).append(t)
+            parents.setdefault(t, []).append(s)
+    return children, parents
+
+
+def trace_spine(model, seed_id):
+    """Trace ONE root-to-impact spine through `seed_id` over same-side
+    SupportEdges. Returns ordered node ids [root … impact]."""
+    nodes = _node_data_map(model)
+    seed = nodes.get(seed_id)
+    if not seed or seed.get("ntype") not in SPINE_NTYPES:
+        return []
+    side = seed.get("side")
+    children, parents = _support_adj(model)
+
+    def ok(x):
+        d = nodes.get(x)
+        return d is not None and d.get("ntype") in SPINE_NTYPES and d.get("side") == side
+
+    # downstream: DFS to the first terminal impact (deterministic by id); if none,
+    # the deepest reachable path.
+    best = [seed_id]
+    stack = [(seed_id, [seed_id], {seed_id})]
+    while stack:
+        cur, path, seen = stack.pop()
+        if nodes[cur].get("ntype") == "Impact":
+            best = path
+            break
+        if len(path) > len(best):
+            best = path
+        kids = [c for c in sorted(children.get(cur, [])) if ok(c) and c not in seen]
+        for c in reversed(kids):
+            stack.append((c, path + [c], seen | {c}))
+    down = best
+
+    # upstream: walk parents toward the root, deterministic, disjoint from `down`.
+    up, seen, cur = [], set(down), seed_id
+    while True:
+        ps = [p for p in sorted(parents.get(cur, [])) if ok(p) and p not in seen]
+        if not ps:
+            break
+        cur = ps[0]
+        up.append(cur)
+        seen.add(cur)
+    return list(reversed(up)) + down
+
+
+def downstream_impacts(model, node_id):
+    """All Impact ids reachable downstream of `node_id` over same-side
+    SupportEdges (includes node_id itself if it is an impact)."""
+    nodes = _node_data_map(model)
+    children, _ = _support_adj(model)
+    side = nodes.get(node_id, {}).get("side")
+    out, stack, seen = set(), [node_id], set()
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        d = nodes.get(cur)
+        if d is None or d.get("side") != side:
+            continue
+        if d.get("ntype") == "Impact":
+            out.add(cur)
+        for c in children.get(cur, []):
+            if c not in seen:
+                stack.append(c)
+    return out
+
+
+def _own_side_speeches(side, lo_idx, hi_idx):
+    return [s for s in SPEECH_ORDER
+            if SPEECH_SIDE.get(s) == side and lo_idx <= SPEECH_INDEX[s] <= hi_idx]
+
+
+def extend_path(model, path_ids, to_speech):
+    """Atomically fill each traced node's liveness with its own-side speeches from
+    its intro up to `to_speech` (gap-free). Monotonic add over the whole path."""
+    to_idx = SPEECH_INDEX.get(to_speech, len(SPEECH_ORDER) - 1)
+    idset = set(path_ids)
+    for el in model:
+        if is_node(el) and el["data"]["id"] in idset:
+            d = el["data"]
+            live = dict(d.get("liveness") or {})
+            for s in _own_side_speeches(d["side"], SPEECH_INDEX.get(d["speech"], 0), to_idx):
+                live.setdefault(s, "conceded")
+            d["liveness"] = live
+    return model
+
+
+def unextend_path(model, path_ids, from_speech):
+    """Atomically remove each traced node's own-side speeches from `from_speech`
+    onward -- UNION-AWARE: keep a speech on a node if another live path through it
+    (a downstream impact other than this path's own impact) still needs it, so a
+    shared trunk is never blind-stripped (§5). The intro speech is never removed."""
+    from_idx = SPEECH_INDEX.get(from_speech, 0)
+    idset = set(path_ids)
+    nodes = _node_data_map(model)
+    impacts_on_path = [nid for nid in path_ids if nodes.get(nid, {}).get("ntype") == "Impact"]
+    own_impact = impacts_on_path[-1] if impacts_on_path else None
+    for el in model:
+        if not (is_node(el) and el["data"]["id"] in idset):
+            continue
+        d = el["data"]
+        intro = d["speech"]
+        others = downstream_impacts(model, d["id"]) - {own_impact}
+        live = dict(d.get("liveness") or {})
+        for s in list(live.keys()):
+            if s == intro or SPEECH_SIDE.get(s) != d["side"] or SPEECH_INDEX.get(s, 0) < from_idx:
+                continue
+            sustained = any(s in (nodes.get(oi, {}).get("liveness") or {}) for oi in others)
+            if not sustained:
+                del live[s]
+        d["liveness"] = live
+    return model
+
+
+# Optional startup preload (dev / screenshots): CDAF_PRELOAD=<round.json> loads
+# and converts a round into the initial canvas; CDAF_SELECT=<node id> preselects
+# it (so its liveness strip renders). Harmless when unset.
+_PRELOAD = os.environ.get("CDAF_PRELOAD")
+_PRESELECT = os.environ.get("CDAF_SELECT")
 
 
 def initial_elements():
+    if _PRELOAD:
+        with open(_PRELOAD, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        raw["elements"] = [el for el in raw.get("elements", []) if not is_bg(el)]
+        model = mser.elements_from_round(mser.from_dict(raw))  # same convert path as load
+        ensure_positions(model)
+        return render_elements(model)
     return background_elements()
 
 
@@ -252,10 +491,22 @@ def build_stylesheet():
                 "text-outline-width": 1,
                 "text-outline-color": "#00000055",
                 "width": f"{NODE_W}px",
-                "height": "62px",
+                "height": "74px",
                 "border-width": 4,
                 "padding": "6px",
                 "z-index": 10,
+            },
+        },
+        # Ambient liveness glow (§2.1): a warm underlay halo whose size + opacity
+        # scale with `glow` (0..1). glow == 0 -> invisible (dropped node). The
+        # `node[ntype]` selector targets user nodes only, never column backgrounds.
+        {
+            "selector": "node[ntype]",
+            "style": {
+                "underlay-color": GLOW_COLOR,
+                "underlay-shape": "ellipse",
+                "underlay-padding": "mapData(glow, 0, 1, 2, 26)",
+                "underlay-opacity": "mapData(glow, 0, 1, 0, 0.6)",
             },
         },
         {
@@ -277,7 +528,7 @@ def build_stylesheet():
                 "width": COL_W,
                 "height": BG_HEIGHT,
                 "background-color": "data(tint)",
-                "background-opacity": 0.55,
+                "background-opacity": 0.32,   # soft placement bands, not rigid columns
                 "border-width": 0,
                 "events": "no",
                 "z-index": 0,
@@ -297,6 +548,12 @@ def build_stylesheet():
     # Node border by side.
     for side, border in SIDE_BORDER.items():
         sheet.append({"selector": f'node[side="{side}"]', "style": {"border-color": border}})
+
+    # Traced-path highlight (§3 addendum): a violet ring on the traced spine.
+    # Appended AFTER the side selectors so it overrides the side border while a
+    # path is traced; the seed still shows the yellow selection overlay on top.
+    sheet.append({"selector": "node[traced]",
+                  "style": {"border-color": "#7C3AED", "border-width": 8}})
 
     # Edge style by type.
     for name, color, line_style, arrow, width, comparison in EDGE_TYPES:
@@ -376,6 +633,50 @@ def labeled(label, component):
                     style={"marginBottom": "8px"})
 
 
+# ---- Liveness strip (§2.2): 7 cells in SPEECH_ORDER, shown on node select -----
+
+STRIP_CONTESTED = "#E07B39"    # filled -- under active clash that speech
+STRIP_CONCEDED = "#9FC0DE"     # filled -- standing unanswered that speech
+STRIP_EMPTY = "#C9CED6"        # dashed outline -- not live that speech
+
+
+def _strip_cell(speech, status):
+    if status == "contested":
+        box = {"backgroundColor": STRIP_CONTESTED, "border": f"1px solid {STRIP_CONTESTED}"}
+    elif status == "conceded":
+        box = {"backgroundColor": STRIP_CONCEDED, "border": f"1px solid {STRIP_CONCEDED}"}
+    else:
+        box = {"backgroundColor": "transparent", "border": f"1px dashed {STRIP_EMPTY}"}
+    # Clickable: this is the per-node EDITOR -- click toggles that one speech's
+    # liveness on the selected node (the argument-level act is Extend/Un-extend).
+    return html.Div([
+        html.Div(style={**box, "width": "26px", "height": "16px", "borderRadius": "3px"}),
+        html.Div(speech, style={"fontSize": "7px", "color": "#666", "textAlign": "center",
+                                "marginTop": "2px", "whiteSpace": "nowrap"}),
+    ], id={"type": "strip-cell", "speech": speech}, n_clicks=0,
+       title=f"toggle {speech} on this node",
+       style={"display": "flex", "flexDirection": "column", "alignItems": "center",
+              "cursor": "pointer"})
+
+
+def liveness_strip(data):
+    """The node's 7-cell liveness strip, ordered by SPEECH_ORDER (§2.2). Reads
+    the node's `liveness` map directly -- the same data the model/judge use.
+    Cells are clickable to correct a single node's liveness (the EDITOR)."""
+    liveness = (data or {}).get("liveness") or {}
+    cells = [_strip_cell(sp, liveness.get(sp)) for sp in SPEECH_ORDER]
+    return html.Div([
+        html.Label("Liveness (by speech · click a cell to toggle)", className="field-label"),
+        html.Div(cells, style={"display": "flex", "gap": "3px", "overflowX": "auto",
+                               "marginBottom": "4px"}),
+        html.Div([
+            html.Span("■", style={"color": STRIP_CONTESTED}), html.Span(" contested   "),
+            html.Span("■", style={"color": STRIP_CONCEDED}), html.Span(" conceded   "),
+            html.Span("▢", style={"color": STRIP_EMPTY}), html.Span(" not live"),
+        ], style={"fontSize": "10px", "color": "#666"}),
+    ], style={"marginBottom": "10px"})
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -432,6 +733,19 @@ file_panel = section("Save / load", [
     html.Button("Clear graph", id="clear-btn", className="btn danger"),
 ])
 
+extend_panel = section("Extend / un-extend (path)", [
+    html.Div("Select ONE node on a path; the builder traces its whole root-to-impact "
+             "spine (highlighted) and acts on all of it atomically. Extend fills up "
+             "to the chosen speech; un-extend drops that speech onward (union-aware).",
+             className="hint small"),
+    html.Div(id="extend-path", className="meta"),
+    labeled("Speech", dcc.Dropdown(id="extend-speech", options=speech_options,
+                                   value="2AR", clearable=False)),
+    html.Button("⇥ Extend path", id="extend-stamp-btn", className="btn primary"),
+    html.Button("⇤ Un-extend from here", id="unextend-btn", className="btn"),
+    html.Div(id="extend-msg", className="msg"),
+])
+
 judge_panel = section("Judge round", [
     html.Div("Evaluates the current graph with the deterministic judge. "
              "Runs only when you press the button.", className="hint small"),
@@ -443,7 +757,7 @@ judge_panel = section("Judge round", [
 
 left_panel = html.Div([
     html.H2("CDAF Builder", className="app-title"),
-    add_node_panel, add_edge_panel, file_panel, judge_panel,
+    add_node_panel, add_edge_panel, extend_panel, file_panel, judge_panel,
 ], className="left-panel")
 
 
@@ -452,6 +766,7 @@ left_panel = html.Div([
 node_editor = html.Div(id="node-editor", style=HIDDEN, children=[
     html.Div("Node", className="section-title"),
     html.Div(id="edit-node-meta", className="meta"),
+    html.Div(id="edit-node-strip"),
     labeled("Type", dcc.Dropdown(id="edit-node-type", options=node_type_options,
                                  clearable=False)),
     labeled("Claim / label", dcc.Textarea(id="edit-node-label",
@@ -472,10 +787,35 @@ edge_editor = html.Div(id="edge-editor", style=HIDDEN, children=[
     html.Button("Delete edge", id="edit-edge-delete", className="btn danger"),
 ])
 
+def liveness_legend():
+    def dot(color, dashed=False):
+        border = f"1px {'dashed' if dashed else 'solid'} {color}"
+        bg = "transparent" if dashed else color
+        return html.Span(style={"display": "inline-block", "width": "14px", "height": "14px",
+                                "backgroundColor": bg, "border": border, "borderRadius": "3px",
+                                "marginRight": "8px", "verticalAlign": "middle"})
+    return html.Div([
+        html.Div([html.Span(style={"display": "inline-block", "width": "14px", "height": "14px",
+                                   "marginRight": "8px", "borderRadius": "50%",
+                                   "backgroundColor": GLOW_COLOR, "verticalAlign": "middle"}),
+                  html.Span("Glow = liveness reach (bright → carried to the side's "
+                            "final speech; none → dropped)", style={"fontSize": "12px"})],
+                 style={"marginBottom": "6px"}),
+        html.Div("Strip (on select): status per speech", style={"fontSize": "12px",
+                                                                "fontWeight": "bold", "margin": "6px 0 4px"}),
+        html.Div([dot(STRIP_CONTESTED), html.Span("contested", style={"fontSize": "12px"})],
+                 style={"marginBottom": "4px"}),
+        html.Div([dot(STRIP_CONCEDED), html.Span("conceded", style={"fontSize": "12px"})],
+                 style={"marginBottom": "4px"}),
+        html.Div([dot(STRIP_EMPTY, dashed=True), html.Span("not live", style={"fontSize": "12px"})]),
+    ])
+
+
 inspector = html.Div([
     html.H3("Inspector", className="panel-heading"),
     node_editor, edge_editor,
     html.Hr(),
+    html.Details([html.Summary("Liveness legend"), liveness_legend()], open=True, className="legend"),
     html.Details([html.Summary("Node legend"), node_legend()], open=True, className="legend"),
     html.Details([html.Summary("Edge legend"), edge_legend()], open=True, className="legend"),
 ], className="right-panel")
@@ -551,8 +891,10 @@ graph_area = html.Div([
 # ---- Assemble --------------------------------------------------------------
 
 app.layout = html.Div([
-    dcc.Store(id="selection-store", data=EMPTY_SELECTION),
+    dcc.Store(id="selection-store",
+              data=({"nodes": [_PRESELECT], "edge": None} if _PRESELECT else EMPTY_SELECTION)),
     dcc.Store(id="apply-positions", data={}),
+    dcc.Store(id="trace-store", data=[]),
     dcc.Store(id="applysel-dummy", data=""),
     dcc.Store(id="applypos-dummy", data=""),
     left_panel, graph_area, inspector, choose_modal, edge_dialog, weighing_dialog,
@@ -606,6 +948,7 @@ def side_hint(speech):
     Output("edit-edge-type", "value"),
     Output("edit-edge-meta", "children"),
     Output("choose-info", "children"),
+    Output("edit-node-strip", "children"),
     Input("selection-store", "data"),
     State("cytoscape", "elements"),
 )
@@ -623,7 +966,7 @@ def reflect_selection(sel, elements):
             f"{(tgt['data']['label'][:22] if tgt else '?')}")
         return (HIDDEN, VISIBLE, POPUP_HIDDEN, MODAL_HIDDEN, MODAL_HIDDEN,
                 no_update, no_update, no_update, no_update,
-                (e["data"]["etype"] if e else "SupportEdge"), meta, no_update)
+                (e["data"]["etype"] if e else "SupportEdge"), meta, no_update, no_update)
 
     if len(nodes) == 1:
         n = find(elements, nodes[0])
@@ -631,18 +974,18 @@ def reflect_selection(sel, elements):
             meta = html.Span(f"{n['data']['ntype']}  ·  {n['data']['side']}  ·  {n['data']['speech']}")
             return (VISIBLE, HIDDEN, POPUP_HIDDEN, MODAL_HIDDEN, MODAL_HIDDEN,
                     n["data"]["ntype"], n["data"]["label"], n["data"]["speech"], meta,
-                    no_update, no_update, no_update)
+                    no_update, no_update, no_update, liveness_strip(n["data"]))
 
     if len(nodes) == 2:
         a, b = find(elements, nodes[0]), find(elements, nodes[1])
         info = html.Span(f"{(a['data']['label'][:22] if a else nodes[0])}  ↔  "
                          f"{(b['data']['label'][:22] if b else nodes[1])}")
         return (HIDDEN, HIDDEN, POPUP_VISIBLE, MODAL_HIDDEN, MODAL_HIDDEN,
-                no_update, no_update, no_update, no_update, no_update, no_update, info)
+                no_update, no_update, no_update, no_update, no_update, no_update, info, no_update)
 
     # nothing selected -> blank inspector, no modals
     return (HIDDEN, HIDDEN, POPUP_HIDDEN, MODAL_HIDDEN, MODAL_HIDDEN,
-            no_update, no_update, no_update, no_update, no_update, no_update, no_update)
+            no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update)
 
 
 # ---------------------------------------------------------------------------
@@ -915,9 +1258,145 @@ def mutate(_an, _ae, _dc, _wc, _ens, _end, _ees, _eer, _eed, _rl, _clr, upload_c
     Input("cytoscape", "elements"),
 )
 def edge_node_options(elements):
-    opts = [{"label": f"{n['data']['label'][:28]}  ·  {n['data']['ntype']}",
+    opts = [{"label": f"{n['data']['label'][:24]}  ·  {n['data']['ntype']}  ·  {n['data']['speech']}",
              "value": n["data"]["id"]} for n in model_nodes(elements)]
     return opts, opts
+
+
+# ---------------------------------------------------------------------------
+# Trace the spine from the single selected node: highlight the whole root-to-
+# impact path (violet ring via `data.traced`), stash its ids for the extend/
+# un-extend acts, and show the path in the panel. A path is derived from
+# structure, never hand-assembled, so it can't be half-selected.
+# ---------------------------------------------------------------------------
+
+@app.callback(
+    Output("cytoscape", "elements", allow_duplicate=True),
+    Output("trace-store", "data"),
+    Output("extend-path", "children"),
+    Input("selection-store", "data"),
+    State("cytoscape", "elements"),
+    prevent_initial_call="initial_duplicate",
+)
+def compute_trace(sel, elements):
+    nodes_sel = (sel or EMPTY_SELECTION).get("nodes", [])
+    model = model_elements(elements or [])
+    nmap = _node_data_map(model)
+    path = []
+    if len(nodes_sel) == 1 and nodes_sel[0] in nmap and nmap[nodes_sel[0]].get("ntype") in SPINE_NTYPES:
+        path = trace_spine(model, nodes_sel[0])
+
+    pathset = set(path)
+    out = copy.deepcopy(elements or [])
+    for el in out:                                   # toggle the highlight flag
+        if is_node(el) and not is_bg(el):
+            if el["data"]["id"] in pathset:
+                el["data"]["traced"] = "1"
+            else:
+                el["data"].pop("traced", None)
+
+    if path:
+        labels = " → ".join(nmap[nid]["label"][:16] for nid in path)
+        display = html.Span(f"Traced path ({len(path)}): {labels}")
+    else:
+        display = html.Span("Select one spine node to trace its path.",
+                            className="hint small")
+    return out, path, display
+
+
+# ---------------------------------------------------------------------------
+# Extend / un-extend act on the TRACED path atomically (§3 addendum). Extend
+# fills own-side speeches up to the chosen speech; un-extend removes that speech
+# onward, union-aware (a shared trunk kept alive by another path is not stripped).
+# Status stays derived on render; collapse = extend the paths you keep.
+# ---------------------------------------------------------------------------
+
+@app.callback(
+    Output("cytoscape", "elements", allow_duplicate=True),
+    Output("apply-positions", "data", allow_duplicate=True),
+    Output("extend-msg", "children"),
+    Input("extend-stamp-btn", "n_clicks"),
+    State("cytoscape", "elements"),
+    State("trace-store", "data"),
+    State("extend-speech", "value"),
+    prevent_initial_call=True,
+)
+def extend_traced_path(_n, elements, path, speech):
+    path = path or []
+    if not path or not speech:
+        return no_update, no_update, "Select a spine node to trace a path, then a speech."
+    model = copy.deepcopy(model_elements(elements))
+    present = {el["data"]["id"] for el in model if is_node(el)}
+    if not set(path) <= present:
+        return no_update, no_update, "Traced path changed — reselect and retry."
+    extend_path(model, path, speech)                 # atomic over the whole spine
+    posmap = {n["data"]["id"]: n["position"] for n in model if is_node(n)}
+    return render_elements(model), posmap, f"Extended the {len(path)}-node path through {speech}."
+
+
+@app.callback(
+    Output("cytoscape", "elements", allow_duplicate=True),
+    Output("apply-positions", "data", allow_duplicate=True),
+    Output("extend-msg", "children", allow_duplicate=True),
+    Input("unextend-btn", "n_clicks"),
+    State("cytoscape", "elements"),
+    State("trace-store", "data"),
+    State("extend-speech", "value"),
+    prevent_initial_call=True,
+)
+def unextend_traced_path(_n, elements, path, speech):
+    path = path or []
+    if not path or not speech:
+        return no_update, no_update, "Select a spine node to trace a path, then a speech."
+    model = copy.deepcopy(model_elements(elements))
+    present = {el["data"]["id"] for el in model if is_node(el)}
+    if not set(path) <= present:
+        return no_update, no_update, "Traced path changed — reselect and retry."
+    unextend_path(model, path, speech)               # union-aware; trunk kept by siblings
+    posmap = {n["data"]["id"]: n["position"] for n in model if is_node(n)}
+    return render_elements(model), posmap, f"Un-extended the path from {speech} onward (union-aware)."
+
+
+# ---------------------------------------------------------------------------
+# Per-node EDITOR: clicking a liveness strip cell toggles that one speech on the
+# selected node (the single-node correction, distinct from the path-level act).
+# ---------------------------------------------------------------------------
+
+@app.callback(
+    Output("cytoscape", "elements", allow_duplicate=True),
+    Output("apply-positions", "data", allow_duplicate=True),
+    Output("edit-node-strip", "children", allow_duplicate=True),
+    Input({"type": "strip-cell", "speech": ALL}, "n_clicks"),
+    State("selection-store", "data"),
+    State("cytoscape", "elements"),
+    prevent_initial_call=True,
+)
+def toggle_strip_cell(clicks, sel, elements):
+    if not clicks or not any(clicks) or not isinstance(ctx.triggered_id, dict):
+        return no_update, no_update, no_update
+    speech = ctx.triggered_id["speech"]
+    nodes_sel = (sel or EMPTY_SELECTION).get("nodes", [])
+    if len(nodes_sel) != 1:
+        return no_update, no_update, no_update
+    nid = nodes_sel[0]
+    model = copy.deepcopy(model_elements(elements))
+    node = next((el for el in model if is_node(el) and el["data"]["id"] == nid), None)
+    if node is None:
+        return no_update, no_update, no_update
+    d = node["data"]
+    live = dict(d.get("liveness") or {})
+    if speech == d["speech"]:
+        pass                                         # intro is always live; ignore
+    elif speech in live:
+        del live[speech]
+    else:
+        live[speech] = "conceded"                    # value re-derived on render
+    d["liveness"] = live
+    rendered = render_elements(model)
+    new_d = next((el["data"] for el in rendered
+                  if is_node(el) and not is_bg(el) and el["data"]["id"] == nid), d)
+    posmap = {n["data"]["id"]: n["position"] for n in model if is_node(n)}
+    return rendered, posmap, liveness_strip(new_d)
 
 
 # ---------------------------------------------------------------------------
@@ -942,7 +1421,11 @@ def save_filename(name):
     prevent_initial_call=True,
 )
 def save_graph(_n, elements, name):
-    rnd = mser.from_dict({"elements": model_elements(elements)})
+    # The live graph is already current-schema (v2 -- nodes carry authored
+    # liveness). Tag it v2 so from_dict does NOT re-run the v1 converter, which
+    # would rebuild liveness from the (now absent) ExtensionEdge structure and
+    # wipe the authored stamps.
+    rnd = mser.from_dict({"version": SCHEMA_VERSION, "elements": model_elements(elements)})
     return dict(content=mser.dumps(rnd), filename=save_filename(name))
 
 
