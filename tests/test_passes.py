@@ -1,20 +1,18 @@
-"""J3 gate -- per-pass unit tests on small constructed Rounds + robustness.
+"""J3/E2 gate -- per-pass unit tests on small constructed Rounds + robustness.
 
-Rounds follow the real authoring conventions:
-  * spine = SupportEdge chain Advocacy -> Uniqueness -> Link -> Impact -> BD;
-  * extension = a NEW node in the later speech joined by an ExtensionEdge;
-  * an attack is oriented by speech recency, NOT edge direction (edges are
-    drawn both ways on purpose here to prove direction-agnosticism).
+Model C: extension is per-node LIVENESS, not an edge. A node built here carries a
+liveness record; by default `node()` stamps FULL own-side liveness (introduction
+through the side's final speech) so a clean chain is fully extended. Tests that
+exercise a gap pass an explicit partial `live=`.
 """
 
 import os
 
 from model import (
     Round, Advocacy, Uniqueness, Link, Impact, Framework, Weighing, BallotDirective,
-    Support, Extension, DefensiveAttack, OffensiveAttack, Comparison,
-    serialize,
+    Support, DefensiveAttack, OffensiveAttack, Comparison,
+    SPEECH_ORDER, SPEECH_SIDE, CONCEDED, serialize,
 )
-from model.nodes import Node  # not used directly; ensures import surface
 
 from judge import passes, judge as judge_mod
 from judge.config import AFF, NEG, EPSILON
@@ -31,16 +29,22 @@ def _nid():
     return f"n{_ID[0]}"
 
 
-def node(cls, side, speech, label="x"):
-    return cls(id=_nid(), label=label, side=side, speech=speech)
+def _full_liveness(side, speech):
+    """Own-side speeches from `speech` onward, all conceded (fully extended)."""
+    intro = SPEECH_ORDER.index(speech)
+    return {s: CONCEDED for i, s in enumerate(SPEECH_ORDER)
+            if SPEECH_SIDE[s] == side and i >= intro}
+
+
+def node(cls, side, speech, label="x", live="full"):
+    """Build a node. `live="full"` => extended through the side's final speech;
+    pass a dict for a partial/gapped record, or None for the model default."""
+    liveness = _full_liveness(side, speech) if live == "full" else live
+    return cls(id=_nid(), label=label, side=side, speech=speech, liveness=liveness)
 
 
 def support(a, b):      # spine connectivity
     return Support(id=_nid(), source=a.id, target=b.id)
-
-
-def extend(a, b):       # re-assertion: a (earlier) -> b (later)
-    return Extension(id=_nid(), source=a.id, target=b.id)
 
 
 def datk(a, b):
@@ -51,27 +55,15 @@ def oatk(a, b):
     return OffensiveAttack(id=_nid(), source=a.id, target=b.id)
 
 
-AFF_LATER = ["2AC", "1AR", "2AR"]     # AFF speeches after 1AC
-
-
 def aff_chain_extended():
-    """A clean AFF advantage extended through every AFF speech, anchored by a BD.
-    Returns (elements, dict of key nodes)."""
-    els = []
+    """A clean AFF advantage, every spine node extended 1AC->2AR (liveness),
+    anchored by a BD. Returns (elements, dict of key nodes)."""
     adv = node(Advocacy, AFF, "1AC"); uni = node(Uniqueness, AFF, "1AC")
     link = node(Link, AFF, "1AC"); imp = node(Impact, AFF, "1AC")
     bd = node(BallotDirective, AFF, "2AR")
-    els += [adv, uni, link, imp, bd]
-    els += [support(adv, uni), support(uni, link), support(link, imp), support(imp, bd)]
-    # extend each spine node through 2AC/1AR/2AR
-    keep = {"adv": adv, "uni": uni, "link": link, "imp": imp, "bd": bd}
-    prev = {"adv": adv, "uni": uni, "link": link, "imp": imp}
-    for spk in AFF_LATER:
-        for k, cls in (("adv", Advocacy), ("uni", Uniqueness), ("link", Link), ("imp", Impact)):
-            nn = node(cls, AFF, spk)
-            els += [nn, extend(prev[k], nn)]
-            prev[k] = nn
-    return els, keep
+    els = [adv, uni, link, imp, bd,
+           support(adv, uni), support(uni, link), support(link, imp), support(imp, bd)]
+    return els, {"adv": adv, "uni": uni, "link": link, "imp": imp, "bd": bd}
 
 
 # --- Pass 1: discovery (undirected, from a BD) --------------------------------
@@ -157,9 +149,10 @@ def test_conceded_defense_collapses_chain_magnitude():
 
 
 def test_extension_failure_when_spine_not_carried():
-    # AFF link introduced 1AC but never extended -> chain fails §6.
+    # AFF link's liveness stops at 2AC (missing 1AR/2AR) -> chain fails §6.
     adv = node(Advocacy, AFF, "1AC"); uni = node(Uniqueness, AFF, "1AC")
-    link = node(Link, AFF, "1AC"); imp = node(Impact, AFF, "1AC")
+    link = node(Link, AFF, "1AC", live={"1AC": CONCEDED, "2AC": CONCEDED})  # gap at 1AR
+    imp = node(Impact, AFF, "1AC")
     bd = node(BallotDirective, AFF, "2AR")
     els = [adv, uni, link, imp, bd,
            support(adv, uni), support(uni, link), support(link, imp), support(imp, bd)]
@@ -167,7 +160,7 @@ def test_extension_failure_when_spine_not_carried():
     passes.pass2_drops(ctx); passes.pass3_resolve(ctx)
     ch = [c for c in ctx.chains if c["side"] == AFF][0]
     assert ch["extended"] is False
-    assert any(r.kind == "EXTENSION_FAIL" for r in ctx.trace)
+    assert any(r.kind == "EXTENSION_FAIL" and r.missing_speech == "1AR" for r in ctx.trace)
 
 
 # --- Pass 5a: framework gate in/out -------------------------------------------
@@ -193,12 +186,11 @@ def test_framework_gate_excludes_unsupported_impact():
 # --- Pass 5b + 6: weighing preference overriding raw delta --------------------
 
 def _two_impact_round_with_weighing(weigh_side):
-    """AFF impact (delta 0.8-ish) vs NEG impact (0.6-ish), plus a conceded
-    weighing on `weigh_side` comparing the two. Both chains extended & anchored."""
+    """A clean AFF impact and a clean NEG impact (both extended & anchored), plus
+    a conceded weighing on `weigh_side` comparing the two."""
     els = []
-    # AFF chain, magnitude tuned to 0.8 by attacking the link down to 0.8
-    aff_imp = _strength_chain(els, AFF, target_mag=0.8)
-    neg_imp = _strength_chain(els, NEG, target_mag=0.6)
+    aff_imp = _strength_chain(els, AFF, add_defense=False)
+    neg_imp = _strength_chain(els, NEG, add_defense=False)
     aff_bd = node(BallotDirective, AFF, "2AR"); neg_bd = node(BallotDirective, NEG, "2NR")
     els += [aff_bd, neg_bd, support(aff_imp, aff_bd), support(neg_imp, neg_bd)]
     w = node(Weighing, weigh_side, "2NR" if weigh_side == NEG else "2AR")
@@ -207,44 +199,20 @@ def _two_impact_round_with_weighing(weigh_side):
     return Round(elements=els)
 
 
-def _strength_chain(els, side, target_mag):
-    """Build a minimal extended chain on `side` whose impact magnitude == target.
-    Achieved by a conceded defensive attacker of strength (1-target) on the link."""
-    speeches = ["1AC", "2AC", "1AR", "2AR"] if side == AFF else ["1NC", "2NC/1NR", "2NR"]
-    intro = speeches[0]
+def _strength_chain(els, side, add_defense):
+    """Build a minimal fully-extended chain on `side` (liveness), anchored later
+    by the caller. If `add_defense`, a conceded opposing defensive attacker in the
+    link's window drives the link (and chain) to zero."""
+    intro = "1AC" if side == AFF else "1NC"
     adv = node(Advocacy, side, intro); uni = node(Uniqueness, side, intro)
     link = node(Link, side, intro); imp = node(Impact, side, intro)
     els += [adv, uni, link, imp, support(adv, uni), support(uni, link), support(link, imp)]
-    prevs = {"a": adv, "u": uni, "l": link, "i": imp}
-    classes = {"a": Advocacy, "u": Uniqueness, "l": Link, "i": Impact}
-    for spk in speeches[1:]:
-        for key, cls in classes.items():
-            nn = node(cls, side, spk)
-            els += [nn, extend(prevs[key], nn)]
-            prevs[key] = nn
-    # one conceded attacker (no extension needed; it's conceded) reducing the link
-    opp = NEG if side == AFF else AFF
-    # attacker must sit in the link's response-window speech and be dropped
-    win = passes.response_window(intro, side)
-    if target_mag < 1.0:
-        atk = _attacker_of_strength(els, opp, win, link, 1.0 - target_mag)
+    if add_defense:
+        opp = NEG if side == AFF else AFF
+        win = passes.response_window(intro, side)
+        els.append(node(Link, opp, win))
+        els.append(datk(els[-1], link))
     return imp
-
-
-def _attacker_of_strength(els, side, speech, target, strength):
-    """A defensive attacker whose own surviving strength == `strength`, achieved
-    by counter-attacking it down. strength in {0..1}; here we only need 1.0 (full,
-    conceded) since target_mag uses 1-strength. For partial we add a counter."""
-    atk = node(Link, side, speech)
-    els += [atk, datk(atk, target)]
-    if strength < 1.0:
-        # counter the attacker down so it survives at `strength`
-        # one conceded counter of strength (1-strength) from the original side, later speech
-        counter_speech = "1AR" if side == NEG else "2NC/1NR"
-        c = node(Link, target.side, counter_speech)
-        els += [c, datk(c, atk)]
-        # and counter the counter to leave residual -- approximated; exact tuning is J4's job
-    return atk
 
 
 def test_weighing_preference_overrides_raw_delta():

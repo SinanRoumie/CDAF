@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 
 from .convert import convert
-from .edges import EDGE_CLASSES, Edge, Extension
+from .edges import EDGE_CLASSES, Edge
 from .nodes import NODE_CLASSES, Node, Position
 from .round import SCHEMA_VERSION, Round
 from .speeches import speech_index
@@ -61,12 +61,9 @@ def element_to_obj(element: dict):
         etype = data["etype"]
         cls = EDGE_CLASSES.get(etype)
         if cls is None:
-            # Legacy: ExtensionEdge is retired from EDGE_CLASSES but still appears
-            # in v1 files; parse it so the converter can collapse it into liveness.
-            if etype == Extension.etype:
-                cls = Extension
-            else:
-                raise ValueError(f"Unknown edge type: {etype!r}")
+            # ExtensionEdge is retired: the converter strips it at the dict level
+            # (from_dict, below) before parsing, so it never reaches here.
+            raise ValueError(f"Unknown edge type: {etype!r}")
         return cls(id=data["id"], source=data["source"], target=data["target"])
 
     ntype = data["ntype"]
@@ -94,11 +91,15 @@ def to_dict(rnd: Round) -> dict:
 
 def from_dict(d: dict) -> Round:
     version = d.get("version", 1)  # pre-version files are v1
-    elements = [element_to_obj(el) for el in d.get("elements", [])]
-    rnd = Round(elements=elements, version=version)
+    raw = d.get("elements", [])
     if version < SCHEMA_VERSION:
-        rnd = convert(rnd)  # normalize v1 -> v2 (collapse extension into liveness)
-    return rnd
+        # Normalize v1 -> v2 at the dict level (collapse ExtensionEdges into
+        # liveness) BEFORE parsing, so the retired ExtensionEdge type never has
+        # to parse into an object.
+        raw = convert(raw)
+        version = SCHEMA_VERSION
+    elements = [element_to_obj(el) for el in raw]
+    return Round(elements=elements, version=version)
 
 
 def dumps(rnd: Round, *, indent: int = 2) -> str:

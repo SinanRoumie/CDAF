@@ -1479,7 +1479,11 @@ def judge_round(_n, elements):
     judging the live graph is identical to saving it and judging that JSON."""
     try:
         round_elements = model_elements(elements)
-        rnd = mser.from_dict({"elements": round_elements})
+        # Tag the live graph v2 so from_dict does NOT re-run the v1 converter,
+        # which would rebuild liveness from the (absent) ExtensionEdge structure
+        # and wipe the authored liveness before the judge reads it (same fix as
+        # save_graph). Judging the live graph must see authored liveness intact.
+        rnd = mser.from_dict({"version": SCHEMA_VERSION, "elements": round_elements})
         ballot, trace = run_judge(rnd)
         rfd_text = labelize(judge_rfd.render(ballot, trace),
                             label_display_map(round_elements))

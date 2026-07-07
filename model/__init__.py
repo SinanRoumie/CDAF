@@ -12,7 +12,7 @@ from .nodes import (
     CONTESTED, CONCEDED, LIVENESS_STATUSES,
 )
 from .edges import (
-    Edge, Support, Extension, DefensiveAttack, OffensiveAttack, Comparison,
+    Edge, Support, DefensiveAttack, OffensiveAttack, Comparison,
     EDGE_CLASSES, EDGE_TYPE_NAMES,
 )
 from .round import Round, SCHEMA_VERSION
@@ -25,7 +25,7 @@ __all__ = [
     "Uniqueness", "Link", "Impact", "Advocacy", "Framework", "Weighing", "BallotDirective",
     "NODE_CLASSES", "NODE_TYPE_NAMES",
     "CONTESTED", "CONCEDED", "LIVENESS_STATUSES",
-    "Edge", "Support", "Extension", "DefensiveAttack", "OffensiveAttack", "Comparison",
+    "Edge", "Support", "DefensiveAttack", "OffensiveAttack", "Comparison",
     "EDGE_CLASSES", "EDGE_TYPE_NAMES",
     "Round", "SCHEMA_VERSION",
     "SPEECH_ORDER", "SPEECH_SIDE", "speech_index",

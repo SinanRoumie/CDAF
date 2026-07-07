@@ -8,9 +8,13 @@ import os
 
 from model import (
     Round, Link, Advocacy, BallotDirective,
-    Support, Extension, DefensiveAttack, OffensiveAttack,
+    Support, DefensiveAttack, OffensiveAttack,
     CONTESTED, CONCEDED, SCHEMA_VERSION, convert, serialize,
 )
+
+
+def _no_extension_edges(rnd):
+    return not any(e.etype == "ExtensionEdge" for e in rnd.edges)
 
 ORACLE = os.path.join(os.path.dirname(__file__), "oracle", "NSDA24Finals.json")
 
@@ -77,7 +81,7 @@ def test_v1_load_converts_to_v2():
     # duplicate collapsed: 4 nodes -> 3; extension edge gone: 3 edges -> 2
     assert len(rnd.nodes) == 3
     assert len(rnd.edges) == 2
-    assert not any(isinstance(e, Extension) for e in rnd.edges)
+    assert _no_extension_edges(rnd)
 
 
 def test_converter_collapses_and_infers_liveness():
@@ -106,7 +110,7 @@ def test_versionless_file_is_v1_and_converts():
     del d["version"]                       # pre-version file
     rnd = serialize.from_dict(d)
     assert rnd.version == 2                 # treated as v1, then converted
-    assert not any(isinstance(e, Extension) for e in rnd.edges)
+    assert _no_extension_edges(rnd)
 
 
 def test_converter_is_deterministic():
@@ -115,15 +119,41 @@ def test_converter_is_deterministic():
     assert a == b
 
 
-def test_converter_does_not_mutate_input():
-    rnd_v1 = Round(elements=[
-        Link(id="n1", label="L", side="AFF", speech="1AC"),
-        Link(id="n2", label="L", side="AFF", speech="2AC"),
-        Extension(id="e1", source="n1", target="n2"),
-    ], version=1)
-    out = convert(rnd_v1)
-    assert len(rnd_v1.elements) == 3       # original untouched
-    assert len(out.nodes) == 1 and out.version == 2
+def test_converter_operates_on_raw_dicts_and_does_not_mutate_input():
+    # convert() runs at the raw-element-dict level (pre-parse), so ExtensionEdge
+    # never needs to exist as a class.
+    raw = [
+        {"data": {"id": "n1", "label": "L", "ntype": "Link", "side": "AFF", "speech": "1AC"}},
+        {"data": {"id": "n2", "label": "L", "ntype": "Link", "side": "AFF", "speech": "2AC"}},
+        {"data": {"id": "e1", "source": "n1", "target": "n2", "etype": "ExtensionEdge"}},
+    ]
+    out = convert(raw)
+    assert len(raw) == 3                                  # original untouched
+    out_nodes = [el for el in out if "source" not in el["data"]]
+    out_edges = [el for el in out if "source" in el["data"]]
+    assert len(out_nodes) == 1                            # duplicates collapsed
+    assert not any(el["data"].get("etype") == "ExtensionEdge" for el in out_edges)
+    assert out_nodes[0]["data"]["liveness"] == {"1AC": CONCEDED, "2AC": CONCEDED}
+
+
+# --- Step 0: liveness survives the judge/save path (version tag) --------------
+
+def test_authored_liveness_survives_the_v2_from_dict_path():
+    # The app's judge/save path calls from_dict with version=SCHEMA_VERSION so it
+    # does NOT re-run the v1 converter and wipe authored liveness. A round with
+    # hand-authored liveness must come back with that liveness intact.
+    authored = {"1AC": CONTESTED, "2AC": CONCEDED, "1AR": CONCEDED, "2AR": CONCEDED}
+    elements = [
+        {"data": {"id": "n1", "label": "L", "ntype": "Link", "side": "AFF",
+                  "speech": "1AC", "liveness": dict(authored)}},
+    ]
+    rnd = serialize.from_dict({"version": SCHEMA_VERSION, "elements": elements})
+    assert [n for n in rnd.nodes][0].liveness == authored     # intact
+
+    # Contrast: without a version tag it defaults to v1 and the converter rebuilds
+    # liveness from the (absent) ExtensionEdge structure -> only the intro speech.
+    wiped = serialize.from_dict({"elements": elements})
+    assert [n for n in wiped.nodes][0].liveness == {"1AC": CONCEDED}
 
 
 # --- real round ---------------------------------------------------------------
@@ -136,7 +166,7 @@ def test_nsda_round_converts_shrinks_and_restabilizes():
     rnd = serialize.load(ORACLE)           # v1 -> auto-convert -> v2
     assert rnd.version == 2
     assert len(rnd.nodes) < before_nodes                       # duplicates collapsed
-    assert not any(isinstance(e, Extension) for e in rnd.edges)   # no ExtensionEdges
+    assert _no_extension_edges(rnd)   # no ExtensionEdges
     # every node carries liveness including its intro speech
     for n in rnd.nodes:
         assert n.liveness and n.speech in n.liveness

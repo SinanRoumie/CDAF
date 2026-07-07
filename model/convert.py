@@ -1,5 +1,5 @@
-"""One-time converter: normalize a v1-style Round to v2 (§5 of the extension
-migration spec). Pure Round -> Round; imports nothing app-side.
+"""One-time converter: normalize v1 elements to v2 (§5 of the extension
+migration spec). Pure; imports nothing app-side.
 
 v1 encodes extension as duplicate same-claim nodes joined by `ExtensionEdge`.
 This re-encodes that structure losslessly as per-node liveness:
@@ -12,32 +12,38 @@ This re-encodes that structure losslessly as per-node liveness:
   4. rewire edges that pointed at a collapsed duplicate to the survivor,
   5. discard the duplicates and every `ExtensionEdge`.
 
-The old structure holds exactly the information the new one needs, so this is a
-re-encoding, not a guess. The same function is called by the file loader (for v1
-files) and, later, by the app's judge path.
+It runs on RAW element dicts, BEFORE typed parsing, so `ExtensionEdge` never has
+to exist as a parsed edge object -- the last step of retiring the type. The old
+structure holds exactly the information the new one needs, so this is a
+re-encoding, not a guess. The file loader (serialize.from_dict) calls it for
+every sub-v2 round; already-v2 rounds are never converted.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 
-from .edges import Edge, Extension, DefensiveAttack, OffensiveAttack
-from .nodes import Node, CONTESTED, CONCEDED
-from .round import Round, SCHEMA_VERSION
+from .nodes import CONTESTED, CONCEDED
 from .speeches import speech_index
 
-_ATTACK_TYPES = (DefensiveAttack, OffensiveAttack)
+_EXTENSION_ETYPE = "ExtensionEdge"
+_ATTACK_ETYPES = frozenset({"DefensiveAttackEdge", "OffensiveAttackEdge"})
 
 
-def convert(rnd: Round) -> Round:
-    """Return a new v2 Round with extension collapsed into liveness. Does not
-    mutate the input. Intended for v1-style input; the loader calls it only for
-    rounds below the current schema version."""
-    nodes = rnd.nodes
-    by_id = {n.id: n for n in nodes}
+def _is_node(el):
+    return "source" not in el["data"]
+
+
+def convert(elements: list) -> list:
+    """Collapse v1 ExtensionEdge duplicates into per-node liveness. Takes a list
+    of raw element dicts (v1) and returns a new list of v2 element dicts. Does
+    not mutate the input."""
+    nodes = [el for el in elements if _is_node(el)]
+    edges = [el for el in elements if not _is_node(el)]
+    by_id = {el["data"]["id"]: el for el in nodes}
 
     # 1. Union-find over ExtensionEdge components (same-claim duplicates).
-    parent = {n.id: n.id for n in nodes}
+    parent = {el["data"]["id"]: el["data"]["id"] for el in nodes}
 
     def find(x):
         while parent[x] != x:
@@ -48,62 +54,67 @@ def convert(rnd: Round) -> Round:
     def union(a, b):
         parent[find(a)] = find(b)
 
-    for e in rnd.edges:
-        if isinstance(e, Extension) and e.source in parent and e.target in parent:
-            union(e.source, e.target)
+    for e in edges:
+        if e["data"].get("etype") == _EXTENSION_ETYPE:
+            s, t = e["data"]["source"], e["data"]["target"]
+            if s in parent and t in parent:
+                union(s, t)
 
     components = defaultdict(list)
     for nid in parent:
         components[find(nid)].append(nid)
 
-    contested = _contested_targets(rnd.edges, by_id)
+    contested = _contested_targets(edges, by_id)
 
     # 2-3. One survivor per component: introduction = earliest speech; liveness =
     # every speech present, contested where that duplicate was attacked.
-    rep_of = {}                 # any member id -> surviving (representative) id
-    survivor = {}               # representative id -> new Node
+    rep_of = {}
+    survivor_liveness = {}
     for members in components.values():
-        member_nodes = [by_id[m] for m in members]
-        rep = min(member_nodes, key=lambda n: (speech_index(n.speech), n.id))
+        rep = min(members, key=lambda m: (speech_index(by_id[m]["data"]["speech"]), m))
         for m in members:
-            rep_of[m] = rep.id
+            rep_of[m] = rep
         live = {}
-        for n in member_nodes:
-            status = CONTESTED if contested.get(n.id) else CONCEDED
-            # if duplicates share a speech, an active clash wins over concession
-            if live.get(n.speech) != CONTESTED:
-                live[n.speech] = status
-        live = {s: live[s] for s in sorted(live, key=speech_index)}
-        survivor[rep.id] = type(rep)(
-            id=rep.id, label=rep.label, side=rep.side, speech=rep.speech,
-            position=rep.position, liveness=live)
+        for m in members:
+            sp = by_id[m]["data"]["speech"]
+            status = CONTESTED if contested.get(m) else CONCEDED
+            if live.get(sp) != CONTESTED:   # a clash wins over concession
+                live[sp] = status
+        survivor_liveness[rep] = {s: live[s] for s in sorted(live, key=speech_index)}
 
-    # 4-5. Rebuild elements in original order: emit each survivor once; rewire
-    # non-extension edges to survivors; drop ExtensionEdges, collapse self-loops,
-    # and drop edges made redundant by the collapse.
-    new_elements = []
+    # 4-5. Rebuild elements in original order: emit each survivor once (with its
+    # liveness); rewire non-extension edges to survivors; drop ExtensionEdges,
+    # collapse self-loops, and drop edges made redundant by the collapse.
+    out = []
     emitted = set()
     seen_edges = set()
-    for el in rnd.elements:
-        if isinstance(el, Node):
-            rep_id = rep_of[el.id]
-            if rep_id not in emitted:
-                emitted.add(rep_id)
-                new_elements.append(survivor[rep_id])
-        elif isinstance(el, Edge):
-            if isinstance(el, Extension):
+    for el in elements:
+        if _is_node(el):
+            rep = rep_of[el["data"]["id"]]
+            if rep in emitted:
+                continue
+            emitted.add(rep)
+            node = by_id[rep]
+            new = {"data": dict(node["data"])}
+            new["data"]["liveness"] = dict(survivor_liveness[rep])
+            if "position" in node:
+                new["position"] = dict(node["position"])
+            out.append(new)
+        else:
+            if el["data"].get("etype") == _EXTENSION_ETYPE:
                 continue                                    # discarded
-            src = rep_of.get(el.source, el.source)
-            tgt = rep_of.get(el.target, el.target)
+            src = rep_of.get(el["data"]["source"], el["data"]["source"])
+            tgt = rep_of.get(el["data"]["target"], el["data"]["target"])
             if src == tgt:
                 continue                                    # self-loop from collapse
-            key = (src, tgt, el.etype)
+            key = (src, tgt, el["data"].get("etype"))
             if key in seen_edges:
                 continue                                    # redundant after collapse
             seen_edges.add(key)
-            new_elements.append(type(el)(id=el.id, source=src, target=tgt))
-
-    return Round(elements=new_elements, version=SCHEMA_VERSION)
+            data = dict(el["data"])
+            data["source"], data["target"] = src, tgt
+            out.append({"data": data})
+    return out
 
 
 def _contested_targets(edges, by_id):
@@ -114,15 +125,15 @@ def _contested_targets(edges, by_id):
     Same-side attacks are incoherent and ignored."""
     flag = {}
     for e in edges:
-        if not isinstance(e, _ATTACK_TYPES):
+        if e["data"].get("etype") not in _ATTACK_ETYPES:
             continue
-        a = by_id.get(e.source)
-        b = by_id.get(e.target)
-        if a is None or b is None or a.side == b.side:
+        a = by_id.get(e["data"]["source"])
+        b = by_id.get(e["data"]["target"])
+        if a is None or b is None or a["data"]["side"] == b["data"]["side"]:
             continue
-        ia, ib = speech_index(a.speech), speech_index(b.speech)
+        ia, ib = speech_index(a["data"]["speech"]), speech_index(b["data"]["speech"])
         if ia == ib:
             continue                     # same speech -> same side; can't clash
         target = a if ia < ib else b     # earlier speech = the node under attack
-        flag[target.id] = True
+        flag[target["data"]["id"]] = True
     return flag

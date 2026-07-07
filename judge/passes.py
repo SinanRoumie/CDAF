@@ -22,11 +22,15 @@ V1 modeling choices, grounded in the real authoring convention where a
     sigma), exactly as oracles 2-3 describe. The {s_k} supporter slot is kept in
     the math (dfquad.accrue) for a future authoring convention that draws
     explicit restorative supports distinct from the spine.
-  * A "chain" is a same-side connected component over Support+Extension edges
-    that contains an Impact. Extension re-assertions are collapsed to one
-    representative per group (the introduction instance); the chain magnitude is
-    the product of representative sigmas, the sign the product of link/impact
-    effective polarities.
+  * A "chain" is a same-side connected component over Support edges that
+    contains an Impact; the chain magnitude is the product of its spine nodes'
+    sigmas, the sign the product of link/impact effective polarities.
+
+EXTENSION IS READ FROM LIVENESS (Model C, §6), not from edges. Each node carries
+a `liveness` record (speech -> contested/conceded). A spine node is extended iff
+its record covers every one of its own side's speeches from introduction onward
+(node_extension_ok). There is no ExtensionEdge and no re-assertion-duplicate
+collapsing; each spine node is a single object.
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ from typing import Dict, List, Optional, Tuple
 from model import (
     Node, Edge,
     Uniqueness, Link, Impact, Advocacy, Framework, Weighing, BallotDirective,
-    Support, Extension, DefensiveAttack, OffensiveAttack, Comparison,
+    Support, DefensiveAttack, OffensiveAttack, Comparison,
 )
 
 from . import dfquad, qpn, chain as chainmod
@@ -99,8 +103,6 @@ class Context:
     adj: Dict[str, List[Tuple[str, Edge]]] = field(default_factory=lambda: defaultdict(list))
 
     reachable: set = field(default_factory=set)
-    group_of: Dict[str, str] = field(default_factory=dict)        # node -> ext-group root
-    group_members: Dict[str, List[str]] = field(default_factory=dict)
 
     attackers_by_target: Dict[str, List[Tuple[str, Edge]]] = field(default_factory=lambda: defaultdict(list))
     offense_on: Dict[str, List[str]] = field(default_factory=lambda: defaultdict(list))
@@ -117,7 +119,7 @@ class Context:
 
 def build_context(rnd) -> Context:
     """Pass 1 (§4): index the round, walk the undirected BD-anchored subgraph,
-    compute extension groups, and classify attacks by speech recency."""
+    and classify attacks by speech recency."""
     ctx = Context(round=rnd)
     ctx.nodes = {n.id: n for n in rnd.nodes}
     ctx.edges = list(rnd.edges)
@@ -130,7 +132,6 @@ def build_context(rnd) -> Context:
     ctx.adj = adj
 
     _discover(ctx)
-    _extension_groups(ctx)
     _classify_attacks(ctx)
     return ctx
 
@@ -167,21 +168,17 @@ def _union_find(ids):
     return find, union, parent
 
 
-def _extension_groups(ctx: Context) -> None:
-    """Connected components over Extension edges -> one group per spine position.
-    Endpoints need not share an ntype (§6)."""
-    find, union, _parent = _union_find(list(ctx.nodes))
-    for e in ctx.edges:
-        if isinstance(e, Extension) and e.source in ctx.nodes and e.target in ctx.nodes:
-            union(e.source, e.target)
-    members: Dict[str, List[str]] = defaultdict(list)
-    group_of: Dict[str, str] = {}
-    for nid in ctx.nodes:
-        r = find(nid)
-        group_of[nid] = r
-        members[r].append(nid)
-    ctx.group_of = group_of
-    ctx.group_members = members
+def _prior_opposing_speech(speech: str, side: str) -> Optional[str]:
+    """The most recent speech BEFORE `speech` owned by the opposing side -- the
+    'immediately prior opposing speech' the §4 final-speech refinement reads."""
+    i = _sidx(speech)
+    if i is None:
+        return None
+    opp = _opposing(side)
+    for j in range(i - 1, -1, -1):
+        if SPEECH_SIDE.get(SPEECH_ORDER[j]) == opp:
+            return SPEECH_ORDER[j]
+    return None
 
 
 def _classify_attacks(ctx: Context) -> None:
@@ -227,8 +224,9 @@ def _classify_attacks(ctx: Context) -> None:
 
 def pass2_drops(ctx: Context) -> None:
     """Drop detection (§4): per reachable node, classify answered / dropped /
-    unresolved against its response window. Extension is checked per chain in
-    pass 3 (build_chains), where the spine is known."""
+    unresolved against its response window. The §4 final-speech refinement reads
+    liveness status. Extension (§6) is checked per node from the liveness record
+    in pass 3 (node_extension_ok)."""
     for nid, n in ctx.nodes.items():
         if nid not in ctx.reachable:
             continue
@@ -236,8 +234,22 @@ def pass2_drops(ctx: Context) -> None:
             continue  # structural / sub-debate nodes are not offense nodes
         win = response_window(n.speech, n.side)
         if win is None:
-            ctx.status[nid] = "unresolved"
-            ctx.trace.append(T.Unresolved(node_id=nid, owner=n.side, intro_speech=n.speech))
+            # No window: introduced in the final speech of its side. Baseline =
+            # UNRESOLVED (inert). Refinement (§4): it engages only if it continues
+            # a clash that was CONTESTED entering that speech -- read off the
+            # attachment point's liveness for the immediately prior opposing
+            # speech. Conceded-live is NOT enough; a fresh spike is inert.
+            prior_opp = _prior_opposing_speech(n.speech, n.side)
+            continues = prior_opp is not None and any(
+                (m.liveness or {}).get(prior_opp) == "contested"
+                for nbr, _e in ctx.adj.get(nid, [])
+                for m in [ctx.nodes.get(nbr)] if m is not None
+            )
+            if continues:
+                ctx.status[nid] = "answered"   # legitimate continuation -> resolves normally
+            else:
+                ctx.status[nid] = "unresolved"
+                ctx.trace.append(T.Unresolved(node_id=nid, owner=n.side, intro_speech=n.speech))
             continue
         answered = False
         for nbr, e in ctx.adj.get(nid, []):
@@ -253,21 +265,19 @@ def pass2_drops(ctx: Context) -> None:
             ctx.trace.append(T.Drop(node_id=nid, owner=n.side, intro_speech=n.speech, window_speech=win))
 
 
-def extension_ok(ctx: Context, group_root: str) -> Tuple[bool, Optional[str]]:
-    """A group passes extension (§6) iff it is re-asserted in every one of its
-    own side's speeches from introduction onward. Returns (ok, missing_speech).
-    The "no new chains in rebuttals" rule is applied at the chain level, not
-    here (so weighings/frameworks introduced in a rebuttal are not penalized)."""
-    members = ctx.group_members.get(group_root, [group_root])
-    indexed = [(_sidx(ctx.nodes[m].speech), m) for m in members if _sidx(ctx.nodes[m].speech) is not None]
-    if not indexed:
+def node_extension_ok(node: Node) -> Tuple[bool, Optional[str]]:
+    """§6, read from the LIVENESS record: a spine node is extended iff its
+    liveness covers every one of its own side's speeches from its introduction
+    onward. Returns (ok, missing_speech). Liveness is side-agnostic (a node kept
+    live by the opponent is live); this reads the record, never edges. The
+    "no new chains in rebuttals" rule is applied at the chain level, so a
+    weighing/framework introduced in a rebuttal is not penalized here."""
+    liveness = node.liveness or {}
+    intro_idx = _sidx(node.speech)
+    if intro_idx is None:
         return True, None
-    indexed.sort()
-    intro_idx = indexed[0][0]
-    side = ctx.nodes[indexed[0][1]].side
-    have = {ctx.nodes[m].speech for m in members}
-    for s in side_speeches(side):
-        if _sidx(s) >= intro_idx and s not in have:
+    for s in side_speeches(node.side):
+        if _sidx(s) >= intro_idx and s not in liveness:
             return False, s
     return True, None
 
@@ -337,13 +347,13 @@ def _resolve_polarity(ctx: Context) -> None:
 
 
 def _build_chains(ctx: Context) -> None:
-    """Enumerate same-side Support+Extension components containing an Impact, one
-    representative per extension group; multiply sigmas (mag) and effective
-    polarities (sign) -> delta (§3.3). Apply the binary extension gate (§6)."""
+    """Enumerate same-side Support-edge components containing an Impact; multiply
+    spine sigmas (mag) and effective polarities (sign) -> delta (§3.3). Apply the
+    binary extension gate (§6) by reading each spine node's LIVENESS record."""
     ids = [nid for nid in ctx.reachable]
     find, union, _parent = _union_find(ids)
     for e in ctx.edges:
-        if isinstance(e, (Support, Extension)):
+        if isinstance(e, Support):
             a = ctx.nodes.get(e.source)
             b = ctx.nodes.get(e.target)
             if a and b and a.id in ctx.reachable and b.id in ctx.reachable and a.side == b.side:
@@ -360,15 +370,12 @@ def _build_chains(ctx: Context) -> None:
         side = ctx.nodes[members[0]].side
         chain_id = "chain:" + root
 
-        # one representative per extension group: the introduction (earliest speech)
-        by_group: Dict[str, List[str]] = defaultdict(list)
-        for m in members:
-            by_group[ctx.group_of[m]].append(m)
-        reps = []
-        for _g, gm in by_group.items():
-            reps.append(min(gm, key=lambda x: (_sidx(ctx.nodes[x].speech) or 0)))
-
-        spine_reps = [r for r in reps if isinstance(ctx.nodes[r], SPINE_TYPES)]
+        # Under Model C there are no re-assertion duplicates: each spine node is a
+        # single object contributing once to the product.
+        spine_reps = sorted(
+            (m for m in members if isinstance(ctx.nodes[m], SPINE_TYPES)),
+            key=lambda x: (_sidx(ctx.nodes[x].speech) or 0, x),
+        )
         mag = 1.0
         for r in spine_reps:
             mag *= ctx.sigma.get(r, TAU)
@@ -380,7 +387,8 @@ def _build_chains(ctx: Context) -> None:
         intro_idx = min((_sidx(ctx.nodes[m].speech) or 0) for m in members)
         intro_speech = SPEECH_ORDER[intro_idx]
 
-        # extension gate (§6): every spine group extended; no new chain in rebuttals
+        # extension gate (§6): every spine node extended (read from liveness); a
+        # chain first introduced in a rebuttal does not count.
         extended = True
         ext_fail_node = None
         if intro_speech in REBUTTAL_SPEECHES:
@@ -390,7 +398,7 @@ def _build_chains(ctx: Context) -> None:
                 chain_id=chain_id, missing_speech=intro_speech, spine_node_id=ext_fail_node))
         else:
             for r in spine_reps:
-                ok, missing = extension_ok(ctx, ctx.group_of[r])
+                ok, missing = node_extension_ok(ctx.nodes[r])
                 if not ok:
                     extended = False
                     ext_fail_node = r
@@ -398,7 +406,7 @@ def _build_chains(ctx: Context) -> None:
                         chain_id=chain_id, missing_speech=missing, spine_node_id=r))
                     break
 
-        impact_reps = [r for r in reps if isinstance(ctx.nodes[r], Impact)]
+        impact_reps = impacts
         unresolved = any(ctx.status.get(r) == "unresolved" for r in impact_reps)
 
         collapse_reason, responsible = _collapse_reason(
@@ -406,7 +414,7 @@ def _build_chains(ctx: Context) -> None:
 
         ctx.chains.append({
             "id": chain_id, "side": side, "members": set(members),
-            "reps": reps, "spine_reps": spine_reps, "impacts": impact_reps,
+            "spine_reps": spine_reps, "impacts": impact_reps,
             "mag": mag, "sign": sign, "delta": delta,
             "intro_speech": intro_speech, "extended": extended,
             "in_scope": True, "unresolved": unresolved,
@@ -453,7 +461,7 @@ def pass5a_framework(ctx: Context) -> None:
            if isinstance(n, Framework) and n.id in ctx.reachable]
     winning = None
     for fw in fws:
-        if ctx.sigma.get(fw.id, TAU) >= POLARITY_THRESHOLD and extension_ok(ctx, ctx.group_of[fw.id])[0]:
+        if ctx.sigma.get(fw.id, TAU) >= POLARITY_THRESHOLD and node_extension_ok(fw)[0]:
             winning = fw
             break
     ctx.winning_framework = winning
@@ -495,7 +503,7 @@ def pass5b_weighing(ctx: Context) -> None:
     ctx.preferences = []
     for w in [n for n in ctx.nodes.values() if isinstance(n, Weighing) and n.id in ctx.reachable]:
         pair = [nbr for nbr, e in ctx.adj.get(w.id, []) if isinstance(e, Comparison) and nbr in ctx.nodes]
-        won = ctx.sigma.get(w.id, TAU) >= POLARITY_THRESHOLD and extension_ok(ctx, ctx.group_of[w.id])[0]
+        won = ctx.sigma.get(w.id, TAU) >= POLARITY_THRESHOLD and node_extension_ok(w)[0]
         if won and pair:
             preferred = next((m for m in pair if ctx.nodes[m].side == w.side), None)
             ctx.preferences.append((w.side, preferred, pair))

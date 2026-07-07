@@ -32,16 +32,10 @@ class Support(Edge):
     etype: ClassVar[str] = "SupportEdge"
 
 
-@dataclass
-class Extension(Edge):
-    """LEGACY (extension migration). Extension is no longer an authorable edge
-    type -- persistence is per-node `liveness` now. This class is retained ONLY
-    so (a) the one-time converter can recognise ExtensionEdges in v1 files while
-    collapsing them into liveness, and (b) the pre-E2 judge (which still walks
-    Extension edges) keeps importing. It is intentionally absent from
-    EDGE_CLASSES / EDGE_TYPE_NAMES, so it cannot be authored or round-tripped as
-    a live edge. Delete this class in E2 when the judge switches to liveness."""
-    etype: ClassVar[str] = "ExtensionEdge"
+# NOTE: there is no `Extension` edge type. Extension migrated to per-node
+# `liveness` (Model C). Legacy v1 files still carry "ExtensionEdge" elements;
+# model.convert collapses them into liveness at the dict level, before parsing,
+# so the type never needs to exist as a class.
 
 
 @dataclass
@@ -60,8 +54,6 @@ class Comparison(Edge):
 
 
 # Registry: on-disk etype string -> class. Order is the canonical type order.
-# `Extension` is deliberately excluded -- it is a retired, non-authorable type
-# (see its docstring); nothing new authors or parses it as a live edge.
 EDGE_CLASSES = {
     cls.etype: cls
     for cls in (Support, DefensiveAttack, OffensiveAttack, Comparison)
