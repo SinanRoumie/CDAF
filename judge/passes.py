@@ -372,6 +372,46 @@ def pass4_weighing_towers(ctx: Context) -> None:
                                      preferred_node=None, via="magnitude",
                                      pair=sorted(pair)))
 
+    # The towers are resolved -- now CONSUME them against accrual (§6.5, v5): a
+    # determinate weigh defeats the dispreferred member of a clash, and a defeated
+    # attacker does not attack the winner. This is the same rule the polarity
+    # channel applies to a defeated turn (§3.2), here applied to every attacker so
+    # a won uniqueness-weigh (or framework/defensive weigh) actually removes the
+    # defeated non-unique from the winner's DF-QuAD accrual. Runs after the towers
+    # settle (they read only their own sub-debate, §9) and re-accrues below.
+    if _apply_weigh_defeat(ctx):
+        ctx.trace[:] = [r for r in ctx.trace if r.kind != "MAGNITUDE"]
+        _resolve_strengths(ctx)   # recompute sigma with defeated attackers removed
+
+
+def _apply_weigh_defeat(ctx: Context) -> bool:
+    """Drop every attacker DEFEATED by a determinate weigh over its clash with its
+    target: resolve({attacker, target}) determinate AND winner is the target -> the
+    attacker forfeits and is removed from the target's attacker set (it no longer
+    reduces the winner's accrual). Emits INERT_ATTACK 'defeated by weigh'. Returns
+    True if anything was pruned.
+
+    `offense_on` is intentionally left untouched: a defeated TURN on an offense-
+    bearing link is still consumed by the polarity channel (_resolve_polarity),
+    which reads offense_on to emit POLARITY_FLIP and preserve magnitude (§3.2).
+    Removing the turn here from `attackers_by_target` only zeroes its magnitude
+    contribution, which the polarity channel already did -- so the two agree and
+    the v2 link-weigh behavior (r9) is unchanged."""
+    from .resolve import resolve
+    pruned = False
+    for target, atts in list(ctx.attackers_by_target.items()):
+        keep = []
+        for a, e in atts:
+            if a != target:
+                determinate, winner, _ = resolve(ctx, frozenset({a, target}))
+                if determinate and winner == target:
+                    ctx.trace.append(T.InertAttack(edge_id=e.id, reason="defeated by weigh"))
+                    pruned = True
+                    continue
+            keep.append((a, e))
+        ctx.attackers_by_target[target] = keep
+    return pruned
+
 
 # --- Pass 5: clash resolution (polarity via resolve) + chain products ---------
 

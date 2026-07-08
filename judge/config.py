@@ -26,7 +26,14 @@ decisions) and §2.1 (speech order/side).
 #       contributes nothing -- it is NOT scored "conceded" merely because the
 #       opposing side did not answer it. The mitigation path (answer the attacker)
 #       is unchanged.
-JUDGE_VERSION = 4
+#   v5: a determinate weigh DEFEATS the dispreferred member, and a defeated
+#       attacker does not attack the winner (§6.5, generalized). Folded into the
+#       same attacker gate: an attacker also drops from its target's accrual if
+#       resolve({attacker, target}) is determinate for the target. The link case
+#       (defeated turn) was already this rule in the polarity channel; v5 adds the
+#       uniqueness/framework/defensive case (defeated non-unique dropped from the
+#       uniqueness's attacker set). One mechanism, no per-type special-casing.
+JUDGE_VERSION = 5
 
 # --- Ballot values (§0) --------------------------------------------------------
 # The ballot is binary. PRESUMPTION (below) resolves to one of these.

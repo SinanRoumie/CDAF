@@ -424,8 +424,13 @@ def _uniqueness_attack_round(b, nonuniq_live, answer=False):
 
 
 def _uni_attackers(els, uni_id):
-    """The uniqueness's DF-QuAD attacker-id set at the ballot (post-classification)."""
+    """The uniqueness's DF-QuAD attacker-id set AT THE BALLOT -- after the liveness
+    gate (pass 1) and the weigh-defeat gate (pass 4), which is where a defeated
+    attacker is removed from the winner's accrual (§6.5, v5)."""
     ctx = passes.build_context(Round(elements=els, version=2))
+    passes.pass2_drops(ctx)
+    passes.pass3_accrual(ctx)
+    passes.pass4_weighing_towers(ctx)
     return {a for a, _e in ctx.attackers_by_target.get(uni_id, [])}
 
 
@@ -476,3 +481,57 @@ def test_r14_answered_nonunique_still_mitigates_aff():
     assert ballot == AFF                                    # answered down -> uniqueness restored
     ch = _chains(trace)[0]
     assert ch.mag > EPSILON
+
+
+# --- Won weigh defeats the attacker across types (§6.5 -- v5) ------------------
+
+def _uniqueness_weigh_round(b, weigh_side):
+    """AFF advantage; NEG non-unique (extended, live) attacks the uniqueness;
+    `weigh_side` weighs {uniqueness, non-unique}. Returns (els, uni_id, nonuniq_id).
+    The weigh's preferred member is its own-side node -- AFF prefers the uniqueness,
+    NEG prefers the non-unique (§6.5)."""
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
+    bd = b.n(BallotDirective, AFF, "2AR")
+    nonuniq = b.n(Uniqueness, NEG, "1NC", label="NEG non-unique")   # full NEG liveness -> live
+    speech = "2AC" if weigh_side == AFF else "2NC/1NR"
+    w = b.n(Weighing, weigh_side, speech, label="weigh {uniqueness, non-unique}")
+    els = [adv, uni, lk, im, bd, nonuniq, w,
+           b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+           b.datk(nonuniq, uni),                        # non-unique attacks the uniqueness
+           b.cmp(w, uni), b.cmp(w, nonuniq)]            # weigh ranks {uniqueness, non-unique}
+    return els, uni.id, nonuniq.id
+
+
+def test_r15_won_uniqueness_weigh_defeats_nonunique_aff():
+    """THE BUG FIX (§6.5 -- v5). AFF WINS a determinate weigh over the uniqueness
+    clash {n1, n7} (preferred = the AFF uniqueness). The defeated non-unique n7 does
+    NOT attack the winner: it is removed from n1's DF-QuAD attacker set, n1 survives
+    at sigma 1.0, the chain holds at mag 1.0, and AFF wins. Previously the weigh was
+    decorative -- n7 still zeroed n1. Same rule as the link case (r9), now over
+    uniquenesses."""
+    b = _B()
+    els, uni_id, nonuniq_id = _uniqueness_weigh_round(b, AFF)
+    assert nonuniq_id not in _uni_attackers(els, uni_id)   # defeated -> NOT in the attacker set
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == AFF
+    assert any(r.kind == "INERT_ATTACK" and r.reason == "defeated by weigh" for r in trace)
+    ch = _chains(trace)[0]
+    assert ch.extended and abs(ch.mag - 1.0) < 1e-9        # uniqueness restored -> chain intact
+    won = [r for r in trace if r.kind == "WEIGH" and r.outcome == "resolved"]
+    assert won and won[0].preferred_node == uni_id         # the weigh resolved for the uniqueness
+
+
+def test_r16_lost_uniqueness_weigh_nonunique_still_attacks_neg():
+    """CONTRAST / fallback. NEG WINS the weigh (preferred = the non-unique), so the
+    clash does NOT resolve for the uniqueness: n7 is not defeated, stays in n1's
+    attacker set, and drives n1 to 0 -> chain mag 0 -> NEG. A weigh only removes the
+    attacker when the winner is the TARGET; a lost/indeterminate weigh leaves the
+    attack contesting (the no-weigh fallback is r13)."""
+    b = _B()
+    els, uni_id, nonuniq_id = _uniqueness_weigh_round(b, NEG)
+    assert nonuniq_id in _uni_attackers(els, uni_id)       # not defeated -> still contests
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == NEG
+    ch = _chains(trace)[0]
+    assert ch.mag < EPSILON                                # uniqueness zeroed -> chain collapsed

@@ -417,6 +417,32 @@ same condition as "no weigh exists." The judge does not enumerate depths — it 
   raw δ, indeterminate falls to raw δ.
 - Emit `WEIGH` (with the pair, the resolved preference or `symmetric`, and `via`).
 
+### What a determinate weigh does — one consequence, generalized (v5)
+
+A determinate weigh **defeats the dispreferred member** of the clash, and — the general mechanism —
+**a defeated attacker does not attack the winner**: it is **removed from the winner's accrual**. This
+is a single rule; the three feed-points above are it applied in each channel, not three separate
+mechanisms:
+
+- **Uniqueness / framework / any defensive clash** (the general case): the defeated attacker is
+  dropped from the winner's DF-QuAD attacker set, so a won uniqueness-weigh actually saves the
+  uniqueness (the defeated non-unique no longer contests it). This is folded into the **same attacker
+  gate** as the liveness rule (§3.1, v4): an attacker contributes to its target's accrual only if it
+  is **(a)** live (extended by its maker) **and (b)** not defeated by a determinate weigh over its
+  clash with that target — `resolve(ctx, {attacker, target})` determinate with the **target** as
+  winner. A defeated attacker emits `INERT_ATTACK` (reason `defeated by weigh`).
+- **Links** (already built in v2/v3): the defeated **turn** is dropped from the link's magnitude while
+  the won weigh keeps the link's polarity — the polarity+magnitude behavior of §3.2. This is the same
+  "defeated attacker does not reduce the winner" rule expressed in the **sign channel**; the gate
+  therefore leaves `offense_on` to the polarity pass and only removes the turn's magnitude
+  contribution, so the two agree.
+- **Impacts** (already built): ballot-stage — the dispreferred impact's **chain is excluded** from the
+  tally (§7), the same defeat expressed at the ballot rather than in accrual.
+
+Before v5 only the link and impact consequences existed, so a won uniqueness-or-framework weigh was
+**decorative** — the `WEIGH` record resolved but nothing changed. v5 closes that gap with no per-type
+special-casing: it is the one rule, routed to whichever channel that clash's members live in.
+
 ### Pass-ordering requirement
 
 Because a determinate weigh must be able to **decide polarity**, the weighing towers must be resolved
@@ -493,7 +519,10 @@ RFD/panel reads — judge-populated, consumed downstream, and never able to chan
 3. **Node accrual** — DF-QuAD per node (leaves first) → surviving σ. (No polarity yet.)
 4. **Weighing towers** — resolve each weighing sub-debate to determinate/indeterminate via `resolve`
    (§6.5); these depend only on their own drop/concession status, so they settle before clash
-   resolution and cannot cycle with polarity.
+   resolution and cannot cycle with polarity. **Then consume the towers against accrual (v5):** drop
+   every attacker defeated by a determinate weigh over its clash with its target (§6.5) and re-accrue,
+   so a won uniqueness/framework/defensive weigh actually removes the defeated attacker. (The link
+   case is consumed in pass 5's polarity channel; the impact case at the ballot.)
 5. **Clash resolution** — resolve same-type clashes (§6.5): determinate weigh decides, else raw δ.
    This is where **effective polarity** is set (a won link-weigh keeps polarity; else the 0.5 σ
    threshold). Then chain sign/magnitude products → delta per chain.
