@@ -80,6 +80,10 @@ SIDE_FINAL = {"AFF": "2AR", "NEG": "2NR"}
 # Ambient liveness glow (a warm halo behind the node; brightness == liveness depth).
 GLOW_COLOR = "#FF9E2C"
 
+# Interaction highlights (transient; shown while authoring, explained in the legend).
+TRACE_COLOR = "#7C3AED"    # violet ring on the traced root-to-impact spine
+SELECT_COLOR = "#FFD400"   # yellow overlay on the selected node(s) / edge
+
 # UI style per edge type, keyed by the on-disk etype string (names + order from model/).
 _EDGE_STYLE = {
     "SupportEdge": ("#2A9D8F", "solid", "triangle", 3, False),
@@ -535,9 +539,9 @@ def build_stylesheet():
             },
         },
         {"selector": "node:selected",
-         "style": {"overlay-color": "#FFD400", "overlay-opacity": 0.35, "overlay-padding": 8}},
+         "style": {"overlay-color": SELECT_COLOR, "overlay-opacity": 0.35, "overlay-padding": 8}},
         {"selector": "edge:selected",
-         "style": {"overlay-color": "#FFD400", "overlay-opacity": 0.4, "overlay-padding": 6}},
+         "style": {"overlay-color": SELECT_COLOR, "overlay-opacity": 0.4, "overlay-padding": 6}},
     ]
 
     # Node color by type / shape by layer.
@@ -551,9 +555,12 @@ def build_stylesheet():
 
     # Traced-path highlight (§3 addendum): a violet ring on the traced spine.
     # Appended AFTER the side selectors so it overrides the side border while a
-    # path is traced; the seed still shows the yellow selection overlay on top.
+    # path is traced (transient -- only while a spine node is selected; the side
+    # border returns when the selection clears). The seed also shows the yellow
+    # selection overlay on top. Both are explained in the "Selection & highlights"
+    # legend.
     sheet.append({"selector": "node[traced]",
-                  "style": {"border-color": "#7C3AED", "border-width": 8}})
+                  "style": {"border-color": TRACE_COLOR, "border-width": 6}})
 
     # Edge style by type.
     for name, color, line_style, arrow, width, comparison in EDGE_TYPES:
@@ -572,14 +579,23 @@ def build_stylesheet():
 # Legends
 # ---------------------------------------------------------------------------
 
+# Map each cytoscape node shape to a matching CSS legend swatch, so the legend
+# shape always mirrors what the graph draws (keyed by LAYER_SHAPE values).
+_SWATCH_FOR_SHAPE = {
+    "round-rectangle": "round", "hexagon": "hexagon", "diamond": "diamond",
+}
+
+
 def swatch(color, shape="square"):
     base = {"display": "inline-block", "width": "16px", "height": "16px",
             "backgroundColor": color, "marginRight": "8px", "verticalAlign": "middle",
             "border": "1px solid #00000033"}
     if shape == "round":
         base.update({"borderRadius": "4px"})
-    if shape == "diamond":
+    elif shape == "diamond":
         base.update({"transform": "rotate(45deg)", "width": "12px", "height": "12px"})
+    elif shape == "hexagon":
+        base.update({"clipPath": "polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)"})
     return html.Span(style=base)
 
 
@@ -592,7 +608,7 @@ def line_swatch(color, line_style):
 def node_legend():
     rows = []
     for name, layer, color in NODE_TYPES:
-        shape = "diamond" if layer == "ballot" else ("round" if layer == "content" else "square")
+        shape = _SWATCH_FOR_SHAPE.get(LAYER_SHAPE[layer], "square")  # mirror the graph shape
         rows.append(html.Div(
             [swatch(color, shape), html.Span(name, style={"fontSize": "13px"}),
              html.Span(f"  ·  {layer}", style={"fontSize": "11px", "color": "#888"})],
@@ -811,11 +827,34 @@ def liveness_legend():
     ])
 
 
+def highlight_legend():
+    def ring(color, width):
+        return html.Span(style={"display": "inline-block", "width": "16px", "height": "16px",
+                                "marginRight": "8px", "verticalAlign": "middle", "borderRadius": "3px",
+                                "backgroundColor": "#ddd", "border": f"{width}px solid {color}"})
+    def overlay():
+        return html.Span(style={"display": "inline-block", "width": "16px", "height": "16px",
+                                "marginRight": "8px", "verticalAlign": "middle", "borderRadius": "3px",
+                                "backgroundColor": SELECT_COLOR, "opacity": 0.5})
+    return html.Div([
+        html.Div([ring(TRACE_COLOR, 3),
+                  html.Span("Violet ring = traced path — the whole root-to-impact spine "
+                            "of the selected node (the path Extend / Un-extend acts on). "
+                            "Temporarily replaces the side border; it clears when you "
+                            "deselect.", style={"fontSize": "12px"})],
+                 style={"marginBottom": "6px"}),
+        html.Div([overlay(),
+                  html.Span("Yellow highlight = current selection.",
+                            style={"fontSize": "12px"})]),
+    ])
+
+
 inspector = html.Div([
     html.H3("Inspector", className="panel-heading"),
     node_editor, edge_editor,
     html.Hr(),
     html.Details([html.Summary("Liveness legend"), liveness_legend()], open=True, className="legend"),
+    html.Details([html.Summary("Selection & highlights"), highlight_legend()], open=True, className="legend"),
     html.Details([html.Summary("Node legend"), node_legend()], open=True, className="legend"),
     html.Details([html.Summary("Edge legend"), edge_legend()], open=True, className="legend"),
 ], className="right-panel")
