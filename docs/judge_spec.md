@@ -450,7 +450,7 @@ RFD/panel reads — judge-populated, consumed downstream, and never able to chan
 | `MAGNITUDE` | node_id, base_tau, surviving_sigma, attackers[], supporters[] | — | 3 |
 | `POLARITY_FLIP` | link_id, from_sign, to_sign, sigma, via (preference/dfquad) | — | 3 |
 | `INERT_ATTACK` | edge_id, reason | — | 3 |
-| `CHAIN` | chain_id, sign, mag, delta | side, extended, in_scope, collapse_reason, responsible | 3 |
+| `CHAIN` | chain_id, sign, mag, delta | side, owner, extended, in_scope, collapse_reason, responsible | 3 |
 | `FRAMEWORK_GATE` | impact_id, framework_id, in_scope | — | 5 |
 | `WEIGH` | weighing_id, outcome (resolved/symmetric), preferred_node, via | pair[], overrode | 5 |
 | `BD_VALIDATE` | bd_id, result, reason | side | 6 |

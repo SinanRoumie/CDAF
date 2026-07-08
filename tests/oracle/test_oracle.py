@@ -102,6 +102,7 @@ def test_r1_clean_uncontested_advantage_aff():
     assert bl.N > EPSILON and bl.reason_class == "AFF offense"
     ch = _chains(trace)[0]
     assert ch.extended and ch.sign == 1 and abs(ch.mag - 1.0) < 1e-9
+    assert ch.owner == AFF                          # normal chain: owner = introducing side
 
 
 # --- §11.2 Conceded terminal defense -> NEG -----------------------------------
@@ -179,6 +180,7 @@ def test_r4_link_turn_generates_neg_offense():
     ch = _chains(trace)[0]
     assert ch.sign == -1 and ch.mag > EPSILON      # magnitude PRESERVED across the flip
     assert ch.extended                             # union liveness kept the turned nodes live
+    assert ch.side == AFF and ch.owner == NEG      # introducing side AFF; turn hands offense to NEG
     # the flip carried magnitude, so the AFF chain is not zeroed -- it contributes
     # NEG offense to the ballot decomposition:
     d = [x for x in bl.decomposition if x["chain_id"] == ch.chain_id][0]
@@ -245,6 +247,7 @@ def test_r4c_double_turn_returns_to_aff_inherited_strength():
     assert ch.sign == 1                            # two flips composed back to +1
     assert abs(ch.mag - 1.0) < 1e-9                # magnitude INHERITED through both flips
     assert ch.delta > EPSILON
+    assert ch.owner == AFF                         # double turn: composed sign favors AFF again
 
 
 def test_r4d_turn_live_by_union_win_path_a_neg():

@@ -542,8 +542,13 @@ def _build_chains(ctx: Context) -> None:
         collapse_reason, responsible = _collapse_reason(
             ctx, extended, ext_fail_node, sign, mag, spine_reps, unresolved)
 
+        # Owning side (descriptive, non-load-bearing): the side the composed sign
+        # favors -- the introducing `side` for a normal chain, its opponent for a
+        # turned chain (§3.5), "" when the sign is unresolved. `side` stays the
+        # introducing side (load-bearing for the ballot's aff_sum/neg_sum routing).
+        owner = favored or ""
         ctx.chains.append({
-            "id": chain_id, "side": side, "members": set(members),
+            "id": chain_id, "side": side, "owner": owner, "members": set(members),
             "spine_reps": spine_reps, "impacts": impact_reps,
             "mag": mag, "sign": sign, "delta": delta,
             "intro_speech": intro_speech, "extended": extended,
@@ -552,7 +557,7 @@ def _build_chains(ctx: Context) -> None:
         })
         ctx.trace.append(T.Chain(
             chain_id=chain_id, sign=sign, mag=mag, delta=delta,
-            side=side, extended=extended, in_scope=True,
+            side=side, owner=owner, extended=extended, in_scope=True,
             collapse_reason=collapse_reason, responsible=responsible))
 
 

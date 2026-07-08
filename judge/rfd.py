@@ -86,7 +86,9 @@ def render_lines(ballot: str, trace: list) -> List[str]:
         for d in contributors:
             cid, intro = d["chain_id"], d["side"]
             if cid in turned_ids:
-                owner = _opposing(intro)   # a turn flips the offense to the other side
+                # owning side is carried on the CHAIN record (descriptive); fall
+                # back to deriving it if an older trace lacks the field.
+                owner = getattr(chain_by_id.get(cid), "owner", "") or _opposing(intro)
                 mag = abs(d["delta"])
                 lines.append(
                     f"  - The {intro} argument {cid} was turned: it no longer carries {intro} "

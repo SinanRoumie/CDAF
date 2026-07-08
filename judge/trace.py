@@ -107,14 +107,21 @@ class Chain(TraceRecord):
 
     The trailing fields are descriptive enrichment (beyond the §8 core) so the
     trace reconstructs a decision without recomputation -- read by judge/rfd.py,
-    populated by the judge. `collapse_reason` is None when the chain establishes
-    offense; otherwise one of "extension_fail" / "sign_flip" / "defensive_kill" /
-    "unresolved_sign". `responsible` names the node most responsible."""
+    populated by the judge. `side` is the INTRODUCING side (load-bearing: the
+    ballot routes delta into aff_sum/neg_sum by it). `owner` is the descriptive
+    OWNING side -- the side the composed sign favors: the introducing side for a
+    normal chain, its opponent for a turned chain (§3.5), and "" when the sign is
+    unresolved. It is derived and non-load-bearing (it never routes delta), surfaced
+    so the trace carries owning-side directly. `collapse_reason` is None when the
+    chain establishes offense; otherwise one of "extension_fail" / "sign_flip" /
+    "defensive_kill" / "unresolved_sign". `responsible` names the node most
+    responsible."""
     chain_id: str
     sign: Sign
     mag: float
     delta: float
     side: str = ""
+    owner: str = ""
     extended: bool = True
     in_scope: bool = True
     collapse_reason: Optional[str] = None
