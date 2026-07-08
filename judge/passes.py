@@ -108,11 +108,16 @@ class Context:
     offense_on: Dict[str, List[str]] = field(default_factory=lambda: defaultdict(list))
 
     status: Dict[str, str] = field(default_factory=dict)          # node -> answered/dropped/unresolved
-    sigma: Dict[str, float] = field(default_factory=dict)
+    sigma: Dict[str, float] = field(default_factory=dict)         # raw DF-QuAD surviving strength
+    mag_sigma: Dict[str, float] = field(default_factory=dict)     # sigma used in the chain magnitude
     eff_pol: Dict[str, object] = field(default_factory=dict)      # link/impact id -> +1/-1/'?'
     chains: List[dict] = field(default_factory=list)
     winning_framework: Optional[Node] = None
-    preferences: List[tuple] = field(default_factory=list)        # (side, preferred_node, pair)
+
+    # Weighing towers (§6.5): the reachable Weighing nodes and the pair each one
+    # ranks. Populated in build_context; consumed by judge.resolve.
+    weighings: List = field(default_factory=list)
+    weigh_pair: Dict[str, object] = field(default_factory=dict)   # weigh id -> frozenset(pair)
 
 
 # --- Pass 1: discovery + structural indexing ----------------------------------
@@ -133,7 +138,17 @@ def build_context(rnd) -> Context:
 
     _discover(ctx)
     _classify_attacks(ctx)
+    _index_weighings(ctx)
     return ctx
+
+
+def _index_weighings(ctx: Context) -> None:
+    """Index the reachable weighing tower: the Weighing nodes and the pair each
+    ranks (from its Comparison edges). Structural only -- no strengths yet."""
+    from .resolve import weigh_pair
+    ctx.weighings = [n for n in ctx.nodes.values()
+                     if isinstance(n, Weighing) and n.id in ctx.reachable]
+    ctx.weigh_pair = {w.id: weigh_pair(ctx, w.id) for w in ctx.weighings}
 
 
 def _discover(ctx: Context) -> None:
@@ -282,10 +297,45 @@ def node_extension_ok(node: Node) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-# --- Pass 3: node accrual, polarity, chain resolution -------------------------
+# --- Pass 3: node accrual (sigma only -- NO polarity yet, §9) -----------------
 
-def pass3_resolve(ctx: Context) -> None:
+def pass3_accrual(ctx: Context) -> None:
+    """Pass 3 (§9): DF-QuAD surviving strength per node. No polarity here -- that
+    is set in clash resolution (pass 5), after the weighing towers settle."""
     _resolve_strengths(ctx)
+
+
+# --- Pass 4: weighing towers resolve first (§6.5 / §9 anti-cycle) -------------
+
+def pass4_weighing_towers(ctx: Context) -> None:
+    """Resolve each weighing sub-debate via the recursive clash-breaker (§6.5) and
+    emit a WEIGH record. These read ONLY the weighing nodes' own accrual
+    (sigma/extension) and Comparison pairs -- never main-chain polarity -- so they
+    settle before the clash resolution that consumes them and cannot cycle (§9)."""
+    from .resolve import resolve
+    for w in ctx.weighings:
+        pair = ctx.weigh_pair.get(w.id)
+        if pair is None:
+            ctx.trace.append(T.Weigh(weighing_id=w.id, outcome="symmetric",
+                                     preferred_node=None, via="malformed", pair=[]))
+            continue
+        determinate, winner, _decider = resolve(ctx, pair)
+        if determinate:
+            ctx.trace.append(T.Weigh(weighing_id=w.id, outcome="resolved",
+                                     preferred_node=winner, via="preference",
+                                     pair=sorted(pair)))
+        else:
+            ctx.trace.append(T.Weigh(weighing_id=w.id, outcome="symmetric",
+                                     preferred_node=None, via="magnitude",
+                                     pair=sorted(pair)))
+
+
+# --- Pass 5: clash resolution (polarity via resolve) + chain products ---------
+
+def pass5_clashes(ctx: Context) -> None:
+    """Pass 5 (§9): set effective polarity by resolving each link/turn clash
+    (§3.2, consuming a determinate weigh; else the 0.5 sigma threshold), then
+    build chain sign/magnitude/delta (§3.3)."""
     _resolve_polarity(ctx)
     _build_chains(ctx)
 
@@ -309,6 +359,7 @@ def _resolve_strengths(ctx: Context) -> None:
         if not changed:
             break
     ctx.sigma = sigma
+    ctx.mag_sigma = dict(sigma)   # default; clash resolution may drop a defeated turn
 
     for nid in ctx.reachable:
         attacks = ctx.attackers_by_target.get(nid, [])
@@ -320,16 +371,21 @@ def _resolve_strengths(ctx: Context) -> None:
 
 
 def _resolve_polarity(ctx: Context) -> None:
-    """Effective polarity per offense-bearing node (§3.2).
+    """Effective polarity per offense-bearing node (§3.2), CONSUMING a determinate
+    weigh over the link/turn clash (§6.5).
 
     THE FLIP IS GATED ON THE PRESENCE OF AN OFFENSIVE ATTACK. Only a link that is
-    the target of an OffensiveAttack (per the recency-based classification, i.e.
-    in ctx.offense_on) is eligible to flip; it then runs the DF-QuAD-against-0.5
-    resolution (a directional preference would be honored first; none in V1). A
-    link attacked only defensively keeps its original polarity +1 no matter how
-    low its sigma falls -- defense reduces magnitude, never reverses direction. A
-    link driven to sigma ~ 0 by pure defense is DEAD (sign +1, mag 0), not turned:
-    it emits MAGNITUDE (from accrual), never POLARITY_FLIP."""
+    the target of an OffensiveAttack (in ctx.offense_on) is eligible to flip. For
+    such a link the {link, turn} clash is resolved by `resolve`:
+      * a DETERMINATE won link-weigh keeps the preferred side's polarity outright
+        (via 'preference', regardless of raw sigma). When the LINK wins, its
+        offensive attacker (the turn) lost the clash, so it is defeated -- dropped
+        from the link's CHAIN magnitude (mag_sigma), which is why a won weigh
+        saves a turned link's chain;
+      * absent/indeterminate -> the 0.5 sigma threshold (via 'dfquad'), as before.
+    A defensively-only link keeps +1 no matter how low sigma falls (defense
+    reduces magnitude, never reverses direction)."""
+    from .resolve import resolve
     eff: Dict[str, object] = {}
     for nid in ctx.reachable:
         n = ctx.nodes[nid]
@@ -338,10 +394,27 @@ def _resolve_polarity(ctx: Context) -> None:
         if nid not in ctx.offense_on:
             eff[nid] = 1            # defensive-only or unattacked: keeps +1, skip flip path
             continue
-        pol, via = chainmod.effective_polarity(1, ctx.sigma[nid], preference=None)
+
+        preference, defeated = None, set()
+        for t in ctx.offense_on.get(nid, []):
+            determinate, winner, _ = resolve(ctx, frozenset({nid, t}))
+            if determinate:
+                if winner == nid:
+                    preference, defeated = 1, {t}    # link wins -> keeps, turn defeated
+                else:
+                    preference = -1                  # turn wins -> link flips
+                break
+
+        pol, via = chainmod.effective_polarity(1, ctx.sigma[nid], preference=preference)
         eff[nid] = pol
+        if defeated:
+            # The defeated competing claim (the turn that lost the weigh) does not
+            # reduce the winner: recompute the link's chain sigma without it.
+            live = [ctx.sigma.get(a, TAU) for a, _e in ctx.attackers_by_target.get(nid, [])
+                    if a in ctx.reachable and a not in defeated]
+            ctx.mag_sigma[nid] = dfquad.accrue(TAU, live, [])
         ctx.trace.append(T.PolarityFlip(
-            link_id=nid, from_sign=1, to_sign=pol, sigma=ctx.sigma[nid], via=via,
+            link_id=nid, from_sign=1, to_sign=pol, sigma=ctx.mag_sigma[nid], via=via,
         ))
     ctx.eff_pol = eff
 
@@ -378,7 +451,7 @@ def _build_chains(ctx: Context) -> None:
         )
         mag = 1.0
         for r in spine_reps:
-            mag *= ctx.sigma.get(r, TAU)
+            mag *= ctx.mag_sigma.get(r, TAU)   # weigh may have dropped a defeated turn
         sign = qpn.sign_product(
             [ctx.eff_pol.get(r, 1) for r in spine_reps if isinstance(ctx.nodes[r], OFFENSE_BEARING)]
         )
@@ -454,7 +527,7 @@ def _collapse_reason(ctx, extended, ext_fail_node, sign, mag, spine_reps, unreso
 
 # --- Pass 5a: framework gating ------------------------------------------------
 
-def pass5a_framework(ctx: Context) -> None:
+def pass6_framework(ctx: Context) -> None:
     """A won framework (unattacked-or-restored and extended) binary-gates impacts:
     an impact with no support path to it is out of scope (§5)."""
     fws = [n for n in ctx.nodes.values()
@@ -494,39 +567,5 @@ def pass5a_framework(ctx: Context) -> None:
         ch["in_scope"] = in_scope
 
 
-# --- Pass 5b: weighing --------------------------------------------------------
-
-def pass5b_weighing(ctx: Context) -> None:
-    """A won weighing claim establishes a ballot-stage preference (§7). It never
-    edits delta; it marks which member of a compared pair is preferred so the
-    ballot can honor it over raw delta. Won = conceded (unattacked) and extended."""
-    ctx.preferences = []
-    for w in [n for n in ctx.nodes.values() if isinstance(n, Weighing) and n.id in ctx.reachable]:
-        pair = [nbr for nbr, e in ctx.adj.get(w.id, []) if isinstance(e, Comparison) and nbr in ctx.nodes]
-        won = ctx.sigma.get(w.id, TAU) >= POLARITY_THRESHOLD and node_extension_ok(w)[0]
-        if won and pair:
-            preferred = next((m for m in pair if ctx.nodes[m].side == w.side), None)
-            ctx.preferences.append((w.side, preferred, pair))
-            ctx.trace.append(T.Weigh(weighing_id=w.id, outcome="resolved",
-                                     preferred_node=preferred, via="conceded",
-                                     pair=list(pair), overrode=_overrides_delta(ctx, preferred, pair)))
-        else:
-            ctx.trace.append(T.Weigh(weighing_id=w.id, outcome="symmetric",
-                                     preferred_node=None, via="unresolved", pair=list(pair)))
-
-
-def _delta_of_node(ctx: Context, node_id) -> float:
-    """The |delta| of the chain whose impacts include `node_id` (0 if none)."""
-    for ch in ctx.chains:
-        if node_id in ch["impacts"] or node_id in ch["members"]:
-            return abs(ch["delta"]) if ch["delta"] != qpn.UNRESOLVED else 0.0
-    return 0.0
-
-
-def _overrides_delta(ctx: Context, preferred, pair) -> bool:
-    """True when the honored preference favors a smaller-raw-delta impact (the
-    preference changed what raw delta alone would have said)."""
-    if preferred is None:
-        return False
-    pref_d = _delta_of_node(ctx, preferred)
-    return any(_delta_of_node(ctx, m) > pref_d for m in pair if m != preferred)
+# Ballot-stage weighing (ranking surviving offense via `resolve`) lives in
+# judge._ballot, which consumes the same recursive clash-breaker as polarity.

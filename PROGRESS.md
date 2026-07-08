@@ -13,8 +13,25 @@ Running record of what's built and what's deliberately deferred. See
 - **Judge reads liveness (E2)** — the §6 extension check reads the liveness
   record (not edges); §4 final-speech refinement; legacy `Extension` type deleted;
   §11 verdict-oracle harness in `tests/oracle/test_oracle.py`.
+- **Recursive weighing clash-resolution (judge v2, §6.5)** — weighing is the
+  general same-type clash-breaker, resolved by one well-founded recursion
+  (`judge/resolve.py`): meta-weighing → weighing → magnitude floor. Passes
+  reordered (§9) so weighing towers settle before the polarity clash they decide
+  (anti-cycle: `resolve` reads only the weighing tower, never main-chain polarity).
+  A determinate link-weigh now saves a turned link. `JUDGE_VERSION = 2`.
 
 ## Known issues / deferred
+
+### Builder must enforce Comparison direction (follow-up, not yet built)
+
+`Comparison` is the one direction-bearing edge type (§2.2 carve-out): it must point
+FROM the ranking weighing TO each ranked node, or the weigh has no well-formed pair
+and is **silently inert**. The builder must enforce this when authoring a weigh
+(create the edge weighing→member; reject/normalize a backwards draw) so a human
+cannot draw a dead weigh and get a silent no-op. Judge-side this is already handled
+(a malformed weigh is inert); the gap is the authoring UI. Do in a later E-stage.
+
+### Turn offense (deferred to its own milestone)
 
 ### Turn offense (deferred to its own milestone)
 

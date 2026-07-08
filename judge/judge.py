@@ -10,22 +10,26 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from model import Advocacy, BallotDirective
+from model import Advocacy, BallotDirective, Impact
 
 from . import passes
 from . import trace as T
 from .config import AFF, NEG, EPSILON
 from .qpn import UNRESOLVED
+from .resolve import resolve
 
 
 def judge(rnd) -> Tuple[str, List]:
-    """Evaluate a finished argument graph. Returns (ballot, trace)."""
-    ctx = passes.build_context(rnd)        # Pass 1: discovery + indexing
-    passes.pass2_drops(ctx)                # Pass 2: drop detection
-    passes.pass3_resolve(ctx)              # Pass 3: accrual, polarity, chains (+ extension)
-    passes.pass5a_framework(ctx)           # Pass 5a: framework gate
-    passes.pass5b_weighing(ctx)            # Pass 5b: weighing preferences
-    winner = _ballot(ctx)                  # Pass 6: BD validation + net offense
+    """Evaluate a finished argument graph. Returns (ballot, trace). Passes run in
+    §9 order: weighing towers resolve BEFORE clash resolution, so a determinate
+    weigh can decide a link/turn polarity clash without a dependency cycle."""
+    ctx = passes.build_context(rnd)        # Pass 1: discovery + weighing index
+    passes.pass2_drops(ctx)                # Pass 2: drop + extension
+    passes.pass3_accrual(ctx)              # Pass 3: DF-QuAD sigma (no polarity yet)
+    passes.pass4_weighing_towers(ctx)      # Pass 4: resolve weighing towers (§6.5)
+    passes.pass5_clashes(ctx)              # Pass 5: polarity (via resolve) + chains
+    passes.pass6_framework(ctx)            # Pass 6: framework gate
+    winner = _ballot(ctx)                  # Pass 7: BD validation + net offense
     return winner, ctx.trace
 
 
@@ -136,9 +140,10 @@ def _reason_class(ctx, winner, advocacy_present, complete_chain, inscope_impact,
 
 
 def _weighing_excluded(ctx: passes.Context, valid: list) -> set:
-    """Resolve won-weighing preferences to a set of excluded chain ids: a
-    preference for one member of a compared pair excludes chains anchored on the
-    dispreferred member (preference overrides raw delta, §7)."""
+    """Rank surviving offense with the recursive clash-breaker (§6.5): for each
+    impact-pair weigh, `resolve` says whether it determinately decides; if so, the
+    dispreferred impact's chain is excluded from the tally (preference overrides
+    raw delta). Indeterminate weighs leave both chains in (fall to raw delta)."""
     impact_to_chain = {}
     for ch in valid:
         for imp in ch["impacts"]:
@@ -147,10 +152,13 @@ def _weighing_excluded(ctx: passes.Context, valid: list) -> set:
             impact_to_chain.setdefault(m, ch["id"])
 
     excluded = set()
-    for _side, preferred, pair in ctx.preferences:
-        if preferred is None:
-            continue
-        for member in pair:
-            if member != preferred and member in impact_to_chain:
-                excluded.add(impact_to_chain[member])
+    for w in ctx.weighings:
+        pair = ctx.weigh_pair.get(w.id)
+        if not pair or not all(isinstance(ctx.nodes[m], Impact) for m in pair):
+            continue                            # ballot ranking is over impact clashes
+        determinate, winner, _ = resolve(ctx, pair)
+        if determinate:
+            for member in pair:
+                if member != winner and member in impact_to_chain:
+                    excluded.add(impact_to_chain[member])
     return excluded

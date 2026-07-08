@@ -10,7 +10,9 @@ record shapes (trace). J2 adds the two strictly-separated channels: node accrual
 the six passes (passes) and the judge entry point (judge.judge).
 """
 
-from . import config, trace, dfquad, qpn, chain, passes, rfd
+from . import config, trace, dfquad, qpn, chain, resolve, passes, rfd
 from .judge import judge
+from .config import JUDGE_VERSION
 
-__all__ = ["config", "trace", "dfquad", "qpn", "chain", "passes", "rfd", "judge"]
+__all__ = ["config", "trace", "dfquad", "qpn", "chain", "resolve", "passes",
+           "rfd", "judge", "JUDGE_VERSION"]

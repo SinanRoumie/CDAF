@@ -6,6 +6,15 @@ stays decoupled from everything app-side. See docs/judge_spec.md §1 (pinned
 decisions) and §2.1 (speech order/side).
 """
 
+# --- Judge / environment version ----------------------------------------------
+# Bumped when the judge's decision SEMANTICS change (not just refactors), because
+# a version bump invalidates prior oracle verdicts and any learned RL policy.
+#   v1: original passes (weighing = impact-only, ballot-stage preference).
+#   v2: recursive weighing clash-resolution (§6.5) -- weighing is the general
+#       same-type clash-breaker and can decide link/turn polarity, resolved by a
+#       single well-founded recursion (meta-weighing -> weighing -> magnitude).
+JUDGE_VERSION = 2
+
 # --- Ballot values (§0) --------------------------------------------------------
 # The ballot is binary. PRESUMPTION (below) resolves to one of these.
 AFF = "AFF"

@@ -86,8 +86,9 @@ record, never by walking edges (§6). Full model, migration, and converter:
 
 ### 2.1 Speech order and side (judge-owned)
 
-The judge owns the canonical vocabulary; the model stores these as free strings and the judge
-maps them. Confirmed against real authored rounds, the exact strings are:
+The **model** owns the canonical vocabulary (in `model/speeches.py`), because per-node liveness
+ordering is a model-level fact and `model/` must not import `judge/`. The judge imports it from
+there. Confirmed against real authored rounds, the exact strings are:
 
 ```
 SPEECH_ORDER = ["1AC", "1NC", "2AC", "2NC/1NR", "1AR", "2NR", "2AR"]   # 7 speeches; neg block is the single string "2NC/1NR"
@@ -115,6 +116,18 @@ orientation from two reliable signals instead:
 Because every speech is single-side, every cross-side attack necessarily spans two speeches, so
 speech recency assigns attacker/target unambiguously. Same-side "attacks" are incoherent and inert
 (§3.4). This principle is what makes the judge robust to the noise that real rounds contain.
+
+**One carve-out — `Comparison` is the sole direction-bearing edge type.** A `Comparison` points
+**from the ranking weighing to each node it ranks** (source = the weighing, target = a ranked
+member). Direction is load-bearing *here* because it is what separates "this weigh ranks {A, B}" from
+"a meta-weigh ranks this weigh" — both are Comparison edges incident to the weigh, and only the arrow
+tells them apart (the meta's edge has the meta as source, so it does not pollute the weigh's pair,
+§6.5). Node type cannot orient this (a meta-weigh and the weighs it ranks are all `Weighing`), and
+recency cannot either (a weigh and its meta are the same sub-debate). A **backwards** Comparison (a
+member pointing at the weighing) therefore leaves the weigh without a well-formed pair and it is
+**silently inert** — malformed, not an error, per §3.4. The builder must enforce the direction when
+authoring a weigh so a human cannot draw a silent dead weigh (follow-up, see the migration notes).
+Every other edge type stays direction-agnostic.
 
 ---
 
@@ -172,12 +185,14 @@ offensive attacker, is a bug: it would turn a side's own defensively-mitigated l
 the opponent. (A link driven to σ ≈ 0 by defense is *dead*, not *turned*: sign stays +1, magnitude 0,
 delta 0 — emit `MAGNITUDE`, not `POLARITY_FLIP`.)
 
-Directional resolution of a contested link **first honors an established directional preference**
-(a won weighing/framework claim about which way the link cuts); only when no such preference exists,
-or it is itself contested, does it fall back to the DF-QuAD-against-0.5 computation above. (This is
-the same "won preference overrides the raw number, absence falls back to the number" pattern used for
-impact weighing at the ballot — applied here to polarity. It is distinct from impact weighing, which
-runs later, at the ballot, over surviving offense.)
+Directional resolution of a contested link is **a clash between two same-type nodes** (the AFF link
+vs. the NEG turn's competing-polarity claim), so it is resolved by the general recursive
+clash-breaker, `resolve` (§6.5): a **determinate won weigh** over that link clash decides direction
+outright — the link keeps the preferred side's polarity regardless of raw σ — and only when the weigh
+is **absent or indeterminate** does direction fall back to the DF-QuAD-against-0.5 computation above.
+This is why a won link-weigh *saves a turned link*: the weigh is the established directional
+preference, consumed here, not merely an impact comparison at the ballot. See §6.5 for the full rule
+and the pass-ordering it requires.
 
 ### 3.3 Chain propagation — sign (QPN) and magnitude (`judge/qpn.py`, `judge/chain.py`)
 
@@ -286,15 +301,88 @@ and the missing speech.
 
 ---
 
-## 7. Weighing and the ballot (Passes 5b–6)
+## 6.5 Clash resolution — recursive weighing (the primary clash-breaker)
 
-### Weighing (ballot-stage preference)
-Weighing **never edits delta**. The delta values are fixed by §3. A won weighing claim (conceded, or
-winning its own sub-clash, resolved by DF-QuAD over the for/against arguments) establishes a
-preference the judge honors when comparing surviving offense — and that preference **can override**
-what raw delta alone would say (a smaller-delta impact can be preferred). When weighing is **absent
-or its clash is unresolved**, no preference is established and the judge falls back to **raw delta**
-comparison. Meta-weighing is the same node type recursed. Emit `WEIGH`.
+Weighing is **not** an impact-only, ballot-stage preference. It is the **general clash-breaker over
+any two same-type nodes** — two impacts, two links (a turn's polarity clash), two uniquenesses, two
+frameworks, two interpretations. Any same-type pair can be weighed; where no competing claim exists,
+no weigh is authored and the question is moot. Weighing **never edits δ** — it does not change a
+node's strength. It tells the judge *how to break a clash*, and a tabula rasa judge honors the
+debaters' clash-breaking instruction rather than substituting its own magnitude arithmetic. Magnitude
+is only the fallback for a clash the debaters did not resolve.
+
+A weighing names its pair via **`Comparison` edges directed from the weighing to each ranked node**
+(the one direction-bearing edge type — see the §2.2 carve-out). This is what lets a *meta*-weigh rank
+two ordinary weighs without its edges being mistaken for the ranked pair: the meta's Comparison edges
+have the meta as source, so `weigh_pair` (targets of *this* weigh's own outgoing Comparisons) is
+unpolluted. A weigh whose Comparison is drawn backwards has no well-formed pair and is silently inert.
+
+DF-QuAD still runs and computes every node's surviving strength (drops, concessions, attacks) exactly
+as before. The change is at **clash resolution**: when two same-type nodes clash, the judge consults
+weighing **first**, and reaches for raw δ **only** if weighing does not resolve.
+
+### The rule (recursive, one definition at every depth)
+
+```
+resolve(clash):
+    P = the weighing layer immediately above this clash
+    if P contains exactly ONE surviving preference:      # determinate
+        that preference decides the clash (overrides raw δ)
+    else:                                                 # indeterminate: absent or tied
+        decide the clash by DF-QuAD magnitude (raw δ)
+
+    where a preference "survives" iff it is not dropped AND not defeated by a
+    higher weighing clash — determined by resolve() applied one level up
+    (meta-weighing over weighing, meta-meta-weighing over that, ...).
+```
+
+The levels, top to bottom: **meta-weighing → weighing → DF-QuAD magnitude**. A clash is
+**determinate** iff the level above it yields a single surviving preference; **indeterminate** iff
+that level is empty or itself unresolved — which is just *a clash one level up*, resolved by the same
+rule. Magnitude is the **base case / floor**: it has no level above, always yields a comparison, and
+never punts upward, so the recursion terminates.
+
+**Well-founded:** each step climbs to strictly fewer, higher nodes in a finite graph, and the
+magnitude floor guarantees a base case — so `resolve` always terminates. Implement it as an actual
+recursion, not a fixed depth-2 check (a fixed check is wrong at depth ≥ 2).
+
+### The three indeterminate cases are one case at different depths (illustrations)
+
+- **(a) no weigh** — the weighing layer is empty → fall to magnitude.
+- **(b) symmetric weigh** — both sides weigh the *same two nodes* oppositely with no meta-weigh
+  breaking them → the weighing layer has no lone survivor → fall to magnitude.
+- **(c) non-resolving weighs** — AFF weighs on magnitude, NEG on probability, no meta-weigh saying
+  which dimension controls; or AFF says mag>prob and NEG says prob>mag with nothing resolving it →
+  the weighing layer ties → fall to magnitude.
+
+(b) and (c) are (a) one level up: "the weighing layer failed to produce a single survivor" is the
+same condition as "no weigh exists." The judge does not enumerate depths — it applies `resolve`.
+
+### Where it feeds
+
+- **Polarity (§3.2):** a link/turn polarity clash is resolved by `resolve`. A determinate won
+  link-weigh keeps the preferred side's polarity outright; indeterminate → the 0.5 σ threshold.
+- **Impacts at the ballot:** the same `resolve` ranks surviving offense — determinate weigh overrides
+  raw δ, indeterminate falls to raw δ.
+- Emit `WEIGH` (with the pair, the resolved preference or `symmetric`, and `via`).
+
+### Pass-ordering requirement
+
+Because a determinate weigh must be able to **decide polarity**, the weighing towers must be resolved
+**before** the clash resolution that consumes them — not two passes later. Resolve each weighing
+sub-debate to determinate/indeterminate first (it needs only the weighing nodes' own drop/concession
+status, not the main-chain polarities), then feed determinate weighs into clash resolution (polarity,
+then impacts). This avoids a dependency cycle (weighing needs strengths; polarity now needs weighing;
+strengths need polarity): the weighing towers depend only on their own sub-debate, so they resolve
+independently first.
+
+**This is a judge-semantics change → version bump.** A large class of clashes that previously fell to
+magnitude may now be weigh-decided, so re-confirm the oracle harness against the new semantics rather
+than assuming prior verdicts hold.
+
+---
+
+## 7. The ballot (Pass 6)
 
 ### Ballot (BD validation + net offense)
 **Validate each BD.** A `BallotDirective` carries no stored `claimed_direction` or `target_node`
@@ -351,15 +439,20 @@ RFD/panel reads — judge-populated, consumed downstream, and never able to chan
 
 1. **Discovery** — enumerate BD-anchored chains.
 2. **Drop + extension** — response windows; lock drops; cut un-extended chains.
-3. **Node accrual + chain resolution** — DF-QuAD per node (leaves first); effective polarity; sign
-   and magnitude products -> delta per chain.
-4. *(folded into 3 for V1)*
-5. **Framework gate, then weighing** — exclude out-of-scope impacts; establish weighing preferences.
-6. **Ballot** — validate BDs; sum net offense with preferences; apply asymmetric win condition;
-   indeterminate -> presumption.
+3. **Node accrual** — DF-QuAD per node (leaves first) → surviving σ. (No polarity yet.)
+4. **Weighing towers** — resolve each weighing sub-debate to determinate/indeterminate via `resolve`
+   (§6.5); these depend only on their own drop/concession status, so they settle before clash
+   resolution and cannot cycle with polarity.
+5. **Clash resolution** — resolve same-type clashes (§6.5): determinate weigh decides, else raw δ.
+   This is where **effective polarity** is set (a won link-weigh keeps polarity; else the 0.5 σ
+   threshold). Then chain sign/magnitude products → delta per chain.
+6. **Framework gate** — exclude out-of-scope impacts.
+7. **Ballot** — validate BDs; rank surviving offense with `resolve`; sum net offense; apply the
+   asymmetric win condition; indeterminate → presumption.
 
 Discovery flows outward from BDs; scoring flows inward to them. A node is scored only after its
-attackers and supporters are scored.
+attackers are scored. **Weighing resolves before polarity** so a won weigh can decide a link clash
+(§6.5 pass-ordering). This ordering changed with the recursive-weighing upgrade — **version bump**.
 
 ---
 

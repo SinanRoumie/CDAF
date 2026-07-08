@@ -23,8 +23,8 @@ PROGRESS.md for the deferred turn-offense milestone):
 """
 
 from model import (
-    Round, Advocacy, Uniqueness, Link, Impact, Framework, BallotDirective,
-    Support, DefensiveAttack, OffensiveAttack, SPEECH_ORDER, SPEECH_SIDE,
+    Round, Advocacy, Uniqueness, Link, Impact, Framework, Weighing, BallotDirective,
+    Support, DefensiveAttack, OffensiveAttack, Comparison, SPEECH_ORDER, SPEECH_SIDE,
 )
 from judge import judge
 from judge.config import AFF, NEG, EPSILON
@@ -60,6 +60,10 @@ class _B:
     def oatk(self, a, b):
         return OffensiveAttack(id=self._id(), source=a.id, target=b.id)
 
+    def cmp(self, weigh, member):
+        # A Comparison points FROM the ranking weigh TO a ranked member (§6.5).
+        return Comparison(id=self._id(), source=weigh.id, target=member.id)
+
 
 def _ballot(trace):
     return [r for r in trace if r.kind == "BALLOT"][0]
@@ -67,6 +71,11 @@ def _ballot(trace):
 
 def _chains(trace):
     return [r for r in trace if r.kind == "CHAIN"]
+
+
+def _polarity_via(trace, link_id):
+    pf = [r for r in trace if r.kind == "POLARITY_FLIP" and r.link_id == link_id]
+    return pf[0].via if pf else None
 
 
 # --- §11.1 Clean uncontested advantage -> AFF ---------------------------------
@@ -220,3 +229,70 @@ def test_r8_no_window_new_2ar_offense_inert():
         b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd)], version=2))
     assert ballot == NEG
     assert any(r.kind == "UNRESOLVED" and r.node_id == im.id for r in trace)
+
+
+# --- Recursive weighing (§6.5) -- clash resolution decides polarity -----------
+
+def _turned_link_round(b, counter_weigh=False, meta_weigh=False):
+    """AFF advocacy->UQ->link->impact + BD (AFF wins alone); NEG turns the link
+    (OffensiveAttack). AFF weighs {AFF link, the turn}. Optionally NEG counter-
+    weighs the same pair oppositely, and optionally an AFF meta-weigh ranks the
+    two weighs. Returns (elements, link_id)."""
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC", label="AFF link"); im = b.n(Impact, AFF, "1AC")
+    bd = b.n(BallotDirective, AFF, "2AR")
+    turn = b.n(Link, NEG, "1NC", label="NEG turn")
+    waff = b.n(Weighing, AFF, "2AC", label="AFF: our link beats the turn")
+    els = [adv, uni, lk, im, bd, turn, waff,
+           b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+           b.oatk(turn, lk),                         # NEG turns the AFF link
+           b.cmp(waff, lk), b.cmp(waff, turn)]       # AFF weighs {link, turn}
+    if counter_weigh:
+        wneg = b.n(Weighing, NEG, "2NC/1NR", label="NEG: the turn beats their link")
+        els += [wneg, b.cmp(wneg, lk), b.cmp(wneg, turn)]
+        if meta_weigh:
+            meta = b.n(Weighing, AFF, "1AR", label="AFF meta: our weigh controls")
+            els += [meta, b.cmp(meta, waff), b.cmp(meta, wneg)]
+    return els, lk.id
+
+
+def test_r9_turned_link_saved_by_determinate_weigh_aff():
+    """A determinate won link-weigh decides the polarity clash for AFF: the link
+    keeps its polarity via PREFERENCE (not sigma), the defeated turn drops from
+    the chain magnitude, the chain survives, and AFF takes the ballot."""
+    b = _B()
+    els, lk_id = _turned_link_round(b)               # AFF weighs; NEG does not counter
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == AFF
+    assert _polarity_via(trace, lk_id) == "preference"     # weigh decided, not the 0.5 sigma rule
+    # the WEIGH record shows the link-weigh resolved in favour of the AFF link:
+    weigh = [r for r in trace if r.kind == "WEIGH" and r.outcome == "resolved"]
+    assert weigh and weigh[0].preferred_node == lk_id and weigh[0].via == "preference"
+    ch = _chains(trace)[0]
+    assert ch.sign == 1 and ch.mag > EPSILON               # link kept polarity, magnitude survived
+
+
+def test_r10_turned_link_indeterminate_falls_to_magnitude_neg():
+    """Same round but NEG counter-weighs the SAME pair oppositely with no meta-
+    weigh: the weighing layer has no lone survivor (§6.5 case b), so the clash
+    falls to DF-QuAD magnitude -- the turn resolves as it did before the upgrade
+    (link flips via the sigma threshold) and NEG takes the ballot."""
+    b = _B()
+    els, lk_id = _turned_link_round(b, counter_weigh=True)
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == NEG
+    assert _polarity_via(trace, lk_id) == "dfquad"         # fell back to the 0.5 sigma threshold
+    assert all(r.outcome == "symmetric" for r in trace if r.kind == "WEIGH")
+
+
+def test_r11_recursive_meta_weigh_breaks_tie_aff():
+    """Depth-2: AFF and NEG weigh {link, turn} oppositely (would tie), but an AFF
+    META-weigh ranks the two weighs and defeats NEG's. That leaves AFF's weigh the
+    lone survivor at the base clash -> determinate -> the link is saved -> AFF.
+    This is the case a fixed depth-2 check gets wrong; it must stay a recursion,
+    so this is a permanent regression test that resolve is not depth-limited."""
+    b = _B()
+    els, lk_id = _turned_link_round(b, counter_weigh=True, meta_weigh=True)
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == AFF
+    assert _polarity_via(trace, lk_id) == "preference"     # meta broke the tie -> determinate
