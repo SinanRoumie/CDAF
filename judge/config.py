@@ -19,7 +19,14 @@ decisions) and §2.1 (speech order/side).
 #       IFF every offense-bearing node on it is live by the SIDE-AGNOSTIC UNION of
 #       both sides' liveness stamps (§6). Composition (double-turn -> AFF at
 #       inherited strength) falls out of sign product x magnitude invariant (§3.3).
-JUDGE_VERSION = 3
+#   v4: attacker-liveness gates accrual (§3.1, §6) -- an attack contributes to its
+#       target's DF-QuAD ONLY while the attack itself is live (extended by its
+#       maker, or the side-agnostic union where that applies). An attack its maker
+#       abandoned LAPSES: it is removed from the target's attacker set and
+#       contributes nothing -- it is NOT scored "conceded" merely because the
+#       opposing side did not answer it. The mitigation path (answer the attacker)
+#       is unchanged.
+JUDGE_VERSION = 4
 
 # --- Ballot values (§0) --------------------------------------------------------
 # The ballot is binary. PRESUMPTION (below) resolves to one of these.

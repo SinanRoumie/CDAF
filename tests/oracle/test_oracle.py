@@ -33,7 +33,7 @@ from model import (
     Round, Advocacy, Uniqueness, Link, Impact, Framework, Weighing, BallotDirective,
     Support, DefensiveAttack, OffensiveAttack, Comparison, SPEECH_ORDER, SPEECH_SIDE,
 )
-from judge import judge
+from judge import judge, passes
 from judge.config import AFF, NEG, EPSILON
 
 CONTESTED, CONCEDED = "contested", "conceded"
@@ -401,3 +401,78 @@ def test_r11_recursive_meta_weigh_breaks_tie_aff():
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == AFF
     assert _polarity_via(trace, lk_id) == "preference"     # meta broke the tie -> determinate
+
+
+# --- Attacker-liveness gate (§3.1, §6 -- v4) ----------------------------------
+
+def _uniqueness_attack_round(b, nonuniq_live, answer=False):
+    """AFF advantage advocacy->uniqueness->link->impact + BD, all AFF-extended to
+    2AR. NEG reads a non-unique (DefensiveAttack) on the uniqueness in 1NC with
+    liveness `nonuniq_live`. If `answer`, AFF attacks the non-unique in 2AC (a
+    conceded counter). Returns (elements, uniqueness_id, nonuniq_id)."""
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
+    bd = b.n(BallotDirective, AFF, "2AR")
+    nonuniq = b.n(Uniqueness, NEG, "1NC", nonuniq_live, label="NEG non-unique")
+    els = [adv, uni, lk, im, bd, nonuniq,
+           b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+           b.datk(nonuniq, uni)]                      # NEG non-unique attacks the uniqueness
+    if answer:
+        counter = b.n(Uniqueness, AFF, "2AC", label="AFF answer to the non-unique")
+        els += [counter, b.datk(counter, nonuniq)]    # AFF attacks the attacker (mitigation)
+    return els, uni.id, nonuniq.id
+
+
+def _uni_attackers(els, uni_id):
+    """The uniqueness's DF-QuAD attacker-id set at the ballot (post-classification)."""
+    ctx = passes.build_context(Round(elements=els, version=2))
+    return {a for a, _e in ctx.attackers_by_target.get(uni_id, [])}
+
+
+def test_r12_dropped_nonunique_lapses_aff():
+    """THE BUG FIX (§3.1, §6 -- v4). NEG reads a non-unique on the AFF uniqueness
+    in 1NC and does NOT extend it (liveness {1NC} only). A dropped attack LAPSES:
+    it is removed from the uniqueness's attacker set and contributes nothing -- it
+    is NOT scored 'conceded' just because AFF didn't answer it. The uniqueness
+    survives at sigma 1.0, the chain holds at mag 1.0, and AFF wins cleanly."""
+    b = _B()
+    els, uni_id, nonuniq_id = _uniqueness_attack_round(b, {"1NC": CONTESTED})
+    assert nonuniq_id not in _uni_attackers(els, uni_id)   # lapsed: NOT in the attacker set
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and bl.N > EPSILON
+    ch = _chains(trace)[0]
+    assert ch.extended and abs(ch.mag - 1.0) < 1e-9        # uniqueness restored -> chain intact
+    assert any(r.kind == "INERT_ATTACK" and "lapsed" in r.reason for r in trace)
+
+
+def test_r13_extended_nonunique_still_contests_neg():
+    """CONTRAST. Same round but NEG DOES extend the non-unique through 2NC/1NR and
+    2NR (full NEG liveness). It stays LIVE, so it remains in the uniqueness's
+    attacker set at full strength and drives the uniqueness to 0 -> chain mag 0 ->
+    NEG. The gate removes only attacks the MAKER abandoned, never live ones."""
+    b = _B()
+    full_neg = {"1NC": CONTESTED, "2NC/1NR": CONCEDED, "2NR": CONCEDED}
+    els, uni_id, nonuniq_id = _uniqueness_attack_round(b, full_neg)
+    assert nonuniq_id in _uni_attackers(els, uni_id)       # live: DOES contest
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == NEG
+    ch = _chains(trace)[0]
+    assert ch.mag < EPSILON                                # uniqueness zeroed -> chain collapsed
+
+
+def test_r14_answered_nonunique_still_mitigates_aff():
+    """MITIGATION STILL WORKS (oracle 3 path). The non-unique is extended (live)
+    AND AFF answers it in 2AC (attacks the attacker, conceded). The gate leaves the
+    live attack in the set; the leaves-first DF-QuAD then reduces it via AFF's
+    counter (in V1 a conceded counter removes it entirely), so the uniqueness
+    survives and AFF wins. The fix did not break the answer path."""
+    b = _B()
+    full_neg = {"1NC": CONTESTED, "2NC/1NR": CONCEDED, "2NR": CONCEDED}
+    els, uni_id, nonuniq_id = _uniqueness_attack_round(b, full_neg, answer=True)
+    assert nonuniq_id in _uni_attackers(els, uni_id)       # live (answered, not lapsed)
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == AFF                                    # answered down -> uniqueness restored
+    ch = _chains(trace)[0]
+    assert ch.mag > EPSILON

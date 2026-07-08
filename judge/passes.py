@@ -229,6 +229,24 @@ def _classify_attacks(ctx: Context) -> None:
             ctx.trace.append(T.InertAttack(edge_id=e.id, reason=reason))
             continue
 
+        # Attacker-liveness gate (§3.1, §6 -- v4). An attack contributes to its
+        # target's accrual ONLY while the attack itself is LIVE -- extended by its
+        # maker (side-agnostic union, node_live_by_any_side, so a turn kept live by
+        # either side still counts). An attack its maker ABANDONED lapses: it is
+        # removed from the target's attacker set (and offense set) and contributes
+        # nothing. It is NOT scored "conceded" merely because the opposing side did
+        # not answer it -- concession/full strength holds only for a LIVE attack.
+        # This does not touch the mitigation path: an attack the TARGET answered is
+        # still live (the maker extended it) and is reduced by its own attacker via
+        # the leaves-first DF-QuAD recursion below, exactly as before.
+        live, _ = node_live_by_any_side(attacker)
+        if not live:
+            _, maker_missing = node_extension_ok(attacker)   # maker-side gap, for the message
+            ctx.trace.append(T.InertAttack(
+                edge_id=e.id,
+                reason=f"lapsed: attack not extended by its maker (missing {maker_missing})"))
+            continue
+
         attackers_by_target[target.id].append((attacker.id, e))
         if isinstance(e, OffensiveAttack) and isinstance(target, OFFENSE_BEARING):
             ctx.offense_on[target.id].append(attacker.id)

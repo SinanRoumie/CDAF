@@ -157,6 +157,24 @@ works). The `{s_k}` slot remains in the formula, reserved for a future explicit 
 convention; in V1 it is always empty. Adding bare warrants to a contested node therefore does not
 change its σ in V1 — a documented simplification, deferred like evidence weighting.
 
+**Attacker-liveness gate — an abandoned attack lapses (v4).** An attack feeds the accrual above
+**only while the attack itself is live** — i.e. extended by its maker (read from the attacker's own
+liveness record, §6; the side-agnostic union where that applies, e.g. a turn kept live by either
+side). An attack whose maker **dropped it** — its liveness record fails its own extension test — is
+**not** in the `{a_j}` set at all: it **lapses** and contributes nothing. Concretely, a non-unique
+read in 1NC and never extended does **not** sit in the uniqueness's attacker product at σ = 1.0 and
+zero it; it is simply gone. **Crucially, "the opposing side did not answer it" does not by itself
+confer conceded/full strength** — concession holds only for an attack that is *also live*. Dropping
+an attack and conceding an attack are different: you concede an attack the maker **keeps**; a maker
+who **abandons** its own attack forfeits it regardless of whether the other side ever spoke to it.
+
+This does **not** touch the mitigation path (§3.1, oracle 3). If the **target** answers the attack —
+attacks the attacker — the attack is still *live* (its maker extended it), stays in the `{a_j}` set,
+and is reduced by the leaves-first DF-QuAD recursion exactly as before. The gate removes only attacks
+the **maker** abandoned, never ones the **target** answered. (The gate applies to defensive and
+offensive attacks alike; for a turn, liveness is the side-agnostic union of §6.) **This is a
+judge-semantics change → version bump** (v4).
+
 ### 3.2 Effective polarity
 
 A link carries a polarity (+1 / -1). An offensive attack is a competing-polarity claim that enters
@@ -323,6 +341,16 @@ converter: `extension_migration_spec.md`.)
   another live path still needs.
 - **Re-engagement is allowed.** A side may extend/answer a node it had stopped extending once it is
   live again (e.g. the opponent turned it and carried it forward).
+- **Extension gates attacks too, not just offense chains (v4).** Liveness governs **every** node's
+  participation, including an **attack's**. An attack (defensive or offensive) contributes to its
+  target's accrual (§3.1) **only while the attack is live** — extended by its maker, read from the
+  attacker's own liveness record (the side-agnostic union where that applies). An attack the maker
+  **abandoned** lapses and is dropped from the target's attacker set; it is **not** kept alive, and
+  **not** scored "conceded," by the mere fact that the opposing side never answered it. This closes
+  the gap where extension gated only offense-bearing spine chains while a dropped defensive attack
+  still contested at full strength. Emit `INERT_ATTACK` (reason `lapsed…`) for the forfeited attack.
+  The **answer** path is untouched: an attack the *target* answered is still live and mitigates as
+  ever (§3.1).
 
 A chain that fails extension contributes **zero** to net offense (extension is a boolean gate, not a
 multiplier — this replaces any separate `C_ext` term). Emit `EXTENSION_FAIL` naming the spine node
