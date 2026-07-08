@@ -280,21 +280,46 @@ def pass2_drops(ctx: Context) -> None:
             ctx.trace.append(T.Drop(node_id=nid, owner=n.side, intro_speech=n.speech, window_speech=win))
 
 
-def node_extension_ok(node: Node) -> Tuple[bool, Optional[str]]:
+def node_extension_ok(node: Node, carrying_side: Optional[str] = None) -> Tuple[bool, Optional[str]]:
     """§6, read from the LIVENESS record: a spine node is extended iff its
-    liveness covers every one of its own side's speeches from its introduction
-    onward. Returns (ok, missing_speech). Liveness is side-agnostic (a node kept
-    live by the opponent is live); this reads the record, never edges. The
-    "no new chains in rebuttals" rule is applied at the chain level, so a
-    weighing/framework introduced in a rebuttal is not penalized here."""
+    liveness covers every one of the CARRYING side's speeches from its
+    introduction onward. Returns (ok, missing_speech).
+
+    LIVENESS IS SIDE-AGNOSTIC (§6): a node's record is the UNION of every party's
+    extensions through it, so a node kept live by the opponent is live. This reads
+    the record, never edges. `carrying_side` is the side whose speech schedule the
+    node must be extended through; it defaults to the node's own introducing side
+    (the ordinary, non-turned case). For a TURNED chain a node need only be live by
+    *someone* -- that union check is `node_live_by_any_side`, which calls this with
+    each side in turn. The "no new chains in rebuttals" rule is applied at the chain
+    level, so a weighing/framework introduced in a rebuttal is not penalized here."""
     liveness = node.liveness or {}
     intro_idx = _sidx(node.speech)
     if intro_idx is None:
         return True, None
-    for s in side_speeches(node.side):
+    for s in side_speeches(carrying_side or node.side):
         if _sidx(s) >= intro_idx and s not in liveness:
             return False, s
     return True, None
+
+
+def node_live_by_any_side(node: Node) -> Tuple[bool, Optional[str]]:
+    """§6 side-agnostic union: is this node live -- carried by ANY side? A turned
+    chain's nodes count iff their (union) liveness record is sustained by someone,
+    NOT specifically by the turning side (spec §6). This yields both turn win-paths
+    with no special-casing (§3.5): (a) the introducing side keeps the link/impact
+    live while the other side carries the turn, or (b) the turning side carries the
+    whole chain -- either way the node was kept live by *someone*. A node no side
+    kept alive (a dead impact) fails. Returns (ok, missing_speech); the reported
+    gap is the opponent-side gap (the carrying side one would expect for a turn),
+    falling back to the own-side gap."""
+    ok_own, miss_own = node_extension_ok(node, carrying_side=node.side)
+    if ok_own:
+        return True, None
+    ok_opp, miss_opp = node_extension_ok(node, carrying_side=_opposing(node.side))
+    if ok_opp:
+        return True, None
+    return False, miss_opp or miss_own
 
 
 # --- Pass 3: node accrual (sigma only -- NO polarity yet, §9) -----------------
@@ -377,14 +402,24 @@ def _resolve_polarity(ctx: Context) -> None:
     THE FLIP IS GATED ON THE PRESENCE OF AN OFFENSIVE ATTACK. Only a link that is
     the target of an OffensiveAttack (in ctx.offense_on) is eligible to flip. For
     such a link the {link, turn} clash is resolved by `resolve`:
-      * a DETERMINATE won link-weigh keeps the preferred side's polarity outright
-        (via 'preference', regardless of raw sigma). When the LINK wins, its
-        offensive attacker (the turn) lost the clash, so it is defeated -- dropped
-        from the link's CHAIN magnitude (mag_sigma), which is why a won weigh
-        saves a turned link's chain;
-      * absent/indeterminate -> the 0.5 sigma threshold (via 'dfquad'), as before.
+      * a DETERMINATE won link-weigh decides the sign outright (via 'preference',
+        regardless of raw sigma): winner == link keeps +1, winner == turn flips;
+      * absent/indeterminate -> the 0.5 sigma threshold (via 'dfquad'), as before,
+        reading ctx.sigma (which INCLUDES the offensive attacker -- that is what
+        pushes sigma below 0.5 and triggers the flip).
     A defensively-only link keeps +1 no matter how low sigma falls (defense
-    reduces magnitude, never reverses direction)."""
+    reduces magnitude, never reverses direction).
+
+    MAGNITUDE PRESERVATION IS SYMMETRIC (§3.2, §3.5). A polarity flip NEVER changes
+    magnitude -- magnitude changes ONLY through defensive attack. The offensive
+    attack is a SIGN-channel operation: it decides which way the link cuts, not how
+    strong it is. So the link's CHAIN magnitude (mag_sigma) is recomputed over its
+    DEFENSIVE attackers ONLY, dropping every offensive attacker, whether the link
+    wins (keeps +1 at its surviving magnitude) or the turn wins (the flipped link
+    carries that same surviving magnitude into the turned chain at the opponent's
+    sign). v2 did this only for a LINK that won its weigh; v3 generalizes it to the
+    turn-wins case too, so a winning turn GENERATES offense instead of merely
+    driving its target to sigma 0."""
     from .resolve import resolve
     eff: Dict[str, object] = {}
     for nid in ctx.reachable:
@@ -395,24 +430,23 @@ def _resolve_polarity(ctx: Context) -> None:
             eff[nid] = 1            # defensive-only or unattacked: keeps +1, skip flip path
             continue
 
-        preference, defeated = None, set()
+        preference = None
         for t in ctx.offense_on.get(nid, []):
             determinate, winner, _ = resolve(ctx, frozenset({nid, t}))
             if determinate:
-                if winner == nid:
-                    preference, defeated = 1, {t}    # link wins -> keeps, turn defeated
-                else:
-                    preference = -1                  # turn wins -> link flips
+                preference = 1 if winner == nid else -1   # link wins -> keeps; turn wins -> flips
                 break
 
         pol, via = chainmod.effective_polarity(1, ctx.sigma[nid], preference=preference)
         eff[nid] = pol
-        if defeated:
-            # The defeated competing claim (the turn that lost the weigh) does not
-            # reduce the winner: recompute the link's chain sigma without it.
-            live = [ctx.sigma.get(a, TAU) for a, _e in ctx.attackers_by_target.get(nid, [])
-                    if a in ctx.reachable and a not in defeated]
-            ctx.mag_sigma[nid] = dfquad.accrue(TAU, live, [])
+        # Preserve magnitude across the flip: accrue over DEFENSIVE attackers only,
+        # excluding every offensive attacker (they are the sign channel, not the
+        # magnitude channel). This carries the surviving magnitude into the chain
+        # at the resolved sign -- so a turned link contributes real offense, not 0.
+        offensive = set(ctx.offense_on.get(nid, []))
+        defensive = [ctx.sigma.get(a, TAU) for a, _e in ctx.attackers_by_target.get(nid, [])
+                     if a in ctx.reachable and a not in offensive]
+        ctx.mag_sigma[nid] = dfquad.accrue(TAU, defensive, [])
         ctx.trace.append(T.PolarityFlip(
             link_id=nid, from_sign=1, to_sign=pol, sigma=ctx.mag_sigma[nid], via=via,
         ))
@@ -457,11 +491,30 @@ def _build_chains(ctx: Context) -> None:
         )
         delta = chainmod.delta(sign, mag)
 
+        # The side the composed sign favors -- the side that OWNS this chain's
+        # offense. When it equals `side` the chain reads normally; when it is the
+        # opponent the chain is TURNED (§3.5) and its offense-bearing nodes must be
+        # carried by that favored side. UNRESOLVED sign favors nobody.
+        favored = None
+        if sign != qpn.UNRESOLVED:
+            favored = side if sign > 0 else _opposing(side)
+
         intro_idx = min((_sidx(ctx.nodes[m].speech) or 0) for m in members)
         intro_speech = SPEECH_ORDER[intro_idx]
 
-        # extension gate (§6): every spine node extended (read from liveness); a
+        # Extension gate (§6): every spine node extended (read from liveness); a
         # chain first introduced in a rebuttal does not count.
+        #  * NON-TURNED chain (composed sign favors its own side): each spine node
+        #    is checked against its OWN side's speeches, as ever.
+        #  * TURNED chain (§3.5, composed sign favors the opponent): the offense is
+        #    carried side-agnostically, so each node counts iff it is live by the
+        #    UNION of both sides' stamps -- kept alive by SOMEONE (node_live_by_any_
+        #    side), never by the turning side alone. This admits both turn win-paths
+        #    with no special-casing (the introducing side keeps the link/impact live
+        #    while the other carries the turn; OR the turning side carries the whole
+        #    chain). A turn into a dead impact (no side kept it live) fails here and
+        #    generates nothing.
+        turned = favored is not None and favored != side
         extended = True
         ext_fail_node = None
         if intro_speech in REBUTTAL_SPEECHES:
@@ -471,7 +524,11 @@ def _build_chains(ctx: Context) -> None:
                 chain_id=chain_id, missing_speech=intro_speech, spine_node_id=ext_fail_node))
         else:
             for r in spine_reps:
-                ok, missing = node_extension_ok(ctx.nodes[r])
+                node = ctx.nodes[r]
+                if turned:
+                    ok, missing = node_live_by_any_side(node)
+                else:
+                    ok, missing = node_extension_ok(node)
                 if not ok:
                     extended = False
                     ext_fail_node = r

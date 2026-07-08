@@ -13,6 +13,13 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from .config import AFF, NEG
+
+
+def _opposing(side: str) -> str:
+    return NEG if side == AFF else AFF
+
+
 # Human phrasings for the structural collapse reasons emitted on CHAIN records.
 _COLLAPSE_PHRASE = {
     "extension_fail": "failed extension (a spine node was not carried through every one of its side's speeches)",
@@ -61,23 +68,44 @@ def render_lines(ballot: str, trace: list) -> List[str]:
     reason = _REASON_PHRASE.get(b.reason_class, b.reason_class or "the default presumption")
     lines.append(f"Decision: {b.winner} wins because {reason}.")
 
-    # 2. Net offense and its decomposition
+    # 2. Net offense and its decomposition. A TURNED contributor (its link flipped
+    # polarity, §3.5) is one contribution seen two ways -- it stops carrying its
+    # introducing side's offense and starts carrying the opponent's at the same
+    # magnitude. Render it as ONE coherent statement here, and suppress its
+    # duplicate appearance in the collapsed-arguments list below (it did not
+    # collapse -- it generated offense for the other side).
+    chain_by_id = {c.chain_id: c for c in _kind(trace, "CHAIN")}
     lines.append(
         f"Net offense N = {b.N:+.3f} (affirmative Sum-delta = {b.aff_sum:+.3f}, "
         f"negative Sum-delta = {b.neg_sum:+.3f})."
     )
     contributors = [d for d in b.decomposition if d["contributed"]]
+    turned_ids = {d["chain_id"] for d in contributors
+                  if getattr(chain_by_id.get(d["chain_id"]), "collapse_reason", None) == "sign_flip"}
     if contributors:
         for d in contributors:
-            lines.append(
-                f"  - The {d['side']} argument {d['chain_id']} survives and contributes "
-                f"delta = {d['delta']:+.3f}."
-            )
+            cid, intro = d["chain_id"], d["side"]
+            if cid in turned_ids:
+                owner = _opposing(intro)   # a turn flips the offense to the other side
+                mag = abs(d["delta"])
+                lines.append(
+                    f"  - The {intro} argument {cid} was turned: it no longer carries {intro} "
+                    f"offense and now carries {owner} offense at magnitude {mag:.3f} "
+                    f"(delta = {d['delta']:+.3f})."
+                )
+            else:
+                lines.append(
+                    f"  - The {intro} argument {cid} survives and contributes "
+                    f"delta = {d['delta']:+.3f}."
+                )
     else:
         lines.append("  - No argument survived to contribute offense.")
 
-    # 3. Every chain that collapsed, with the reason and responsible node
-    collapsed = [c for c in _kind(trace, "CHAIN") if c.collapse_reason]
+    # 3. Every chain that collapsed, with the reason and responsible node. A turned
+    # contributor (narrated above) is NOT a collapse and is excluded here, so it
+    # reads as one statement rather than appearing as both a collapse and a credit.
+    collapsed = [c for c in _kind(trace, "CHAIN")
+                 if c.collapse_reason and c.chain_id not in turned_ids]
     if collapsed:
         lines.append("Collapsed arguments:")
         for c in collapsed:

@@ -11,7 +11,7 @@ import os
 from model import (
     Round, Advocacy, Uniqueness, Link, Impact, Framework, Weighing, BallotDirective,
     Support, DefensiveAttack, OffensiveAttack, Comparison,
-    SPEECH_ORDER, SPEECH_SIDE, CONCEDED, serialize,
+    SPEECH_ORDER, SPEECH_SIDE, CONTESTED, CONCEDED, serialize,
 )
 
 from judge import passes, judge as judge_mod
@@ -368,3 +368,30 @@ def test_rfd_reports_weighing_override():
     text = rfd.render(ballot, trace)
     assert "Weighing" in text
     assert "preferred" in text
+
+
+def test_rfd_turned_contributor_reads_as_one_statement():
+    """A turned chain that generates opposing offense (§3.5) is ONE contribution;
+    the RFD must render it as a single coherent line -- not as both a collapsed
+    AFF argument AND a negative-delta contributor. Guards the display against
+    re-suggesting a double-count that the ballot arithmetic does not make."""
+    adv = node(Advocacy, AFF, "1AC"); uni = node(Uniqueness, AFF, "1AC")
+    link = node(Link, AFF, "1AC",
+                live={"1AC": CONTESTED, "1NC": CONTESTED, "2NC/1NR": CONTESTED, "2NR": CONTESTED})
+    imp = node(Impact, AFF, "1AC",
+               live={"1AC": CONCEDED, "1NC": CONCEDED, "2NC/1NR": CONCEDED, "2NR": CONCEDED})
+    turn = node(Link, NEG, "1NC")
+    bd = node(BallotDirective, NEG, "2NR")
+    els = [adv, uni, link, imp, turn, bd,
+           support(adv, uni), support(uni, link), support(link, imp), support(imp, bd),
+           oatk(turn, link)]
+    ballot, trace = judge(Round(elements=els))
+    assert ballot == NEG
+    text = rfd.render(ballot, trace)
+    chain_id = [r for r in trace if r.kind == "CHAIN"][0].chain_id
+    # the turned chain is narrated ONCE, as a turn that transfers offense:
+    assert text.count(chain_id) == 1
+    assert "was turned: it no longer carries AFF offense and now carries NEG offense" in text
+    # and it is NOT ALSO listed as a plain contributor or under collapsed arguments:
+    assert "survives and contributes" not in text
+    assert "Collapsed arguments" not in text

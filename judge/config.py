@@ -13,7 +13,13 @@ decisions) and §2.1 (speech order/side).
 #   v2: recursive weighing clash-resolution (§6.5) -- weighing is the general
 #       same-type clash-breaker and can decide link/turn polarity, resolved by a
 #       single well-founded recursion (meta-weighing -> weighing -> magnitude).
-JUDGE_VERSION = 2
+#   v3: turn offense (§3.5) -- a polarity flip PRESERVES MAGNITUDE (magnitude
+#       changes only through defensive attack, §3.2); a turned chain generates
+#       offense for the composed sign's favored side at the preserved magnitude
+#       IFF every offense-bearing node on it is live by the SIDE-AGNOSTIC UNION of
+#       both sides' liveness stamps (§6). Composition (double-turn -> AFF at
+#       inherited strength) falls out of sign product x magnitude invariant (§3.3).
+JUDGE_VERSION = 3
 
 # --- Ballot values (§0) --------------------------------------------------------
 # The ballot is binary. PRESUMPTION (below) resolves to one of these.

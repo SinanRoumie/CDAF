@@ -117,18 +117,6 @@ Because every speech is single-side, every cross-side attack necessarily spans t
 speech recency assigns attacker/target unambiguously. Same-side "attacks" are incoherent and inert
 (§3.4). This principle is what makes the judge robust to the noise that real rounds contain.
 
-**One carve-out — `Comparison` is the sole direction-bearing edge type.** A `Comparison` points
-**from the ranking weighing to each node it ranks** (source = the weighing, target = a ranked
-member). Direction is load-bearing *here* because it is what separates "this weigh ranks {A, B}" from
-"a meta-weigh ranks this weigh" — both are Comparison edges incident to the weigh, and only the arrow
-tells them apart (the meta's edge has the meta as source, so it does not pollute the weigh's pair,
-§6.5). Node type cannot orient this (a meta-weigh and the weighs it ranks are all `Weighing`), and
-recency cannot either (a weigh and its meta are the same sub-debate). A **backwards** Comparison (a
-member pointing at the weighing) therefore leaves the weigh without a well-formed pair and it is
-**silently inert** — malformed, not an error, per §3.4. The builder must enforce the direction when
-authoring a weigh so a human cannot draw a silent dead weigh (follow-up, see the migration notes).
-Every other edge type stays direction-agnostic.
-
 ---
 
 ## 3. The two channels (the core, kept strictly separate)
@@ -194,6 +182,15 @@ This is why a won link-weigh *saves a turned link*: the weigh is the established
 preference, consumed here, not merely an impact comparison at the ballot. See §6.5 for the full rule
 and the pass-ordering it requires.
 
+**Flipping is a sign operation and never touches magnitude (v3 invariant).** Whether the link keeps
+its polarity or flips, its magnitude is unchanged by the flip — magnitude changes *only* through
+defensive attack (§3.1). A winning turn does **not** drive the link's magnitude to zero; it flips the
+sign and the magnitude carries through, so the flipped link becomes offense *at strength* for the
+turning side. (The earlier behavior — a winning turn zeroing its target — was the turn-offense bug:
+it let a turn *neutralize* the AFF link but never *generate* NEG offense from it.) This invariant must
+hold symmetrically: link-wins, turn-wins, and stacked turns all preserve magnitude through every
+flip. See §3.5.
+
 ### 3.3 Chain propagation — sign (QPN) and magnitude (`judge/qpn.py`, `judge/chain.py`)
 
 Along a serial chain, **multiply** — never run DF-QuAD along the chain.
@@ -223,6 +220,36 @@ attack with no matching factor to operate on (e.g. offense aimed at a pre-world 
 with nothing to attenuate) **contributes nothing** — it is inert. The judge does not reject it; it
 simply has no effect on any sigma. This keeps the judge robust to malformed graphs and defers the
 uncertain link-vs-impact boundary to behavior rather than a hard ban.
+
+### 3.5 Turn offense (v3)
+
+A turn is not a special mechanism — it is a polarity flip (§3.2) that preserves magnitude (§3.2
+invariant) over a chain whose nodes are side-agnostically live (§6). Everything about turn offense
+falls out of those two rules plus the sign product (§3.3). The unified rule:
+
+- **A turn flips its target link's polarity and preserves the link's magnitude through the flip.** The
+  flipped link becomes offense for the side the *composed sign* favors, at the surviving magnitude.
+- **The turned chain generates offense iff every node on it is live — sustained by ANY side.** The
+  whole chain from the flipped link through to its terminal impact must be live (§6, side-agnostic).
+  A turn into a **dead impact** (the target impact fell out of the round) generates nothing — there is
+  nothing to inherit. This is the inheritance rule: NEG inherits the AFF's impact **iff that impact is
+  live**, by whoever kept it alive.
+- **Two win paths, one check (§6).** (a) AFF keeps its argument live and NEG extends the turn; (b) AFF
+  drops the contention and NEG carries the whole argument with the turn as the new link. The judge
+  does not distinguish them — it checks that every node on the turned chain is live via the union of
+  both sides' liveness stamps. (a) and (b) are just two ways that union is satisfied.
+- **Multiple turns compose by sign product (§3.3), magnitude preserved through each.** A double-turn
+  is `(-1) × (-1) = +1`: the link returns to AFF polarity, and because each flip preserved magnitude,
+  AFF inherits the surviving strength. No special double-turn handling — it is the sign product with
+  the magnitude invariant. **Ownership of the turned chain's offense is decided by the final composed
+  sign**, not by who read the last turn: one turn → NEG, two → AFF, three → NEG.
+- **A turn kills the offense it flips.** When the link flips to the opponent, the original side's
+  offense through that link is gone (its sign now cuts the other way) — the flip simultaneously ends
+  the original chain and creates the turned chain. This is one operation, not two resolutions.
+
+Emit `POLARITY_FLIP` (via `preference`/`dfquad`) and `CHAIN` for the turned chain with its composed
+sign, preserved magnitude, and owning side. **This is a judge-semantics change → version bump (v3);
+re-confirm the oracle harness.**
 
 ---
 
@@ -281,14 +308,16 @@ converter: `extension_migration_spec.md`.)
 - **No new chains in rebuttals** — a chain whose *introduction* speech is a rebuttal does not count
   (reads the node's introduction `speech`).
 - Non-spine nodes need not be extended.
-- **Liveness is side-agnostic.** A node stays live as long as *any* live argument routes through it,
-  regardless of which side introduced it. **Inheritance is just this + extension:** when a turn
-  flips a link, the flipped link and any inherited impact are ordinary nodes on the turning side's
-  chain; they count only if that side's extension keeps them in the record. Example: AFF impact in
-  1AC, NEG turn in 1NC, AFF concedes — NEG must carry **both** the link turn **and** the original
-  impact in its liveness, or the offense evaluates to nothing. The turned AFF node staying live is
-  the side-agnostic rule; AFF walking away does not kill it while NEG carries it. No special turn
-  rule — the ordinary spine check produces this.
+- **Liveness is side-agnostic — check the union of both sides' stamps.** A node stays live as long as
+  *any* live argument routes through it, regardless of which side introduced it. For a **turned
+  chain**, the flipped link and its terminal impact count as live iff their liveness records are
+  covered by the **union** of both sides' stamps — not by the turning side alone. This yields the two
+  win paths (§3.5) with no special-casing: **(a)** AFF keeps the argument live (extends the
+  link/impact) and NEG extends the turn — the union is covered by both; **(b)** AFF drops the
+  contention and NEG carries the whole chain with the turn as the new link — the union is covered by
+  NEG alone. Either way the check is identical: is every node on the turned chain live by *someone*?
+  A turn into a **dead impact** (no side kept it alive) generates nothing — nothing to inherit. No
+  special turn rule — the ordinary side-agnostic spine check produces all of this.
 - **Shared trunk nodes live by union.** Advocacy/uniqueness shared across a branch's paths stay live
   while any live path through them is extended; collapsing one path never un-stamps a shared node
   another live path still needs.
@@ -310,12 +339,6 @@ no weigh is authored and the question is moot. Weighing **never edits δ** — i
 node's strength. It tells the judge *how to break a clash*, and a tabula rasa judge honors the
 debaters' clash-breaking instruction rather than substituting its own magnitude arithmetic. Magnitude
 is only the fallback for a clash the debaters did not resolve.
-
-A weighing names its pair via **`Comparison` edges directed from the weighing to each ranked node**
-(the one direction-bearing edge type — see the §2.2 carve-out). This is what lets a *meta*-weigh rank
-two ordinary weighs without its edges being mistaken for the ranked pair: the meta's Comparison edges
-have the meta as source, so `weigh_pair` (targets of *this* weigh's own outgoing Comparisons) is
-unpolluted. A weigh whose Comparison is drawn backwards has no well-formed pair and is silently inert.
 
 DF-QuAD still runs and computes every node's surviving strength (drops, concessions, attacks) exactly
 as before. The change is at **clash resolution**: when two same-type nodes clash, the judge consults

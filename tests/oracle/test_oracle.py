@@ -5,21 +5,28 @@ the spec (not drawn in the builder), one test per round, asserting the stated
 winner plus the key trace fact that localizes the decision to one pass. Each
 round is surgical -- it isolates one mechanism.
 
-Notes on spec-vs-mechanics (surfaced for review, not silently asserted; see
-PROGRESS.md for the deferred turn-offense milestone):
-  * Rounds 2/4/5/8 win for NEG via an AFF chain that COLLAPSED, so reason_class
-    is "AFF structural failure" -- correct per §7's own definition (an AFF chain
+Notes on spec-vs-mechanics (surfaced for review, not silently asserted):
+  * Rounds 2/8 win for NEG via an AFF chain that COLLAPSED, so reason_class is
+    "AFF structural failure" -- correct per §7's own definition (an AFF chain
     existed but collapsed / failed a gate). §11's looser word "presumption" for
     some of these is the label to tighten later; the judge follows §7.
   * Round 3's mitigation resolves to full magnitude (1.0), not ~0.5: a conceded
     counter removes the defender entirely, and V1 has no fractional strengths.
     The winner (AFF) is unchanged.
-  * Rounds 4 and 5 are NOT distinguished as offense-vs-presumption, and neither
-    verifies NEG winning ON turn offense: the current turn mechanics (an offensive
-    attack drives the target to sigma 0, and extension is read node-side, which
-    AFF conceded) resolve both to NEG via the AFF chain's collapse. Winner NEG is
-    correct for both. Awarding NEG offense FROM a turn is the deferred
-    turn-offense milestone (PROGRESS.md), out of scope here.
+  * TURN OFFENSE (v3, §3.5). Round 4 now verifies NEG winning ON turn offense:
+    a polarity flip PRESERVES MAGNITUDE (§3.2), so the turned AFF chain carries
+    its surviving magnitude into a NEG-favoring chain (sign -1, mag > eps) that
+    generates real NEG offense (N < -eps) -- not a 0-0 presumption. Round 4b
+    shows a turn into a DEAD impact (no side carried it) generating nothing, and
+    round 4c shows a DOUBLE turn composing back to AFF at inherited strength
+    (sign +1, mag inherited) -- a version that zeroes magnitude on a flip fails
+    4c. Round 4d is turn win-path (a): AFF keeps the link/impact live while NEG
+    carries the turn, so the chain is live by the UNION of both sides -- a
+    favored-side-only liveness check wrongly rejects it. Round 5 (turn not
+    extended) is unchanged: the inherited impact is carried to 2NR by NO side, so
+    no offense -> NEG. All winners here match v2; round 4's reason_class changed
+    from "AFF structural failure" to "NEG offense" (the verdict NEG is unchanged)
+    -- the v3 upgrade this milestone delivers.
 """
 
 from model import (
@@ -138,21 +145,20 @@ def test_r3_answered_defense_mitigation_aff():
     assert ch.mag > EPSILON                         # defense mitigated -> chain survives
 
 
-# --- §11.4 Link turn collapses the AFF chain -> NEG ---------------------------
+# --- §11.4 Link turn, chain live -> NEG ON turn offense (v3, §3.5) ------------
 
-def test_r4_link_turn_collapses_aff_chain_neg():
-    """NEG turns the 1AC link in 1NC (an OffensiveAttack); AFF concedes it.
+def test_r4_link_turn_generates_neg_offense():
+    """NEG turns the 1AC link in 1NC (an OffensiveAttack); AFF concedes and walks
+    away, but NEG carries BOTH the turned link and the inherited impact through
+    the block + 2NR (side-agnostic union liveness, §6).
 
-    WHAT THIS ACTUALLY VERIFIES: NEG wins because the turn *collapses the AFF
-    chain* -- the AFF link is driven to sigma 0 (mag -> 0) and, since AFF walked
-    away, the chain fails its own-side extension (EXTENSION_FAIL). The verdict is
-    NEG via AFF's structural failure.
-
-    WHAT THIS DOES NOT VERIFY: NEG winning ON live turn offense. The judge cannot
-    yet award NEG offense FROM a turn (turns zero the target and extension is read
-    node-side, i.e. AFF's, who conceded). That is the deferred turn-offense
-    milestone -- see PROGRESS.md. So this is not a green check for turn offense;
-    it only checks that a conceded turn takes the AFF advantage off the table."""
+    TURN OFFENSE (v3, §3.5). The flip PRESERVES MAGNITUDE (§3.2): the offensive
+    attack is a sign-channel operation, so the AFF link keeps its surviving
+    magnitude (1.0, no defensive attack on it) and carries it into a turned chain
+    at NEG's sign. Because every offense-bearing node on that chain is live by the
+    UNION of both sides' stamps, the turned chain GENERATES real NEG offense --
+    sign -1, mag > eps, N < -eps -- rather than merely zeroing the AFF advantage.
+    This is NEG winning ON turn offense, not a 0-0 presumption win."""
     b = _B()
     adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
     lk = b.n(Link, AFF, "1AC", {"1AC": CONTESTED, "1NC": CONTESTED,
@@ -166,9 +172,105 @@ def test_r4_link_turn_collapses_aff_chain_neg():
         b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
         b.oatk(turn, lk)], version=2))
     assert ballot == NEG
-    # NEG wins via the AFF chain's collapse, NOT via NEG turn offense:
-    assert any(r.kind == "EXTENSION_FAIL" for r in trace)
-    assert _ballot(trace).reason_class == "AFF structural failure"
+    # NEG wins ON turn offense: the turned chain carries NEG-favoring sign at real
+    # magnitude, so N is genuinely negative (not a 0-0 presumption).
+    bl = _ballot(trace)
+    assert bl.reason_class == "NEG offense" and bl.N < -EPSILON
+    ch = _chains(trace)[0]
+    assert ch.sign == -1 and ch.mag > EPSILON      # magnitude PRESERVED across the flip
+    assert ch.extended                             # union liveness kept the turned nodes live
+    # the flip carried magnitude, so the AFF chain is not zeroed -- it contributes
+    # NEG offense to the ballot decomposition:
+    d = [x for x in bl.decomposition if x["chain_id"] == ch.chain_id][0]
+    assert d["contributed"] and d["delta"] < -EPSILON
+
+
+def test_r4b_turn_into_dead_impact_generates_nothing_neg():
+    """As r4 but the inherited impact is DEAD -- no side carried it past its 1AC
+    introduction (empty NEG liveness on the impact). The turn still neutralizes
+    the AFF advantage (the link flips), but with the impact unextended the turned
+    chain generates NOTHING: no NEG offense (N ~ 0), decided by presumption. This
+    is the union-liveness gate (§3.5, §6): a turn into a node no one kept live
+    produces no offense."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC", {"1AC": CONTESTED, "1NC": CONTESTED,
+                                "2NC/1NR": CONTESTED, "2NR": CONTESTED})
+    im = b.n(Impact, AFF, "1AC", {"1AC": CONCEDED})     # dead: no one carried it forward
+    turn = b.n(Link, NEG, "1NC")
+    bd = b.n(BallotDirective, NEG, "2NR")
+    ballot, trace = judge(Round(elements=[
+        adv, uni, lk, im, turn, bd,
+        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+        b.oatk(turn, lk)], version=2))
+    assert ballot == NEG
+    # The turn neutralizes but generates NO NEG offense -- N is ~0, not negative:
+    bl = _ballot(trace)
+    assert bl.N > -EPSILON and bl.reason_class != "NEG offense"
+    assert any(r.kind == "EXTENSION_FAIL" for r in trace)   # dead impact failed the union gate
+    ch = _chains(trace)[0]
+    assert not ch.extended
+    assert not any(x["contributed"] for x in bl.decomposition)   # nothing credited
+
+
+def test_r4c_double_turn_returns_to_aff_inherited_strength():
+    """DOUBLE TURN: NEG reads BOTH a link turn and an impact turn (two
+    OffensiveAttacks); AFF concedes each but re-extends the double-turned
+    advantage (re-engagement, §6). Two flips COMPOSE by sign product (§3.3):
+    (-1)(-1) = +1, back to AFF polarity. Because each flip PRESERVES MAGNITUDE
+    (§3.2), the chain inherits full strength (mag 1.0) rather than zeroing -- so
+    AFF wins at inherited strength on the double-cross. NO special-casing: this
+    falls straight out of sign product x the magnitude invariant. A judge that
+    zeroed magnitude on a flip would give mag 0 -> N 0 -> NEG here; the AFF win
+    is the regression test for magnitude preservation through two flips."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    # AFF re-extends the turned link + impact through its speeches (§6); NEG's
+    # 1NC/2NR contested stamps and AFF's 2AC/1AR/2AR conceded stamps coexist on
+    # the same side-agnostic union record.
+    live = {"1AC": CONTESTED, "1NC": CONTESTED, "2AC": CONCEDED,
+            "1AR": CONCEDED, "2NR": CONTESTED, "2AR": CONCEDED}
+    lk = b.n(Link, AFF, "1AC", dict(live)); im = b.n(Impact, AFF, "1AC", dict(live))
+    turnL = b.n(Link, NEG, "1NC", label="link turn")
+    turnI = b.n(Link, NEG, "1NC", label="impact turn")
+    bd = b.n(BallotDirective, AFF, "2AR")
+    ballot, trace = judge(Round(elements=[
+        adv, uni, lk, im, turnL, turnI, bd,
+        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+        b.oatk(turnL, lk), b.oatk(turnI, im)], version=2))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and bl.N > EPSILON
+    ch = _chains(trace)[0]
+    assert ch.sign == 1                            # two flips composed back to +1
+    assert abs(ch.mag - 1.0) < 1e-9                # magnitude INHERITED through both flips
+    assert ch.delta > EPSILON
+
+
+def test_r4d_turn_live_by_union_win_path_a_neg():
+    """Turn win-path (a) (§3.5, §6 union): AFF KEEPS the link and impact live
+    through its OWN speeches (still contesting) while NEG carries the TURN. The
+    link/impact records therefore hold AFF stamps, not NEG stamps -- yet the turned
+    chain still counts, because every node is live by the UNION of both sides
+    (kept alive by SOMEONE), not by the turning side alone. This is the case a
+    'favored-side-only' liveness check wrongly rejects; the union check must accept
+    it -> NEG on turn offense."""
+    b = _B()
+    aff_live = {"1AC": CONCEDED, "2AC": CONCEDED, "1AR": CONCEDED, "2AR": CONCEDED}
+    adv = b.n(Advocacy, AFF, "1AC", dict(aff_live)); uni = b.n(Uniqueness, AFF, "1AC", dict(aff_live))
+    lk = b.n(Link, AFF, "1AC", {"1AC": CONTESTED, "2AC": CONTESTED,
+                                "1AR": CONTESTED, "2AR": CONTESTED})   # AFF keeps it live
+    im = b.n(Impact, AFF, "1AC", dict(aff_live))                      # AFF keeps it live
+    turn = b.n(Link, NEG, "1NC")                                     # NEG carries the turn
+    bd = b.n(BallotDirective, NEG, "2NR")
+    ballot, trace = judge(Round(elements=[
+        adv, uni, lk, im, turn, bd,
+        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+        b.oatk(turn, lk)], version=2))
+    assert ballot == NEG
+    ch = _chains(trace)[0]
+    assert ch.sign == -1 and ch.mag > EPSILON and ch.extended   # union kept the turned chain live
+    assert _ballot(trace).reason_class == "NEG offense" and _ballot(trace).N < -EPSILON
 
 
 # --- §11.5 Link turn, NOT extended -> NEG -------------------------------------
