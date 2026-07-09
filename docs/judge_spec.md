@@ -157,23 +157,20 @@ works). The `{s_k}` slot remains in the formula, reserved for a future explicit 
 convention; in V1 it is always empty. Adding bare warrants to a contested node therefore does not
 change its σ in V1 — a documented simplification, deferred like evidence weighting.
 
-**Attacker-liveness gate — an abandoned attack lapses (v4).** An attack feeds the accrual above
-**only while the attack itself is live** — i.e. extended by its maker (read from the attacker's own
-liveness record, §6; the side-agnostic union where that applies, e.g. a turn kept live by either
-side). An attack whose maker **dropped it** — its liveness record fails its own extension test — is
-**not** in the `{a_j}` set at all: it **lapses** and contributes nothing. Concretely, a non-unique
-read in 1NC and never extended does **not** sit in the uniqueness's attacker product at σ = 1.0 and
-zero it; it is simply gone. **Crucially, "the opposing side did not answer it" does not by itself
-confer conceded/full strength** — concession holds only for an attack that is *also live*. Dropping
-an attack and conceding an attack are different: you concede an attack the maker **keeps**; a maker
-who **abandons** its own attack forfeits it regardless of whether the other side ever spoke to it.
-
-This does **not** touch the mitigation path (§3.1, oracle 3). If the **target** answers the attack —
-attacks the attacker — the attack is still *live* (its maker extended it), stays in the `{a_j}` set,
-and is reduced by the leaves-first DF-QuAD recursion exactly as before. The gate removes only attacks
-the **maker** abandoned, never ones the **target** answered. (The gate applies to defensive and
-offensive attacks alike; for a turn, liveness is the side-agnostic union of §6.) **This is a
-judge-semantics change → version bump** (v4).
+**An attacker contributes to accrual only while it is live (v4).** Membership in a target's attacker
+set is gated on the **attacker's own liveness** — an attack contests its target only in the speeches
+where the attack itself is live (extended by its maker). An attack read once and **not extended**
+(dropped by its maker) **lapses**: it is removed from its target's accrual from the gap onward and
+contributes nothing at the ballot. It is **not** scored "conceded" merely because the opposing side
+didn't answer it — an abandoned attack has nothing to answer, and "conceded strength" requires the
+attack to be live. So a non-unique read in the 1NC and never extended stops contesting the AFF
+uniqueness from the 2AC on, and the uniqueness recovers (τ=1.0: the eroding attacker is gone). This
+is the mirror of the offense-side extension gate (§6): **extension gates defense exactly as it gates
+offense** — an argument you don't carry falls away, whether it's an advantage or a non-unique. (Why
+this is safe against the tabula-rasa "conceded is true" principle: a conceded attack that actually
+matters is *extended by the side relying on it* — going for it is extending it; dropping it signals
+it doesn't matter.) The gate applies to all attacks, offensive and defensive; for a turn, liveness is
+the side-agnostic union (§3.5, §6).
 
 ### 3.2 Effective polarity
 
@@ -341,20 +338,18 @@ converter: `extension_migration_spec.md`.)
   another live path still needs.
 - **Re-engagement is allowed.** A side may extend/answer a node it had stopped extending once it is
   live again (e.g. the opponent turned it and carried it forward).
-- **Extension gates attacks too, not just offense chains (v4).** Liveness governs **every** node's
-  participation, including an **attack's**. An attack (defensive or offensive) contributes to its
-  target's accrual (§3.1) **only while the attack is live** — extended by its maker, read from the
-  attacker's own liveness record (the side-agnostic union where that applies). An attack the maker
-  **abandoned** lapses and is dropped from the target's attacker set; it is **not** kept alive, and
-  **not** scored "conceded," by the mere fact that the opposing side never answered it. This closes
-  the gap where extension gated only offense-bearing spine chains while a dropped defensive attack
-  still contested at full strength. Emit `INERT_ATTACK` (reason `lapsed…`) for the forfeited attack.
-  The **answer** path is untouched: an attack the *target* answered is still live and mitigates as
-  ever (§3.1).
 
 A chain that fails extension contributes **zero** to net offense (extension is a boolean gate, not a
 multiplier — this replaces any separate `C_ext` term). Emit `EXTENSION_FAIL` naming the spine node
 and the missing speech.
+
+**Extension gates attacks too, not only offense-bearing chains (v4).** The same liveness requirement
+applies to defensive and offensive *attacks*: an attack contests its target only while the attack is
+live (extended by its maker). A non-unique or link-defense read once and not extended **lapses** and
+stops contesting its target — it is removed from the target's DF-QuAD accrual, not scored "conceded"
+off the opponent's silence (§3.1). This closes the asymmetry where a dropped advantage fell away but a
+dropped non-unique kept killing at full strength. Offense and defense are both forfeited by
+abandonment.
 
 ---
 
@@ -417,38 +412,6 @@ same condition as "no weigh exists." The judge does not enumerate depths — it 
   raw δ, indeterminate falls to raw δ.
 - Emit `WEIGH` (with the pair, the resolved preference or `symmetric`, and `via`).
 
-### What a determinate weigh does — one consequence, generalized (v5)
-
-A determinate weigh **defeats the dispreferred member** of the clash, and — the general mechanism —
-**a defeated member does not attack the winner**. That consequence is **one rule**, but its
-**expression follows the channel of the clash** (§3 keeps the sign and magnitude channels strictly
-separate, so "does not attack the winner" is realized in whichever channel the clash lives in):
-
-- **Magnitude-channel clashes — uniqueness, framework, any defensive attack:** the defeated attacker
-  is **removed from the winner's DF-QuAD accrual**, so a won uniqueness-weigh actually saves the
-  uniqueness (the defeated non-unique no longer contests it). This is folded into the **same attacker
-  gate** as the liveness rule (§3.1, v4): an attacker contributes to its target's accrual only if it
-  is **(a)** live (extended by its maker) **and (b)** not defeated by a determinate weigh over its
-  clash with that target — `resolve(ctx, {attacker, target})` determinate with the **target** as
-  winner. A defeated attacker emits `INERT_ATTACK` (reason `defeated by weigh`).
-- **Sign-channel clashes — link/turn polarity:** the defeated **turn does not flip the link** — the
-  link **holds its polarity via preference** (§3.2) — and the turn is **dropped from the link's
-  magnitude**. This runs in the polarity pass, which reads `offense_on`; the magnitude gate above
-  leaves `offense_on` untouched precisely so this channel keeps ownership of the turn.
-- **Impact clashes:** the dispreferred impact's **chain is excluded at the ballot** (§7) — the same
-  defeat expressed at the tally rather than in accrual.
-
-All three are the same rule; they differ **only** in which channel "does not attack the winner" is
-expressed in. **Do not collapse them into one literal prune point.** Concretely, do **not** prune a
-defeated turn from `offense_on` before the polarity pass runs: that would make the link look
-**unattacked** (so it would never enter the flip path), **lose the `POLARITY_FLIP via=preference`
-trace record** that explains *why* the link held, and **conflate the sign and magnitude channels** —
-which §3 forbids. The turn must be consumed in the sign channel (polarity), not silently deleted from
-the magnitude channel's attacker set. Before v5 only the link and impact expressions existed, so a
-won uniqueness-or-framework weigh was **decorative** (the `WEIGH` resolved but nothing changed); v5
-adds the magnitude-channel expression and no more — one rule, three channel-faithful expressions, not
-one prune site.
-
 ### Pass-ordering requirement
 
 Because a determinate weigh must be able to **decide polarity**, the weighing towers must be resolved
@@ -510,7 +473,7 @@ RFD/panel reads — judge-populated, consumed downstream, and never able to chan
 | `MAGNITUDE` | node_id, base_tau, surviving_sigma, attackers[], supporters[] | — | 3 |
 | `POLARITY_FLIP` | link_id, from_sign, to_sign, sigma, via (preference/dfquad) | — | 3 |
 | `INERT_ATTACK` | edge_id, reason | — | 3 |
-| `CHAIN` | chain_id, sign, mag, delta | side, owner, extended, in_scope, collapse_reason, responsible | 3 |
+| `CHAIN` | chain_id, sign, mag, delta | side, extended, in_scope, collapse_reason, responsible | 3 |
 | `FRAMEWORK_GATE` | impact_id, framework_id, in_scope | — | 5 |
 | `WEIGH` | weighing_id, outcome (resolved/symmetric), preferred_node, via | pair[], overrode | 5 |
 | `BD_VALIDATE` | bd_id, result, reason | side | 6 |
@@ -525,10 +488,7 @@ RFD/panel reads — judge-populated, consumed downstream, and never able to chan
 3. **Node accrual** — DF-QuAD per node (leaves first) → surviving σ. (No polarity yet.)
 4. **Weighing towers** — resolve each weighing sub-debate to determinate/indeterminate via `resolve`
    (§6.5); these depend only on their own drop/concession status, so they settle before clash
-   resolution and cannot cycle with polarity. **Then consume the towers against accrual (v5):** drop
-   every attacker defeated by a determinate weigh over its clash with its target (§6.5) and re-accrue,
-   so a won uniqueness/framework/defensive weigh actually removes the defeated attacker. (The link
-   case is consumed in pass 5's polarity channel; the impact case at the ballot.)
+   resolution and cannot cycle with polarity.
 5. **Clash resolution** — resolve same-type clashes (§6.5): determinate weigh decides, else raw δ.
    This is where **effective polarity** is set (a won link-weigh keeps polarity; else the 0.5 σ
    threshold). Then chain sign/magnitude products → delta per chain.
