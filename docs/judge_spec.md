@@ -420,28 +420,34 @@ same condition as "no weigh exists." The judge does not enumerate depths — it 
 ### What a determinate weigh does — one consequence, generalized (v5)
 
 A determinate weigh **defeats the dispreferred member** of the clash, and — the general mechanism —
-**a defeated attacker does not attack the winner**: it is **removed from the winner's accrual**. This
-is a single rule; the three feed-points above are it applied in each channel, not three separate
-mechanisms:
+**a defeated member does not attack the winner**. That consequence is **one rule**, but its
+**expression follows the channel of the clash** (§3 keeps the sign and magnitude channels strictly
+separate, so "does not attack the winner" is realized in whichever channel the clash lives in):
 
-- **Uniqueness / framework / any defensive clash** (the general case): the defeated attacker is
-  dropped from the winner's DF-QuAD attacker set, so a won uniqueness-weigh actually saves the
+- **Magnitude-channel clashes — uniqueness, framework, any defensive attack:** the defeated attacker
+  is **removed from the winner's DF-QuAD accrual**, so a won uniqueness-weigh actually saves the
   uniqueness (the defeated non-unique no longer contests it). This is folded into the **same attacker
   gate** as the liveness rule (§3.1, v4): an attacker contributes to its target's accrual only if it
   is **(a)** live (extended by its maker) **and (b)** not defeated by a determinate weigh over its
   clash with that target — `resolve(ctx, {attacker, target})` determinate with the **target** as
   winner. A defeated attacker emits `INERT_ATTACK` (reason `defeated by weigh`).
-- **Links** (already built in v2/v3): the defeated **turn** is dropped from the link's magnitude while
-  the won weigh keeps the link's polarity — the polarity+magnitude behavior of §3.2. This is the same
-  "defeated attacker does not reduce the winner" rule expressed in the **sign channel**; the gate
-  therefore leaves `offense_on` to the polarity pass and only removes the turn's magnitude
-  contribution, so the two agree.
-- **Impacts** (already built): ballot-stage — the dispreferred impact's **chain is excluded** from the
-  tally (§7), the same defeat expressed at the ballot rather than in accrual.
+- **Sign-channel clashes — link/turn polarity:** the defeated **turn does not flip the link** — the
+  link **holds its polarity via preference** (§3.2) — and the turn is **dropped from the link's
+  magnitude**. This runs in the polarity pass, which reads `offense_on`; the magnitude gate above
+  leaves `offense_on` untouched precisely so this channel keeps ownership of the turn.
+- **Impact clashes:** the dispreferred impact's **chain is excluded at the ballot** (§7) — the same
+  defeat expressed at the tally rather than in accrual.
 
-Before v5 only the link and impact consequences existed, so a won uniqueness-or-framework weigh was
-**decorative** — the `WEIGH` record resolved but nothing changed. v5 closes that gap with no per-type
-special-casing: it is the one rule, routed to whichever channel that clash's members live in.
+All three are the same rule; they differ **only** in which channel "does not attack the winner" is
+expressed in. **Do not collapse them into one literal prune point.** Concretely, do **not** prune a
+defeated turn from `offense_on` before the polarity pass runs: that would make the link look
+**unattacked** (so it would never enter the flip path), **lose the `POLARITY_FLIP via=preference`
+trace record** that explains *why* the link held, and **conflate the sign and magnitude channels** —
+which §3 forbids. The turn must be consumed in the sign channel (polarity), not silently deleted from
+the magnitude channel's attacker set. Before v5 only the link and impact expressions existed, so a
+won uniqueness-or-framework weigh was **decorative** (the `WEIGH` resolved but nothing changed); v5
+adds the magnitude-channel expression and no more — one rule, three channel-faithful expressions, not
+one prune site.
 
 ### Pass-ordering requirement
 
