@@ -45,6 +45,8 @@ These are settled. They are named constants in `judge/config.py`.
 | Weighing | ballot-stage preference | never edits delta; won weighing overrides raw delta, absent/tied weighing falls back to raw delta |
 | Presumption | hardcoded **NEG**, uncontestable | every indeterminate result drains here |
 | Near-zero net offense | abs(N) < epsilon -> presumption | configurable small epsilon; prevents float noise from manufacturing an AFF win |
+| Framework selection | **live-set cardinality** | exactly one live framework gates; zero or many is a **wash** (no gating, §5.2). Never order-dependent |
+| Framework magnitude | **none** | a framework's σ is consumed at the liveness threshold only (§3.6); it is never a spine rep and never a δ term |
 
 **Note on stale numbers.** Earlier project docs used tau = 0.5 and declared link magnitudes (the
 0.7 / 0.165 worked examples). Those are superseded. Build oracle fixtures fresh from tau = 1.0.
@@ -56,13 +58,64 @@ These are settled. They are named constants in `judge/config.py`.
 A node's **type** encodes role, not a distinct object. Strength accrues identically at every node
 (§3.1); what the strength then does depends only on the node's position in the graph.
 
-- **Pre-world (defense-only):** Uniqueness. Can be defended against only by competing uniqueness;
-  cannot bear offense.
+- **Pre-world (defense-only):** Uniqueness. It is a **spine rep** — it sits at the front of a chain
+  and multiplies into magnitude (§3.3) — but it bears **no offense**: it is never turn-eligible and
+  never the source or target of an effective `OffensiveAttack` (§3.4). Its only attack role is
+  **defensive**: a uniqueness may defensively attack another uniqueness *or* a link — both express the
+  non-unique ("already inevitable regardless of your link"), lowering the target's magnitude, never
+  flipping it (§3.2). Competing non-uniques break by weighing (§6.5) like any clash. (This drops the
+  earlier "uniqueness clashes only with competing uniqueness" restriction: the non-unique can land on
+  the link directly when no separate uniqueness node exists.)
 - **Post-world (offense-bearing):** Link and Impact. Mechanically identical in V1. A node is an
   **impact** for weighing purposes iff it is **terminal** — nothing chains forward out of it. A
   mid-chain "impact" is functioning as an internal link and is treated as one. Links and impacts may
-  carry offensive and defensive relations with one another through the same magnitude channel.
-- **Framework / Weighing:** resolve sub-debates that gate and rank impacts (§5, §7).
+  carry offensive and defensive relations with one another through the same magnitude channel. **They
+  are the only turn-eligible nodes** (§3.4): an effective turn requires an offense-bearing node at each
+  end.
+- **Framework:** a **scope instruction**. It says which offense the ballot may count (§5). It is
+  **offense-inert**: it carries no polarity, contributes no magnitude factor, and cannot terminate a
+  chain. Its strength σ is contested like any node's (§3.1), but σ on a framework is consumed at the
+  **liveness threshold**, never as a magnitude multiplier (§3.6). A framework is **not** a valid
+  `OffensiveAttack` target — you defeat a framework, you do not turn it; offense aimed at a framework
+  has no polarity to flip and is inert (§3.4), the same as offense aimed at an Advocacy. A framework
+  relates to a chain in exactly **one** way: support-reachability, which §5.3 reads as **anchoring**
+  (scope). There is no separate "premise" or "is-about" relation — the judge does not model aboutness,
+  and it must not, because aboutness is label-driven and the label is opaque (§0).
+
+  The two things debaters say about a framework map to the two attack channels, and the second is a
+  **two-edge** construct that needs no new node or edge type:
+  - *"Their framework is flawed"* is a `DefensiveAttack` on the framework node. It lowers σ. Drive σ
+    below the threshold and the framework leaves the live set and cannot gate (§5.1). Nothing new is
+    required.
+  - *"Their framework is harmful"* (the framework kritik) is **one Link node wearing two hats**, not
+    an attack *on* the framework as such. As a **spine rep** it roots its own offense chain,
+    Link → Impact, anchored to a framework the reading side can win (typically its own) — this chain
+    carries magnitude through its Link and Impact and contributes to N like any disad. **Separately**,
+    that same Link draws a `DefensiveAttack` onto the target framework, lowering its σ toward the
+    threshold. A node that is a chain member *and* an attacker on someone else is the ordinary
+    "attack your attacker" topology of §3.1, read off type and position (§2.2); the kritik is that
+    pattern with a framework as the thing attacked. The offense stands on **its own anchor** and does
+    **not** require the criticized framework to be live: "util is racist" generates offense under the
+    reader's framework whether or not util is anywhere in the round. Anchoring the criticism to the
+    framework it criticizes would be self-defeating — the criticism would share that framework's fate
+    and go out of scope when it loses — so debaters bring their own framework to house it, which is
+    real practice and emerges from anchoring alone.
+
+  A framework may therefore be a **chain anchor** (scope, gating on liveness) and the **target of a
+  defensive attack** (unseating, on σ) at once, while never being a spine rep and never carrying a
+  magnitude factor.
+
+  **What a framework is not.** *"Framework"* in debate practice is polysemous: it names a scope gate
+  (util, deontology, "evaluate the discourse first") and it names a procedural contention with a ballot
+  directive (theory's fairness/education → "reject the team"). These are structurally distinct objects
+  and the graph keeps them apart. The discriminating test is: **with no other offense in the round, can
+  this node alone produce a ballot?** If yes it is an Impact plus a `BallotDirective`, not a Framework.
+  Fairness and education are **Impacts**: they carry magnitude ("minor abuse" vs "game-ending"), they
+  are weighed against one another, they terminate chains, and they pair with a BD. A value/criterion is
+  a **Framework**: you cannot win on it alone; it selects which offense counts. A theory shell is
+  structurally a contention — violation (Link) → fairness (Impact) → reject the team (BD) — with no new
+  node types. That the formalization forces this split is a result, not a gap.
+- **Weighing:** ranks a same-type pair through `Comparison` edges; the general clash-breaker (§6.5).
 - **Advocacy:** the **shared premise** both sides litigate. Offense chains attach to it by a
   support-type dependency; an advantage (AFF) and a disad (NEG) both root in the advocacy and differ
   only by side + sign. Advocacy is **not** a valid `OffensiveAttack` target — you outweigh a proposal,
@@ -157,21 +210,6 @@ works). The `{s_k}` slot remains in the formula, reserved for a future explicit 
 convention; in V1 it is always empty. Adding bare warrants to a contested node therefore does not
 change its σ in V1 — a documented simplification, deferred like evidence weighting.
 
-**An attacker contributes to accrual only while it is live (v4).** Membership in a target's attacker
-set is gated on the **attacker's own liveness** — an attack contests its target only in the speeches
-where the attack itself is live (extended by its maker). An attack read once and **not extended**
-(dropped by its maker) **lapses**: it is removed from its target's accrual from the gap onward and
-contributes nothing at the ballot. It is **not** scored "conceded" merely because the opposing side
-didn't answer it — an abandoned attack has nothing to answer, and "conceded strength" requires the
-attack to be live. So a non-unique read in the 1NC and never extended stops contesting the AFF
-uniqueness from the 2AC on, and the uniqueness recovers (τ=1.0: the eroding attacker is gone). This
-is the mirror of the offense-side extension gate (§6): **extension gates defense exactly as it gates
-offense** — an argument you don't carry falls away, whether it's an advantage or a non-unique. (Why
-this is safe against the tabula-rasa "conceded is true" principle: a conceded attack that actually
-matters is *extended by the side relying on it* — going for it is extending it; dropping it signals
-it doesn't matter.) The gate applies to all attacks, offensive and defensive; for a turn, liveness is
-the side-agnostic union (§3.5, §6).
-
 ### 3.2 Effective polarity
 
 A link carries a polarity (+1 / -1). An offensive attack is a competing-polarity claim that enters
@@ -180,7 +218,9 @@ the original polarity, < 0.5 flips it.** Competing claims use symmetric bases. A
 is genuinely unresolved is `?` (see §3.3).
 
 **The flip is gated on the presence of an offensive attack.** Only a link that is the target of an
-`OffensiveAttack` is eligible to flip. A link attacked only **defensively** keeps its original
+`OffensiveAttack` is eligible to flip, and only **offense-bearing** nodes (Link, Impact) are eligible
+at all — an `OffensiveAttack` touching a Uniqueness, Advocacy, Framework, Weighing, or BD is inert and
+flips nothing (§3.4). A link attacked only **defensively** keeps its original
 polarity no matter how low its σ falls — a defensive attack reduces magnitude, never reverses
 direction. So a link mitigated to σ = 0.3 by pure defense stays sign +1 with magnitude 0.3 (weakened
 offense), and must **not** be flipped to -1. Reading the flip off σ alone, without checking for an
@@ -229,12 +269,39 @@ until something is argued; the judge never derives any factor from claim content
 
 ### 3.4 Coherence is inert, not illegal
 
-Channel-typed attacks: a defensive/offensive attack operates on a specific factor of the target. An
-attack with no matching factor to operate on (e.g. offense aimed at a pre-world uniqueness node, an
-`OffensiveAttack` on an advocacy — a proposal is outweighed, not turned — or a cross-channel attack
-with nothing to attenuate) **contributes nothing** — it is inert. The judge does not reject it; it
-simply has no effect on any sigma. This keeps the judge robust to malformed graphs and defers the
-uncertain link-vs-impact boundary to behavior rather than a hard ban.
+An attack operates on a specific factor of its target; an attack with no factor to operate on
+**contributes nothing** — it is inert. The judge does not reject it, does not raise, and leaves no σ
+changed; it emits an `INERT_ATTACK` record (§8) so the trace shows the edge was seen and deliberately
+given no effect. `INERT_ATTACK` is a **record**, not an edge type — there are still only four edge
+types (§2). "Inert" is a verdict the judge reaches about an ordinary edge, never a kind of edge an
+author draws. This keeps the judge robust to malformed graphs (a hand-author's miskey, an agent's
+output) and defers uncertain boundaries to behavior rather than a hard ban.
+
+**One rule generates every inert case for offense: a turn requires an offense-bearing node at each
+end.** An `OffensiveAttack` is a competing-polarity claim; it can only flip something that carries
+polarity and magnitude, i.e. a **Link or Impact** (§2). If either endpoint is anything else, there is
+no polarity to flip and the edge is inert. This single principle **subsumes** the previously
+enumerated cases:
+
+| `OffensiveAttack` between | Effect |
+|---|---|
+| Link ↔ Link, Link ↔ Impact, Impact ↔ Impact (cross-side) | **turn** — flips, offense at surviving magnitude (§3.5) |
+| Uniqueness ↔ anything | inert — uniqueness bears no offense (§2); the non-unique is *defensive* |
+| Advocacy ↔ anything | inert — a proposal is outweighed, not turned |
+| Framework ↔ anything | inert — no polarity; defeat it defensively or by weigh (§5.1) |
+| Weighing / BallotDirective ↔ anything | inert — you meta-weigh, you do not turn |
+
+The rule is **direction-agnostic** (§2.2): it keys on "is either endpoint non-offense-bearing," never
+on which end is `source`. "Uniqueness attacks Link" and "Link attacks Uniqueness" are the same
+undirected edge and both are inert. A cross-channel attack with nothing to attenuate, and a
+`Comparison` over a mixed-type pair (§6.5), are inert for the same reason: no matching factor.
+
+**`DefensiveAttack` is the asymmetric counterpart and is NOT governed by this rule.** A defensive
+attack lowers magnitude and never flips, so it is coherent against any node that carries either a
+magnitude factor or a liveness threshold. In particular a `DefensiveAttack` on a **Framework** is
+**not** inert — it lowers σ and is exactly how a framework is unseated (§5.1, §5.4) — and a
+`DefensiveAttack` from a **Uniqueness onto a Link** is not inert — it is the non-unique (§2). The
+asymmetry is the point: a uniqueness can *mitigate* a link but can never *turn* one.
 
 ### 3.5 Turn offense (v3)
 
@@ -265,6 +332,28 @@ falls out of those two rules plus the sign product (§3.3). The unified rule:
 Emit `POLARITY_FLIP` (via `preference`/`dfquad`) and `CHAIN` for the turned chain with its composed
 sign, preserved magnitude, and owning side. **This is a judge-semantics change → version bump (v3);
 re-confirm the oracle harness.**
+
+### 3.6 Each node's σ is consumed exactly once
+
+Strength accrues identically at every node (§3.1). What a node's surviving σ then *does* is fixed by
+its type, and **no node's σ is read in two channels**:
+
+| Node type | σ is consumed as |
+|---|---|
+| Advocacy, Uniqueness, Link, Impact (the **spine reps**) | a magnitude factor in the chain product (§3.3) |
+| Framework | a **liveness threshold**: σ >= `POLARITY_THRESHOLD` keeps the framework in the live set (§5.1); below it the framework is out and gates nothing |
+| Weighing | survival of the preference (dropped / defeated / standing, §6.5) |
+| BallotDirective | not consumed. A BD is a structural anchor, validated by the offense it anchors (§7), never by its own strength |
+
+This is the §3 channel discipline applied to the gating layer. Letting a framework's σ both clear a
+threshold **and** multiply into the chains it gates would count the same contested strength twice: a
+framework won at σ = 0.6 would govern the round *and* silently discount every impact under it by 40%.
+**Gates are binary.** A framework that survives governs completely; one that does not, does not govern
+at all. A barely-won util still means you evaluate consequences, and it does not make the extinction
+impact smaller.
+
+The corollary that decides the framework channel: because a framework carries no magnitude, a
+framework clash has **no magnitude floor** to fall back to (§5.1, §6.5).
 
 ---
 
@@ -302,9 +391,171 @@ side's speeches from introduction on — read from each node's **liveness record
 
 ## 5. Framework gating (Pass 5a)
 
-Resolve the framework sub-debate (a won framework is unattacked-or-restored and extended). Then
-**binary-gate** impacts: an impact with no support path to the winning framework is excluded from the
-tally entirely. In-scope or out, no continuous reweighting. Emit `FRAMEWORK_GATE` per impact.
+Frameworks are scope instructions (§2). This pass decides which framework, if any, governs the round,
+then binary-gates chains against it. **In-scope or out; no continuous reweighting.**
+
+### 5.1 Selecting the governing framework
+
+```
+live = [F for F in frameworks
+          if sigma[F] >= POLARITY_THRESHOLD          # survived accrual (§3.6)
+          and maker_extension_ok(F)]                 # its own side carried it (§5.4)
+
+defeated = set()
+for each Comparison ranking a pair of Frameworks {F1, F2}:
+    if resolve({F1, F2}) is determinate:             # §6.5, the same recursion impacts use
+        defeated.add(dispreferred)
+        live.discard(dispreferred)
+
+winning_framework = live[0] if len(live) == 1 else None
+```
+
+Four things this pins.
+
+- **A framework weigh defeats through `resolve`, not through attacker pruning.** Two frameworks
+  usually do not attack one another; they clash through a `Comparison`, so there is no attacker set to
+  prune and the v5 weigh-defeat machinery (which prunes `attackers_by_target`) finds nothing to do. The
+  determinate weigh removes the dispreferred framework from the **live set**. This is the same
+  `resolve` that decides impacts and link polarity, meta-weighs and recursion included. A framework
+  weigh that is computed but never consumed is a **decorative weigh**, and is a bug of the same class
+  as the pre-v5 decorative uniqueness weigh.
+- **Selection is never order-dependent.** `winning_framework` is a function of the live set's
+  **cardinality**, never of element index or iteration order (§2.1). It is an invariant, and the judge
+  asserts it: `len(live) != 1` implies `winning_framework is None`. Selecting "the first surviving
+  framework in iteration order" makes the judge a non-function of the round and is disqualifying for a
+  reward function.
+- **The framework channel has no magnitude floor.** §6.5's fallback is "decide the clash by DF-QuAD
+  magnitude." Frameworks bear no magnitude (§3.6), so there is nothing to fall back to: an
+  indeterminate framework clash (no weigh, symmetric weigh, or a weighing layer with no lone survivor)
+  yields **no defeat**. σ *eliminates* (below threshold, not live) but never *ranks*. Two live
+  frameworks with no weigh between them are both simply live. **The judge does not pick the stronger
+  one.** Picking a framework nobody won is the intervention tabula rasa forbids, and σ is not a claim
+  about which framework should govern.
+- **Defeat removes a framework from the live set. It does nothing else.** In particular it does not
+  exclude anything (§5.3).
+
+### 5.2 The framework wash
+
+`winning_framework is None` is a **wash**: **no gating.** Every chain is in scope, and the round
+proceeds to impact weighing and the ballot exactly as an unframeworked round does.
+
+**A wash is not a drain to presumption.** Weighing and BallotDirectives sit on the layers above content
+and still do their work. A judge given no winning framework decides on the best-weighed piece of
+offense; presumption remains only the ordinary backstop for `abs(N) <= epsilon` (§7). This is the
+in-round behavior: when nobody wins framework, judges vote on the impact debate, they do not vote NEG
+for want of a framework.
+
+A wash arises when the live set has any cardinality but one:
+
+| live | how | `FRAMEWORK_SELECT.via` |
+|---|---|---|
+| 0 | no frameworks were read | `no_frameworks` |
+| 0 | every framework fell below σ threshold or failed maker-extension | `none_survived` |
+| 0 | a cycle of determinate weighs defeated all of them (A>B, B>C, C>A) | `all_defeated` |
+| 1 | one framework was ever live; no weigh needed | `sole_survivor` |
+| 1 | a determinate weigh reduced the live set to one | `weigh` |
+| >= 2 | multiple live, no determinate weigh separating them | `multiple_live` |
+
+Only the two `live == 1` rows produce a governing framework.
+
+### 5.3 The gate
+
+A chain's **framework anchors** are the frameworks reachable from it by a support path (undirected,
+§2.2, §4). A chain may have **several**: an impact may link into both util and social value.
+
+```
+in_scope(chain) = (winning_framework is None)                     # wash: ungated
+                  or (winning_framework in anchors(chain))
+```
+
+That is the whole exclusion rule. There is exactly **one** exclusion condition.
+
+**Defeat is not exclusion.** Losing a framework weigh removes a framework from the live set; it does
+nothing to the chains anchored to it. A chain anchored to a defeated framework is out of scope for
+exactly one reason — it is not anchored to the framework that *won* — and that reason applies equally
+to a chain anchored to nothing at all. So: if util is defeated but the impact also links into social
+value, and social value wins, **the impact is in scope**. Rejecting a framework is not rejecting
+everything that ever touched it. Reading "util is racist" is a reason to reject util; it is not a
+reason to reject the argument that linked into util.
+
+The framework kritik does **not** depend on this. Its offense (§2) is anchored to the reader's **own**
+framework, not to the framework it criticizes, so it stands or falls on that anchor and is untouched
+by the criticized framework's fate. "Util is racist" keeps generating offense whether util is live,
+defeated, or absent — the criticism's ballot weight lives under the reader's framework. The attack on
+util is a **separate** `DefensiveAttack` on σ(util) whose only job is to unseat util from the live set
+(§5.1). Scope and unseating are two edges doing two jobs; neither is the other.
+
+Because exclusion requires a winner, `framework lock-out` (§7) is reachable **only** when
+`winning_framework is not None`. A wash never locks anyone out.
+
+Emit `FRAMEWORK_SELECT` (once, with `via` and the live set), `FRAMEWORK_DEFEAT` (once per defeated
+framework), and `FRAMEWORK_GATE` (once per chain).
+
+### 5.4 Framework liveness: maker-extension to gate
+
+A framework must be extended by **its own maker**, through every one of that side's speeches from
+introduction on (§6), to enter the live set and gate the round. *Going for your framework is
+extending it.* A framework the maker abandons cannot gate. This mirrors the v4 attacker-liveness gate:
+an attack applies only while its maker keeps it live, and an abandoned attack **lapses** rather than
+being scored off the opponent's silence. This is a genuine gate **separate from σ** — a kicked
+framework can sit at σ = 1.0 and still fail to gate, because its maker stopped carrying it.
+
+There is no second, union-based liveness condition for frameworks. A framework serves no "premise"
+role for any chain (§2): a chain reaches a framework only by support-anchoring, which is scope, and a
+framework contributes no magnitude to any chain, so there is nothing for union-liveness to keep alive.
+The only reason another side's stamp on a framework ever mattered was the discarded "rooted-at-premise"
+model; under the two-edge kritik it does not arise.
+
+The kick comes out right from the one gate plus ordinary anchoring. AFF reads `F_util`. NEG reads
+`F_sv` (its own framework) plus a framework-kritik link whose impact anchors to `F_sv` and whose
+`DefensiveAttack` targets `F_util`. AFF kicks `F_util` in the 1AR. `F_util` fails **maker**-extension,
+so it leaves `live` and gates nothing — AFF cannot keep its own gate by dropping it. NEG's kritik
+offense is anchored to `F_sv`, never to `F_util`, so it is entirely unaffected by whether `F_util` is
+live, defeated, or kicked; it keeps its magnitude (`link × impact`; the framework contributes no
+factor) and generates N. AFF cannot kick out of NEG's link either — the link is a spine rep NEG
+extends. Both halves hold, and neither needs a framework-specific rule beyond the one maker-extension
+gate.
+
+### 5.5 Framework families (deferred to a milestone after v6)
+
+**Status: specified, not yet built.** Families change what "the live set" and "winning framework"
+*are* — they become sets rather than single nodes — which touches the exact selection code v6 repairs.
+Building families onto a selection pass that does not yet route through `resolve` means debugging two
+things at once. So the single-framework case (§5.1–§5.4) is the base case, landed and validated first;
+families generalize it in a later milestone. This section fixes the design so it is ready.
+
+A real framework is usually a **stack** of values, not one node, and losing one plank should not
+collapse the stack. A **family** is a set of framework nodes composed by non-conjunctive aggregation
+(losing a member weakens the family's reach but does not kill it — this is what rules out chain-style
+composition, where any dead spine node kills the chain).
+
+- **Identity.** A family is a **connected component of `Framework → Framework` `Support` edges**. A
+  lone framework is a one-member family; the single-framework case is the base case, not a special
+  case.
+- **Liveness.** A family is **live iff at least one plank is live** (clears the σ threshold, §3.6, and
+  its maker extends it, §5.4). Kicking or defeating one plank removes that plank; the family gates on
+  while any plank stands.
+- **Scope is the union of live planks' scopes.** A chain is in scope under a governing family iff it is
+  anchored to **any** live plank of that family. This is the mechanism that makes "losing one node
+  doesn't kill the framework" true: a dead plank simply stops contributing its slice of scope, and
+  chains anchored to the surviving planks stay in.
+- **Selection** is §5.1 lifted from nodes to families: build the live families, apply weigh-defeat
+  through `resolve`, and `winning_family = the sole live family if exactly one, else None (wash)`.
+  Still cardinality, never order.
+- **Weighing operates at either grain, resolved by the existing recursion.** A `Comparison` may rank
+  two **families** (which stack governs) or two individual **planks** (which value wins within or
+  across families). When a plank-level weigh and a family-level weigh conflict, that is a **meta-weigh**
+  — the same `resolve` recursion (§6.5) that already climbs meta-weighing levels handles it with
+  nothing new in the weighing engine. The only generalization is that the objects `resolve` compares
+  may be sets. A determinate plank weigh removes the dispreferred **plank** (which may or may not empty
+  a family); a determinate family weigh removes the dispreferred **family** (all its planks). Which
+  grain a given weigh targets is read from what its `Comparison` connects, not stamped.
+
+Every §5.1–§5.4 invariant survives the lift: no magnitude floor (families bear no magnitude either);
+defeat removes from the live set and excludes nothing directly; the single exclusion condition becomes
+"in scope iff no winning family, or anchored to a live plank of the winning family"; lock-out still
+requires a winner. Emit `FRAMEWORK_SELECT` with the winning family's members (or `null` + wash `via`),
+and `FRAMEWORK_DEFEAT` per defeated plank or family.
 
 ---
 
@@ -322,7 +573,10 @@ converter: `extension_migration_spec.md`.)
   then 2NR. An AFF argument is **not** dropped for failing to appear during NEG speeches.
 - **No new chains in rebuttals** — a chain whose *introduction* speech is a rebuttal does not count
   (reads the node's introduction `speech`).
-- Non-spine nodes need not be extended.
+- Non-spine nodes need not be extended, with one exception: a **Framework** must be extended by
+  its own maker to enter the live set and gate the round (§5.4). A framework serves no premise role
+  for any chain, so it has no union-liveness condition — anchoring is scope, not a magnitude
+  dependency (§2, §5.4).
 - **Liveness is side-agnostic — check the union of both sides' stamps.** A node stays live as long as
   *any* live argument routes through it, regardless of which side introduced it. For a **turned
   chain**, the flipped link and its terminal impact count as live iff their liveness records are
@@ -342,14 +596,6 @@ converter: `extension_migration_spec.md`.)
 A chain that fails extension contributes **zero** to net offense (extension is a boolean gate, not a
 multiplier — this replaces any separate `C_ext` term). Emit `EXTENSION_FAIL` naming the spine node
 and the missing speech.
-
-**Extension gates attacks too, not only offense-bearing chains (v4).** The same liveness requirement
-applies to defensive and offensive *attacks*: an attack contests its target only while the attack is
-live (extended by its maker). A non-unique or link-defense read once and not extended **lapses** and
-stops contesting its target — it is removed from the target's DF-QuAD accrual, not scored "conceded"
-off the opponent's silence (§3.1). This closes the asymmetry where a dropped advantage fell away but a
-dropped non-unique kept killing at full strength. Offense and defense are both forfeited by
-abandonment.
 
 ---
 
@@ -385,8 +631,11 @@ resolve(clash):
 The levels, top to bottom: **meta-weighing → weighing → DF-QuAD magnitude**. A clash is
 **determinate** iff the level above it yields a single surviving preference; **indeterminate** iff
 that level is empty or itself unresolved — which is just *a clash one level up*, resolved by the same
-rule. Magnitude is the **base case / floor**: it has no level above, always yields a comparison, and
-never punts upward, so the recursion terminates.
+rule. Magnitude is the **base case / floor**: it has no level above and never punts upward, so the
+recursion terminates. For offense-bearing nodes the floor always yields a comparison. For
+**frameworks** the floor is **empty** (§3.6): they bear no magnitude, so an indeterminate framework
+clash yields *no defeat* rather than a δ ranking. Termination depends on the floor not recursing, not
+on the floor producing a winner.
 
 **Well-founded:** each step climbs to strictly fewer, higher nodes in a finite graph, and the
 magnitude floor guarantees a base case — so `resolve` always terminates. Implement it as an actual
@@ -410,6 +659,21 @@ same condition as "no weigh exists." The judge does not enumerate depths — it 
   link-weigh keeps the preferred side's polarity outright; indeterminate → the 0.5 σ threshold.
 - **Impacts at the ballot:** the same `resolve` ranks surviving offense — determinate weigh overrides
   raw δ, indeterminate falls to raw δ.
+- **Frameworks (§5.1):** the same `resolve` ranks a framework pair. A determinate weigh **defeats** the
+  dispreferred framework, removing it from the live set; indeterminate yields **no defeat**, because the
+  framework channel has no magnitude floor (§3.6). This is not an exception to `resolve` — it is what
+  `resolve` says when the floor is empty. A framework weigh must be **consumed** by framework selection;
+  a weigh whose only trace is a `WEIGH` record is decorative and is a bug.
+- **Channel-specific expression of weigh-defeat.** One rule ("a determinate weigh defeats the
+  dispreferred member, and a defeated member does not attack the winner"); three expressions, which are
+  deliberately **not** collapsed to one prune point. *Magnitude clashes* (uniqueness, defensive) prune
+  the defeated attacker from the target's accrual. *Sign clashes* (link, turn polarity) hold the link's
+  polarity by preference and drop the turn from the magnitude channel. *Scope clashes* (impacts,
+  frameworks) **exclude**: a defeated impact's chain is excluded at the ballot; a defeated framework is
+  removed from the live set. **Frameworks sit with impacts, not with uniqueness** — scope defeat
+  expresses as exclusion, because scope is what a framework is.
+- A `Comparison` over a **mixed-type** pair (a framework against an impact, say) has no clash to break
+  and is **inert** (§3.4).
 - Emit `WEIGH` (with the pair, the resolved preference or `symmetric`, and `via`).
 
 ### Pass-ordering requirement
@@ -454,6 +718,13 @@ applying won-weighing preferences to the comparison. Then the **asymmetric win c
   "AFF structural failure" and "presumption" are distinct outcomes and must not be conflated: the
   former means AFF built offense that failed, the latter means the round is indeterminate.
 
+  `framework lock-out` requires `winning_framework is not None` **and** no in-scope AFF impact. A
+  **wash** (§5.2) can never produce lock-out, because a wash gates nothing. A round that returns the
+  right winner via the wrong `reason_class` is a **failing** round: the harness asserts on the
+  `(winner, reason_class)` pair, never on the winner alone. A verdict that is correct by presumption
+  where it should be correct by lock-out is a judge that will drift, and a winner-only fixture cannot
+  see the difference.
+
 Emit a final `BALLOT` (carrying N, reason_class, and the offense decomposition). The result is binary.
 
 ---
@@ -474,10 +745,21 @@ RFD/panel reads — judge-populated, consumed downstream, and never able to chan
 | `POLARITY_FLIP` | link_id, from_sign, to_sign, sigma, via (preference/dfquad) | — | 3 |
 | `INERT_ATTACK` | edge_id, reason | — | 3 |
 | `CHAIN` | chain_id, sign, mag, delta | side, extended, in_scope, collapse_reason, responsible | 3 |
-| `FRAMEWORK_GATE` | impact_id, framework_id, in_scope | — | 5 |
+| `FRAMEWORK_SELECT` | winning_framework_id \| null, live[], defeated[], via | reason | 5 |
+| `FRAMEWORK_DEFEAT` | framework_id, weighing_id, preferred_id | — | 5 |
+| `FRAMEWORK_GATE` | chain_id, impact_id, framework_id \| null, in_scope | anchors[] | 5 |
 | `WEIGH` | weighing_id, outcome (resolved/symmetric), preferred_node, via | pair[], overrode | 5 |
 | `BD_VALIDATE` | bd_id, result, reason | side | 6 |
 | `BALLOT` | N, gates_passed[], winner | reason_class, aff_sum, neg_sum, decomposition[] | 6 |
+
+`FRAMEWORK_SELECT.via` is one of `weigh`, `sole_survivor` (both yielding a winner) or `no_frameworks`,
+`none_survived`, `all_defeated`, `multiple_live` (all washes). It is emitted **exactly once per round**,
+including when there are no frameworks at all: a silent framework pass is how a decorative weigh hides.
+
+**Chains are named by their impact terminal**, never by an incident node. Naming a chain by whatever
+node the renderer reached first produces traces that call one chain a `Framework` and a structurally
+identical one a `BallotDirective`, which is how a correct-verdict-wrong-reason round becomes
+unreadable. This binds the RFD renderer as well as the trace.
 
 ---
 
@@ -492,7 +774,9 @@ RFD/panel reads — judge-populated, consumed downstream, and never able to chan
 5. **Clash resolution** — resolve same-type clashes (§6.5): determinate weigh decides, else raw δ.
    This is where **effective polarity** is set (a won link-weigh keeps polarity; else the 0.5 σ
    threshold). Then chain sign/magnitude products → delta per chain.
-6. **Framework gate** — exclude out-of-scope impacts.
+6. **Framework gate** — build the live set (σ threshold + maker-extension); apply framework
+   weigh-defeat through `resolve` (§5.1); select the governing framework by live-set **cardinality**;
+   gate chains (§5.3). Zero or many live → **wash**, no gating (§5.2).
 7. **Ballot** — validate BDs; rank surviving offense with `resolve`; sum net offense; apply the
    asymmetric win condition; indeterminate → presumption.
 
@@ -540,3 +824,56 @@ Author each from tau = 1.0. Strengths shown are post-resolution.
    conceded weighing claim that its dimension controls. Preference honored over raw delta. **NEG.**
 8. **No-window unresolved.** AFF introduces a new offensive answer in 2AR (final speech); NEG never
    had standing. Marked `UNRESOLVED`, establishes no offense. Decided on the rest of the flow.
+
+### Framework-channel oracle rounds (§5)
+
+Each isolates one clause of §5 and each asserts on `(winner, reason_class)`.
+
+17. **Framework weigh lock-out.** AFF: advocacy → link → impact, impact anchored to `F_aff`, `F_aff`
+    supports the AFF BD. NEG: mirror, anchored to `F_neg`. NEG authors a Weighing with a `Comparison`
+    over `{F_aff, F_neg}` preferring `F_neg`. No attacks anywhere; all nodes live throughout.
+    `resolve` is determinate for `F_neg` → `F_aff` defeated → `live = {F_neg}` → `F_neg` gates → AFF's
+    chain is not anchored to it → no in-scope AFF impact. **NEG (framework lock-out).**
+    *This round currently returns AFF, because framework selection never calls `resolve`.*
+18. **Framework wash.** As (17) but **no weighing node**. Both frameworks live, `len(live) = 2`,
+    `winning_framework = None`, no gating. Both chains in scope, both δ = +1.0, N = 0.
+    **NEG (presumption)** — but by the *wash* path, with `FRAMEWORK_SELECT.via = multiple_live`, not by
+    lock-out and not by any σ tiebreak. Give the two frameworks **different σ** (attack one down to
+    0.7, still above threshold) and the verdict must not move: σ eliminates, never ranks.
+19. **Dual-anchored impact survives its framework's defeat.** AFF's impact has support paths to **both**
+    `F_util` and `F_sv`. NEG weighs `F_sv > F_util` (determinate). `F_util` is defeated; `live = {F_sv}`;
+    the AFF impact is anchored to `F_sv` → **in scope**. **AFF (AFF offense).** Rejecting a framework is
+    not rejecting the argument that linked into it.
+20. **Framework kritik: offense independent of the criticized framework.** AFF reads `F_util`. NEG
+    reads `F_sv` (its own framework) and a kritik link ("util is racist") whose impact (racism) anchors
+    to `F_sv`, and whose `DefensiveAttack` targets `F_util`. AFF **kicks** `F_util` in the 1AR (stops
+    extending it); NEG never drives σ(`F_util`) below threshold. `F_util` fails **maker**-extension →
+    leaves `live` → gates nothing; `live = {F_sv}` → `F_sv` gates; NEG's racism impact is anchored to
+    `F_sv` → in scope, δ = `link × impact` (the framework contributes no factor). **NEG (NEG offense).**
+    Two assertions carry the round: σ(`F_util`) appears in **no** chain product; and the verdict is
+    **invariant to deleting `F_util` from the graph entirely** — the kritik's offense does not depend on
+    the framework it criticizes, only on its own anchor `F_sv`.
+21. **Permutation determinism.** Round (17) under N random permutations of the element list. Ballot and
+    `reason_class` identical across all of them. *This is currently red: `winning_framework` is chosen
+    by iteration order.*
+22. **Offense aimed at a framework is inert.** An `OffensiveAttack` targeting a Framework node. Emit
+    `INERT_ATTACK`; σ unchanged; no `POLARITY_FLIP`. Same treatment as offense aimed at an Advocacy
+    (§3.4).
+23. **Framework kritik unseats by defensive attack.** As (20) but AFF **keeps** `F_util` extended
+    throughout (no kick), and NEG's kritik link drives σ(`F_util`) **below** `POLARITY_THRESHOLD` via
+    its `DefensiveAttack`. `F_util` leaves `live` on the **σ** path (not maker-extension); `live =
+    {F_sv}` → `F_sv` gates; NEG's racism offense (anchored to `F_sv`) is in scope. **NEG (NEG
+    offense).** Assert `F_util` left `live` with `FRAMEWORK_SELECT` reflecting `none_survived`-style σ
+    elimination for it, and that the same link both attacked `F_util` and rooted the scoring chain (the
+    two-hat spine rep). Contrast with (20): (20) unseats by maker-extension at full σ; (23) unseats by
+    σ at full extension. Both must reach the same verdict by different mechanisms.
+24. **Non-unique lands on the link.** AFF: advocacy → link → impact, no separate uniqueness node. NEG
+    reads a `DefensiveAttack` **from a Uniqueness node directly onto the AFF link** ("inevitable
+    regardless of your link"), conceded and extended. The link's magnitude drops; drive it to σ ≈ 0 and
+    the chain dies. Assert the link is **dead, not turned** (sign stays +1, magnitude → 0, emit
+    `MAGNITUDE` not `POLARITY_FLIP`): a uniqueness can mitigate a link but never manufactures offense
+    from it. **NEG (presumption)** at σ ≈ 0, or **AFF weakened** at partial mitigation.
+25. **Offense aimed at a uniqueness is inert.** An `OffensiveAttack` targeting a Uniqueness node (either
+    drawn direction). Emit `INERT_ATTACK`; σ unchanged; no `POLARITY_FLIP`; the uniqueness is not
+    turned. Same treatment as offense aimed at an Advocacy or Framework (§3.4). Confirms uniqueness is
+    not turn-eligible.
