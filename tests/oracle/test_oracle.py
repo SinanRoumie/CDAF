@@ -29,14 +29,24 @@ Notes on spec-vs-mechanics (surfaced for review, not silently asserted):
     -- the v3 upgrade this milestone delivers.
 """
 
+import os
+import random
+
 from model import (
     Round, Advocacy, Uniqueness, Link, Impact, Framework, Weighing, BallotDirective,
     Support, DefensiveAttack, OffensiveAttack, Comparison, SPEECH_ORDER, SPEECH_SIDE,
+    serialize,
 )
 from judge import judge, passes
 from judge.config import AFF, NEG, EPSILON
 
 CONTESTED, CONCEDED = "contested", "conceded"
+
+ORACLE_DIR = os.path.dirname(__file__)
+
+
+def _load(name):
+    return serialize.load(os.path.join(ORACLE_DIR, name))
 
 
 # --- tiny builders (ids are per-round, deterministic) -------------------------
@@ -535,3 +545,46 @@ def test_r16_lost_uniqueness_weigh_nonunique_still_attacks_neg():
     assert ballot == NEG
     ch = _chains(trace)[0]
     assert ch.mag < EPSILON                                # uniqueness zeroed -> chain collapsed
+
+
+# --- Framework wash: banked round (a), regression lock (§5.2, §5.4) -----------
+
+def test_fw_wash_no_extend_regression_lock():
+    """BANKED ROUND (a) -- two mirror framework chains (advocacy->link->impact,
+    each impact -Support-> its own Framework -Support-> its own BD); the
+    frameworks are introduced but NOT maker-extended past introduction; no weigh.
+
+    PRE-v6 (what the code does today). Neither framework passes the current
+    selection guard `sigma >= 0.5 AND node_extension_ok`, because each fails
+    maker-extension. So `winning = None` and pass6_framework hits its EARLY
+    RETURN before emitting any FRAMEWORK_GATE -- gating is skipped by accident,
+    not chosen. Both chains stay in scope, each contributes delta = +1.0, so
+    N ~ 0 and the round drains to presumption: (NEG, "presumption").
+
+    AFTER v6 the VERDICT is stable but the REASON and the code PATH change, and
+    this lock must be updated (deliberately, not silently) to the wash path:
+      * selection is by live-set CARDINALITY: len(live) == 0 because BOTH
+        frameworks fail maker-extension -> winning_framework is None as a wash,
+        NOT via the accidental early-return;
+      * because two frameworks WERE authored (they exist, they just failed to
+        extend), FRAMEWORK_SELECT.via must be "none_survived", NOT
+        "no_frameworks" (which means none were authored at all);
+      * FRAMEWORK_GATE is emitted once per chain with in_scope=True (a
+        deliberate no-op gate), and the ballot still reads (NEG, "presumption")
+        because N ~ 0 -- presumption as the ordinary backstop (§5.2), never
+        lock-out (a wash locks nobody out, §5.3).
+    The two authored-but-unextended frameworks are the fixture's whole point:
+    they force the none_survived / no_frameworks distinction at v6.
+    """
+    ballot, trace = judge(_load("fw_wash_no_extend.json"))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "presumption"
+    assert abs(bl.N) <= EPSILON                            # N ~ 0
+    contributed = [d for d in bl.decomposition if d["contributed"]]
+    assert len(contributed) == 2                           # BOTH chains contribute
+    assert {d["side"] for d in contributed} == {AFF, NEG}
+    # PRE-v6 marker: the gate was skipped by early return -> no FRAMEWORK_GATE at
+    # all. (At v6 this flips to two in-scope FRAMEWORK_GATE records + one
+    # FRAMEWORK_SELECT via="none_survived"; update this assertion then.)
+    assert not any(r.kind == "FRAMEWORK_GATE" for r in trace)
