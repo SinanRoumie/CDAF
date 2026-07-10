@@ -22,6 +22,22 @@ Running record of what's built and what's deliberately deferred. See
 
 ## Known issues / deferred
 
+### Framework σ-regime: no "weakened but live" framework in V1 (not a bug)
+
+V1 accrual is attacks-only with τ=1.0 (§3.1): a live conceded attacker drives its
+target to σ=0, and the `{s_k}` restorative-support slot is empty, so there is no
+way to author a framework that is **weakened below full but still above the live
+threshold while carrying live offense**. A framework is therefore effectively
+binary in V1 — full σ, or σ≈0 (below threshold, not live). Consequence for the
+oracle: the two framework-unseat mechanisms are isolated in **separate** rounds
+rather than shown together at an intermediate σ — **r20** isolates the
+maker-extension kick at **full σ** (no σ-attack drawn), **r23** isolates the
+two-hat `DefensiveAttack` unseat at **full extension** (σ→0). Both reach the same
+verdict by different mechanisms; the "attacked to 0.7, still above threshold"
+picture from §11.18's prose is not cleanly constructible in V1. Closes when V2
+populates the `{s_k}` restorative-support slot (§3.1), which makes intermediate σ
+authorable. Not a bug — a documented V1 limitation.
+
 ### Builder must enforce Comparison direction (follow-up, not yet built)
 
 `Comparison` is the one direction-bearing edge type (§2.2 carve-out): it must point
