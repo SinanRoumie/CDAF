@@ -223,8 +223,20 @@ def _classify_attacks(ctx: Context) -> None:
         reason = None
         if attacker.side == target.side:
             reason = "same-side attack (incoherent)"
-        elif isinstance(e, OffensiveAttack) and isinstance(target, Uniqueness):
-            reason = "offense aimed at pre-world uniqueness"
+        elif isinstance(e, OffensiveAttack) and not (
+                isinstance(attacker, OFFENSE_BEARING) and isinstance(target, OFFENSE_BEARING)):
+            # Turn-eligibility (§3.4): an OffensiveAttack is a competing-polarity
+            # claim; it can only flip a node that carries polarity -- a Link or an
+            # Impact. If EITHER endpoint is a Uniqueness/Advocacy/Framework/Weighing/
+            # BD there is no polarity to flip and the edge is inert. This one rule
+            # subsumes every enumerated inert case (offense at a uniqueness, an
+            # advocacy, a framework, ...). It is DIRECTION-AGNOSTIC (§2.2): keyed on
+            # the two endpoint types, never on which end is `source`. DefensiveAttack
+            # is NOT governed by this -- it lowers magnitude and never flips, so it
+            # stays coherent against a Framework's sigma or a link's (the non-unique);
+            # only OffensiveAttack is guarded here.
+            bad = attacker if not isinstance(attacker, OFFENSE_BEARING) else target
+            reason = f"offense requires offense-bearing endpoints; {bad.ntype} bears no polarity (§3.4)"
         if reason:
             ctx.trace.append(T.InertAttack(edge_id=e.id, reason=reason))
             continue
@@ -647,44 +659,146 @@ def _collapse_reason(ctx, extended, ext_fail_node, sign, mag, spine_reps, unreso
 
 # --- Pass 5a: framework gating ------------------------------------------------
 
-def pass6_framework(ctx: Context) -> None:
-    """A won framework (unattacked-or-restored and extended) binary-gates impacts:
-    an impact with no support path to it is out of scope (§5)."""
-    fws = [n for n in ctx.nodes.values()
-           if isinstance(n, Framework) and n.id in ctx.reachable]
-    winning = None
-    for fw in fws:
-        if ctx.sigma.get(fw.id, TAU) >= POLARITY_THRESHOLD and node_extension_ok(fw)[0]:
-            winning = fw
-            break
-    ctx.winning_framework = winning
-    if winning is None:
-        return   # no framework debate -> every impact stays in scope
+def _framework_anchors(ctx: Context, members) -> set:
+    """The chain's framework ANCHORS (§5.3): the Frameworks reachable from the
+    chain by an undirected Support path that DOES NOT traverse a BallotDirective.
+    A framework that only co-supports the same BD as the chain (im->BD, F->BD) is
+    NOT an anchor; a framework the impact supports directly (im->F->BD) is.
 
-    # Nodes reachable from the framework over Support edges (undirected). The
-    # walk does not pass THROUGH a BallotDirective: the ballot sink is not part
-    # of framework scope, and traversing it would falsely connect every impact
-    # that anchors to the same BD.
-    reach = set()
-    stack = [winning.id]
+    This is the SINGLE source of truth for gating: `in_scope(chain)` is computed
+    as `winning in _framework_anchors(...)`, and the same set is reported as the
+    FRAMEWORK_GATE's descriptive `anchors[]`, so the identity
+    `in_scope == (winning is None or winning in anchors)` holds BY CONSTRUCTION --
+    never two walks that merely happen to agree (FLAG 2)."""
+    anchors: set = set()
+    seen: set = set()
+    stack = [m for m in members if not isinstance(ctx.nodes.get(m), BallotDirective)]
     while stack:
         cur = stack.pop()
-        if cur in reach:
+        if cur in seen:
             continue
-        reach.add(cur)
-        if isinstance(ctx.nodes.get(cur), BallotDirective) and cur != winning.id:
-            continue
+        seen.add(cur)
+        if isinstance(ctx.nodes.get(cur), Framework):
+            anchors.add(cur)
         for nbr, e in ctx.adj.get(cur, []):
-            if isinstance(e, Support) and nbr not in reach:
+            if not isinstance(e, Support):
+                continue
+            if isinstance(ctx.nodes.get(nbr), BallotDirective):
+                continue                      # BD-blocking: never traverse through a BD
+            if nbr not in seen:
                 stack.append(nbr)
+    return anchors
 
+
+def _terminal_impact(ctx: Context, ch: dict):
+    """The chain's terminal impact -- the one carrying its SCORED delta (§8, FLAG
+    1), never 'first terminal in iteration order'. A terminal impact is an Impact
+    that does not Support another offense-bearing node within the chain (nothing
+    chains forward out of it, §2). Genuinely independent scored terminals are
+    separate chains at discovery, so for a V1 chain this is unique; a deterministic
+    id-sorted tiebreak keeps it order-independent if ever not."""
+    impacts = ch["impacts"]
+    if not impacts:
+        return None
+    members = ch["members"]
+    terminals = []
+    for imp in impacts:
+        forwards = any(
+            isinstance(e, Support) and nbr in members
+            and isinstance(ctx.nodes.get(nbr), OFFENSE_BEARING) and nbr != imp
+            and _sidx(ctx.nodes[nbr].speech) is not None
+            and _sidx(ctx.nodes[nbr].speech) > (_sidx(ctx.nodes[imp].speech) or 0)
+            for nbr, e in ctx.adj.get(imp, [])
+        )
+        if not forwards:
+            terminals.append(imp)
+    pool = terminals or impacts
+    return sorted(pool)[0]
+
+
+def pass6_framework(ctx: Context) -> None:
+    """Framework gating (§5). Select the governing framework by LIVE-SET
+    CARDINALITY -- never element order (§5.1) -- then binary-gate chains by
+    BD-blocking anchoring (§5.3). Emit FRAMEWORK_SELECT once, FRAMEWORK_DEFEAT per
+    defeat, FRAMEWORK_GATE per chain (§8)."""
+    from .resolve import resolve
+
+    frameworks = [n for n in ctx.nodes.values()
+                  if isinstance(n, Framework) and n.id in ctx.reachable]
+
+    # Live set (§5.1, §3.6, §5.4): survived accrual AND its own maker extended it.
+    # maker-extension is own-side node_extension_ok -- frameworks have no union
+    # liveness (§5.4). `live_pre` is the set BEFORE weigh-defeat; kept to
+    # distinguish none_survived from all_defeated for FRAMEWORK_SELECT.via.
+    live = {f.id for f in frameworks
+            if ctx.sigma.get(f.id, TAU) >= POLARITY_THRESHOLD and node_extension_ok(f)[0]}
+    live_pre = set(live)
+
+    # Weigh-defeat through the SAME resolve() impacts use (§6.5). A determinate
+    # framework weigh removes the dispreferred framework from the live set; an
+    # indeterminate one yields NO defeat (the framework channel has no magnitude
+    # floor, §3.6). Iterate distinct framework pairs a Weighing ranks.
+    defeated = []
+    seen_pairs = set()
+    for w in ctx.weighings:
+        pair = ctx.weigh_pair.get(w.id)
+        if not pair or pair in seen_pairs:
+            continue
+        if not all(isinstance(ctx.nodes.get(m), Framework) for m in pair):
+            continue
+        seen_pairs.add(pair)
+        determinate, winner, decider = resolve(ctx, pair)
+        if determinate:
+            loser = next(m for m in pair if m != winner)
+            if loser in live or loser in live_pre:
+                live.discard(loser)
+                if loser not in [d[0] for d in defeated]:
+                    defeated.append((loser, decider, winner))
+
+    # Cardinality selection (§5.1): exactly one live framework governs; zero or
+    # many is a wash. ORDER-PROOF: len(live) != 1  =>  winning_framework is None.
+    winning = ctx.nodes[next(iter(live))] if len(live) == 1 else None
+    ctx.winning_framework = winning
+    assert (winning is not None) == (len(live) == 1)      # §5.1 order-proof invariant
+
+    winning_id = winning.id if winning is not None else None
+    via, reason = _framework_via(len(frameworks), live_pre, live, defeated)
+
+    ctx.trace.append(T.FrameworkSelect(
+        winning_framework_id=winning_id, live=sorted(live),
+        defeated=sorted(d[0] for d in defeated), via=via, reason=reason))
+    for loser, decider, winner in defeated:
+        ctx.trace.append(T.FrameworkDefeat(
+            framework_id=loser, weighing_id=decider, preferred_id=winner))
+
+    # Gate (§5.3): ONE BD-blocking anchor walk feeds both the boolean and the
+    # descriptive anchors[]. A wash (winning is None) gates nothing -- every chain
+    # in scope. Defeat excludes no chain directly: a chain is out only when the
+    # WINNER is not among its anchors, exactly as a chain anchored to nothing is.
     for ch in ctx.chains:
-        in_scope = False
-        for imp in ch["impacts"]:
-            imp_in = imp in reach
-            in_scope = in_scope or imp_in
-            ctx.trace.append(T.FrameworkGate(impact_id=imp, framework_id=winning.id, in_scope=imp_in))
+        anchors = _framework_anchors(ctx, ch["members"])
+        in_scope = winning_id is None or winning_id in anchors
         ch["in_scope"] = in_scope
+        ctx.trace.append(T.FrameworkGate(
+            chain_id=ch["id"], impact_id=_terminal_impact(ctx, ch),
+            framework_id=winning_id, in_scope=in_scope, anchors=sorted(anchors)))
+
+
+def _framework_via(n_authored: int, live_pre: set, live_post: set, defeated: list):
+    """Classify FRAMEWORK_SELECT.via (§5.2, §8) from the live-set snapshots.
+    Distinguishes none_survived (frameworks authored, none maker-extended) from
+    no_frameworks (none authored) from multiple_live / all_defeated."""
+    if n_authored == 0:
+        return "no_frameworks", "no framework was read"
+    if len(live_post) == 1:
+        if len(live_pre) == 1:
+            return "sole_survivor", "one framework was ever live; no weigh needed"
+        return "weigh", "a determinate weigh reduced the live set to one"
+    if len(live_post) == 0:
+        if len(live_pre) == 0:
+            return "none_survived", "every framework fell below threshold or failed maker-extension"
+        return "all_defeated", "a cycle of determinate weighs defeated every framework"
+    return "multiple_live", "two or more frameworks live with no determinate weigh separating them"
 
 
 # Ballot-stage weighing (ranking surviving offense via `resolve`) lives in

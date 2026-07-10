@@ -33,7 +33,21 @@ decisions) and §2.1 (speech order/side).
 #       (defeated turn) was already this rule in the polarity channel; v5 adds the
 #       uniqueness/framework/defensive case (defeated non-unique dropped from the
 #       uniqueness's attacker set). One mechanism, no per-type special-casing.
-JUDGE_VERSION = 5
+#   v6: framework selection through resolve() + turn-eligibility (§5.1-§5.4, §3.4).
+#       Framework selection is by LIVE-SET CARDINALITY, never element order: the
+#       live set is the frameworks with sigma >= threshold AND maker-extension
+#       (§5.4); a determinate framework weigh removes the dispreferred framework
+#       from the live set via the SAME resolve() impacts use (§6.5, no magnitude
+#       floor -- indeterminate yields no defeat); winning_framework is the sole
+#       live framework or None (a wash: zero or many live -> no gating, §5.2). The
+#       single exclusion condition is BD-blocking anchoring (§5.3); defeat excludes
+#       no chain directly. Turn-eligibility (§3.4): an OffensiveAttack flips iff
+#       BOTH endpoints are offense-bearing (Link/Impact); any Uniqueness/Advocacy/
+#       Framework/Weighing/BD endpoint is inert. DefensiveAttack is NOT governed by
+#       this (a non-unique on a link, a *->framework attack stay live). Emits
+#       FRAMEWORK_SELECT (once/round) + FRAMEWORK_DEFEAT (per defeat) + a per-chain
+#       FRAMEWORK_GATE (§8).
+JUDGE_VERSION = 6
 
 # --- Ballot values (§0) --------------------------------------------------------
 # The ballot is binary. PRESUMPTION (below) resolves to one of these.

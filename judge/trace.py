@@ -132,11 +132,50 @@ class Chain(TraceRecord):
 
 
 @dataclass
-class FrameworkGate(TraceRecord):
-    """An impact's binary framework-gating result."""
-    impact_id: str
+class FrameworkSelect(TraceRecord):
+    """Which framework governs the round (§5.1), emitted EXACTLY ONCE per round --
+    including when no frameworks were authored (a silent framework pass is how a
+    decorative weigh hides, §8). `winning_framework_id` is the sole live framework
+    or None (a wash). `live` is the final live set, `defeated` the frameworks a
+    determinate weigh removed. `via` is one of weigh / sole_survivor (a winner) or
+    no_frameworks / none_survived / all_defeated / multiple_live (all washes)."""
+    winning_framework_id: Optional[str]
+    live: list
+    defeated: list
+    via: str
+    reason: str = ""
+
+    kind: ClassVar[str] = "FRAMEWORK_SELECT"
+    pass_no: ClassVar[str] = "5"
+
+
+@dataclass
+class FrameworkDefeat(TraceRecord):
+    """A framework removed from the live set by a determinate framework weigh
+    (§5.1). `preferred_id` is the framework the weigh kept; `weighing_id` decided
+    it. Defeat removes from the live set and excludes no chain directly (§5.3)."""
     framework_id: str
+    weighing_id: str
+    preferred_id: str
+
+    kind: ClassVar[str] = "FRAMEWORK_DEFEAT"
+    pass_no: ClassVar[str] = "5"
+
+
+@dataclass
+class FrameworkGate(TraceRecord):
+    """A chain's binary framework-gating result (§5.3), emitted once per chain.
+    `framework_id` is the winning framework or None (a wash gates nothing).
+    `impact_id` is the chain's terminal impact -- the one carrying the scored
+    delta (§8, never first-in-iteration). `anchors` (descriptive) is the chain's
+    framework anchors: frameworks reachable by a Support path that does NOT
+    traverse a BallotDirective. `in_scope == (framework_id is None or framework_id
+    in anchors)` by construction (a single BD-blocking walk feeds both)."""
+    chain_id: str
+    impact_id: Optional[str]
+    framework_id: Optional[str]
     in_scope: bool
+    anchors: list = field(default_factory=list)
 
     kind: ClassVar[str] = "FRAMEWORK_GATE"
     pass_no: ClassVar[str] = "5"
@@ -198,7 +237,8 @@ RECORD_CLASSES = {
     cls.kind: cls
     for cls in (
         Drop, Unresolved, ExtensionFail, Magnitude, PolarityFlip, InertAttack,
-        Chain, FrameworkGate, Weigh, BdValidate, Ballot,
+        Chain, FrameworkSelect, FrameworkDefeat, FrameworkGate, Weigh, BdValidate,
+        Ballot,
     )
 }
 RECORD_KINDS = tuple(RECORD_CLASSES.keys())

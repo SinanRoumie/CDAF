@@ -125,10 +125,20 @@ def _reason_class(ctx, winner, advocacy_present, complete_chain, inscope_impact,
 
     "AFF structural failure" means AFF mounted a case that fell short of a gate;
     a round with no AFF case at all (e.g. an empty graph) is "presumption", not
-    a structural failure."""
+    a structural failure.
+
+    "framework lock-out" is RESERVED for the case where NEG wins FOR WANT of AFF
+    offense (v6): a framework governs, AFF has no in-scope impact, AND NEG has no
+    offense of its own (N >= -EPSILON). When NEG carries in-scope offense
+    (N < -EPSILON) the reason is "NEG offense", even if a framework also shut AFF
+    out -- lock-out and NEG-offense are otherwise the same judged state (a
+    governing framework with AFF out of scope), and the tabula-rasa judge cannot
+    tell "AFF was locked out" from "NEG's offense won" except by whether NEG
+    actually has offense. This narrows the lock-out branch; it never widens it (a
+    wash, winning_framework is None, still never locks out)."""
     if winner == AFF:
         return "AFF offense"
-    if ctx.winning_framework is not None and not inscope_impact:
+    if ctx.winning_framework is not None and not inscope_impact and N >= -EPSILON:
         return "framework lock-out"
     if N < -EPSILON:
         return "NEG offense"

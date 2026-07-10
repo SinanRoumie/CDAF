@@ -554,27 +554,23 @@ def test_fw_wash_no_extend_regression_lock():
     each impact -Support-> its own Framework -Support-> its own BD); the
     frameworks are introduced but NOT maker-extended past introduction; no weigh.
 
-    PRE-v6 (what the code does today). Neither framework passes the current
-    selection guard `sigma >= 0.5 AND node_extension_ok`, because each fails
-    maker-extension. So `winning = None` and pass6_framework hits its EARLY
-    RETURN before emitting any FRAMEWORK_GATE -- gating is skipped by accident,
-    not chosen. Both chains stay in scope, each contributes delta = +1.0, so
-    N ~ 0 and the round drains to presumption: (NEG, "presumption").
-
-    AFTER v6 the VERDICT is stable but the REASON and the code PATH change, and
-    this lock must be updated (deliberately, not silently) to the wash path:
+    v6 (updated deliberately from the pre-v6 lock -- verdict stable, PATH
+    changed, per the milestone gate). The VERDICT is unchanged, (NEG,
+    "presumption"), but it is now reached by the WASH path, not the accidental
+    early-return the pre-v6 code took:
       * selection is by live-set CARDINALITY: len(live) == 0 because BOTH
-        frameworks fail maker-extension -> winning_framework is None as a wash,
-        NOT via the accidental early-return;
-      * because two frameworks WERE authored (they exist, they just failed to
-        extend), FRAMEWORK_SELECT.via must be "none_survived", NOT
-        "no_frameworks" (which means none were authored at all);
-      * FRAMEWORK_GATE is emitted once per chain with in_scope=True (a
-        deliberate no-op gate), and the ballot still reads (NEG, "presumption")
-        because N ~ 0 -- presumption as the ordinary backstop (§5.2), never
-        lock-out (a wash locks nobody out, §5.3).
-    The two authored-but-unextended frameworks are the fixture's whole point:
-    they force the none_survived / no_frameworks distinction at v6.
+        frameworks fail maker-extension (§5.4) -> winning_framework is None as a
+        wash, not because a selection loop happened to find nothing;
+      * two frameworks WERE authored (they exist, they just failed to extend),
+        so FRAMEWORK_SELECT.via is "none_survived", NOT "no_frameworks" (which
+        would mean none authored at all) -- the distinction this fixture exists
+        to pin;
+      * FRAMEWORK_GATE is now emitted once per chain with framework_id=None and
+        in_scope=True (a deliberate no-op gate, §5.2/§5.3), both chains stay in
+        scope, each contributes +1.0, N ~ 0 -> presumption as the ordinary
+        backstop, never lock-out (a wash locks nobody out, §5.3).
+    (Pre-v6 this asserted NO FRAMEWORK_GATE at all -- gating skipped by early
+    return. That marker is intentionally replaced below.)
     """
     ballot, trace = judge(_load("fw_wash_no_extend.json"))
     assert ballot == NEG
@@ -584,10 +580,20 @@ def test_fw_wash_no_extend_regression_lock():
     contributed = [d for d in bl.decomposition if d["contributed"]]
     assert len(contributed) == 2                           # BOTH chains contribute
     assert {d["side"] for d in contributed} == {AFF, NEG}
-    # PRE-v6 marker: the gate was skipped by early return -> no FRAMEWORK_GATE at
-    # all. (At v6 this flips to two in-scope FRAMEWORK_GATE records + one
-    # FRAMEWORK_SELECT via="none_survived"; update this assertion then.)
-    assert not any(r.kind == "FRAMEWORK_GATE" for r in trace)
+    # v6 wash path: winning_framework is None BY CARDINALITY, via "none_survived"
+    # (two authored frameworks, neither maker-extended), and a per-chain no-op
+    # gate is emitted (framework_id None, in_scope True).
+    sel = [r for r in trace if r.kind == "FRAMEWORK_SELECT"]
+    assert len(sel) == 1 and sel[0].winning_framework_id is None
+    assert sel[0].via == "none_survived"
+    gates = [r for r in trace if r.kind == "FRAMEWORK_GATE"]
+    assert len(gates) == 2
+    assert all(g.framework_id is None and g.in_scope for g in gates)
+    # FLAG 2: the im->F->BD anchor path is pinned, not incidental -- each impact
+    # reaches its OWN framework by a Support path that does not cross a BD.
+    anchors = {g.chain_id: set(g.anchors) for g in gates}
+    assert any("F_aff" in a for a in anchors.values())
+    assert any("F_neg" in a for a in anchors.values())
 
 
 # --- §11.21 Permutation determinism (RED pre-v6) ------------------------------
@@ -613,3 +619,246 @@ def test_r21_permutation_determinism():
         ballot, trace = judge(Round(elements=perm, version=2))
         outcomes.add((ballot, _ballot(trace).reason_class))
     assert len(outcomes) == 1, f"order-dependent verdict: {sorted(outcomes)}"
+
+
+# --- Framework-channel oracle rounds (§11.17-§11.25, v6) ----------------------
+
+def _select(trace):
+    return [r for r in trace if r.kind == "FRAMEWORK_SELECT"][0]
+
+
+def _run_ctx(els):
+    """Run all passes and return the ctx, for σ / extension / attacker inspection."""
+    ctx = passes.build_context(Round(elements=els, version=2))
+    passes.pass2_drops(ctx); passes.pass3_accrual(ctx)
+    passes.pass4_weighing_towers(ctx); passes.pass5_clashes(ctx)
+    passes.pass6_framework(ctx)
+    return ctx
+
+
+def test_r17_framework_weigh_lockout_neg():
+    """§11.17: AFF impact anchored to F_aff, NEG mirror anchored to F_neg, NEG
+    weighs {F_aff, F_neg} preferring F_neg. resolve() is determinate for F_neg ->
+    F_aff defeated -> live = {F_neg} -> F_neg gates -> AFF's chain is not anchored
+    to it -> no in-scope AFF impact. Pre-v6 this returned AFF because selection
+    never called resolve().
+
+    reason_class is "NEG offense", NOT "framework lock-out" (v6, decided): the
+    NEG mirror chain is anchored to the winning F_neg, so it is IN SCOPE and
+    carries N = -1.0. Lock-out is reserved for NEG winning FOR WANT of AFF offense
+    (N ~ 0, e.g. r6); here NEG has its own in-scope offense, so it wins ON offense.
+    §11.17's title 'lock-out' names the mechanism (F_neg shuts AFF out); the
+    reason_class follows §7's narrowed rule and reads the offense that actually
+    decided N. The framework machinery (weigh-defeat of F_aff, F_neg governing)
+    still carries the round -- asserted on FRAMEWORK_SELECT below."""
+    trace = judge(_load("fw_weigh_lockout.json"))[1]
+    assert judge(_load("fw_weigh_lockout.json"))[0] == NEG
+    assert _ballot(trace).reason_class == "NEG offense"
+    sel = _select(trace)
+    assert sel.via == "weigh" and sel.winning_framework_id == "F_neg"
+    assert "F_aff" in sel.defeated
+    # FLAG 2 anchor path pinned: NEG impact reaches F_neg without crossing a BD.
+    gates = [g for g in trace if g.kind == "FRAMEWORK_DEFEAT"]
+    assert gates and gates[0].framework_id == "F_aff" and gates[0].preferred_id == "F_neg"
+    anchors = {frozenset(g.anchors) for g in trace if g.kind == "FRAMEWORK_GATE"}
+    assert any("F_neg" in a for a in anchors) and any("F_aff" in a for a in anchors)
+
+
+def test_r18_framework_wash_multiple_live_neg():
+    """§11.18: as r17 but NO weighing node. Both frameworks live, len(live) == 2,
+    winning_framework None -> wash (via multiple_live), no gating. Both chains in
+    scope, both delta +1, N = 0. NEG (presumption) -- by the wash path, not
+    lock-out and not any σ tiebreak. (σ eliminates below threshold, never ranks:
+    the selector never compares σ between live frameworks -- `live` is a set,
+    cardinality only -- so a σ difference among live frameworks cannot move the
+    verdict; V1's binary accrual can't author a clean 0.7, but the invariance is
+    structural, not fixture-dependent.)"""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); lka = b.n(Link, AFF, "1AC"); ima = b.n(Impact, AFF, "1AC")
+    faff = b.n(Framework, AFF, "1AC"); bda = b.n(BallotDirective, AFF, "2AR")
+    lkn = b.n(Link, NEG, "1NC"); imn = b.n(Impact, NEG, "1NC")
+    fneg = b.n(Framework, NEG, "1NC"); bdn = b.n(BallotDirective, NEG, "2NR")
+    ballot, trace = judge(Round(elements=[
+        adv, lka, ima, faff, bda, lkn, imn, fneg, bdn,
+        b.sup(adv, lka), b.sup(lka, ima), b.sup(ima, faff), b.sup(faff, bda),
+        b.sup(lkn, imn), b.sup(imn, fneg), b.sup(fneg, bdn)], version=2))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "presumption" and abs(bl.N) <= EPSILON
+    sel = _select(trace)
+    assert sel.via == "multiple_live" and sel.winning_framework_id is None
+    assert len(sel.live) == 2
+
+
+def test_r19_dual_anchored_impact_survives_defeat_aff():
+    """§11.19: AFF impact anchored to BOTH F_util (AFF) and F_sv (NEG). NEG weighs
+    F_sv > F_util (determinate). F_util defeated; live = {F_sv}; the AFF impact is
+    still anchored to F_sv -> in scope. AFF (AFF offense). Rejecting a framework is
+    not rejecting the argument that linked into it (§5.3: defeat is not
+    exclusion)."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC"); bd = b.n(BallotDirective, AFF, "2AR")
+    futil = b.n(Framework, AFF, "1AC", label="F_util")
+    fsv = b.n(Framework, NEG, "1NC", label="F_sv")
+    w = b.n(Weighing, NEG, "2NC/1NR", label="NEG: F_sv > F_util")
+    ballot, trace = judge(Round(elements=[
+        adv, uni, lk, im, bd, futil, fsv, w,
+        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+        b.sup(im, futil), b.sup(im, fsv),
+        b.cmp(w, futil), b.cmp(w, fsv)], version=2))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and bl.N > EPSILON
+    sel = _select(trace)
+    assert sel.via == "weigh" and sel.winning_framework_id == fsv.id
+    assert futil.id in sel.defeated
+
+
+def test_r20_kritik_offense_independent_of_kicked_framework_neg():
+    """§11.20: framework kritik whose offense is independent of the criticized
+    framework. AFF's advantage is anchored to F_util; AFF KICKS F_util (stops
+    extending it after 2AC), so F_util fails MAKER-extension at FULL σ and leaves
+    the live set. NEG's kritik offense (racism impact) is anchored to F_sv, never
+    to F_util, so it is untouched: F_sv governs, the racism impact is in scope,
+    delta = link × impact (the framework contributes no factor). NEG (NEG offense).
+
+    Two spec assertions carry the round: σ(F_util) appears in NO chain product
+    (frameworks are never spine reps, §3.6), and the verdict is INVARIANT to
+    deleting F_util entirely -- the kritik's offense depends only on its own
+    anchor F_sv.
+
+    NOTE (V1 σ-regime, surfaced): §11.20's text also draws the kritik's
+    DefensiveAttack onto F_util. In V1's binary accrual a LIVE conceded defensive
+    attack drives σ to 0, which would unseat F_util by σ too (that is r23) and
+    blur the "at full σ" isolation this round exists for. There is no clean
+    intermediate σ (below full, above threshold, with live offense) in V1. So this
+    round isolates the MAKER-EXTENSION kick at full σ and omits the σ-attack; the
+    two-hat DefensiveAttack unseat is exercised at full extension by r23. Verdict
+    and both structural claims are unaffected."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); lka = b.n(Link, AFF, "1AC"); ima = b.n(Impact, AFF, "1AC")
+    futil = b.n(Framework, AFF, "1AC", {"1AC": CONCEDED, "2AC": CONCEDED}, label="F_util")  # kicked
+    bda = b.n(BallotDirective, AFF, "2AR")
+    klink = b.n(Link, NEG, "1NC", label="util is racist (kritik link)")
+    kim = b.n(Impact, NEG, "1NC", label="racism")
+    fsv = b.n(Framework, NEG, "1NC", label="F_sv"); bdn = b.n(BallotDirective, NEG, "2NR")
+    core = [adv, lka, ima, futil, bda, klink, kim, fsv, bdn,
+            b.sup(adv, lka), b.sup(lka, ima), b.sup(ima, futil), b.sup(futil, bda),
+            b.sup(klink, kim), b.sup(kim, fsv), b.sup(fsv, bdn)]
+    ballot, trace = judge(Round(elements=core, version=2))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "NEG offense" and bl.N < -EPSILON
+    assert _select(trace).winning_framework_id == fsv.id
+    # F_util unseated by maker-extension at FULL σ (not by σ).
+    ctx = _run_ctx(core)
+    assert ctx.sigma[futil.id] >= 0.5 and not passes.node_extension_ok(futil)[0]
+    assert all(futil.id not in ch["spine_reps"] for ch in ctx.chains)   # σ in no chain product
+    # INVARIANT to deleting F_util entirely (kritik offense depends only on F_sv):
+    without = [e for e in core if getattr(e, "id", None) not in {futil.id}
+               and getattr(e, "source", None) != futil.id
+               and getattr(e, "target", None) != futil.id]
+    b2, t2 = judge(Round(elements=without, version=2))
+    assert b2 == NEG and _ballot(t2).reason_class == "NEG offense"
+
+
+def test_r23_kritik_unseats_framework_by_defensive_attack_neg():
+    """§11.23: as r20 but AFF KEEPS F_util extended throughout (full AFF
+    liveness); NEG's two-hat kritik LINK drives σ(F_util) below threshold via a
+    DefensiveAttack. F_util leaves live on the σ path (not maker-extension);
+    live = {F_sv} -> F_sv gates; NEG's racism offense (anchored to F_sv) is in
+    scope. NEG (NEG offense). The SAME link both attacked F_util and rooted the
+    scoring chain (the two-hat spine rep). Contrast r20: r20 unseats by
+    maker-extension at full σ; r23 unseats by σ at full extension -- same verdict,
+    different mechanism."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); lka = b.n(Link, AFF, "1AC"); ima = b.n(Impact, AFF, "1AC")
+    futil = b.n(Framework, AFF, "1AC", label="F_util")            # FULL AFF liveness
+    bda = b.n(BallotDirective, AFF, "2AR")
+    klink = b.n(Link, NEG, "1NC", label="util is racist (two-hat)")
+    kim = b.n(Impact, NEG, "1NC", label="racism")
+    fsv = b.n(Framework, NEG, "1NC", label="F_sv"); bdn = b.n(BallotDirective, NEG, "2NR")
+    els = [adv, lka, ima, futil, bda, klink, kim, fsv, bdn,
+           b.sup(adv, lka), b.sup(lka, ima), b.sup(ima, futil), b.sup(futil, bda),
+           b.sup(klink, kim), b.sup(kim, fsv), b.sup(fsv, bdn),
+           b.datk(klink, futil)]                                 # HAT 2: unseats σ(F_util)
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "NEG offense" and bl.N < -EPSILON
+    assert _select(trace).winning_framework_id == fsv.id
+    ctx = _run_ctx(els)
+    assert passes.node_extension_ok(futil)[0]                    # fully extended...
+    assert ctx.sigma[futil.id] < 0.5                            # ...but unseated by σ
+    # two-hat: the SAME link attacked F_util AND is a spine rep of the NEG chain.
+    assert klink.id in {a for a, _e in ctx.attackers_by_target.get(futil.id, [])}
+    assert any(klink.id in ch["spine_reps"] for ch in ctx.chains)
+
+
+def test_r22_offense_at_framework_inert_aff():
+    """§11.22: an OffensiveAttack targeting a Framework node. Turn-eligibility
+    (§3.4): a framework bears no polarity, so the edge is inert -- emit
+    INERT_ATTACK, σ unchanged, no POLARITY_FLIP. Same treatment as offense aimed
+    at an Advocacy. F_aff governs and anchors the AFF chain -> AFF (AFF offense)."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
+    fw = b.n(Framework, AFF, "1AC", label="F_aff"); bd = b.n(BallotDirective, AFF, "2AR")
+    natk = b.n(Link, NEG, "1NC", label="offense aimed at the framework")
+    els = [adv, uni, lk, im, fw, bd, natk,
+           b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, fw), b.sup(fw, bd),
+           b.oatk(natk, fw)]                                     # offense -> Framework: inert
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == AFF
+    assert _ballot(trace).reason_class == "AFF offense"
+    assert any(r.kind == "INERT_ATTACK" and "3.4" in r.reason for r in trace)
+    assert not any(r.kind == "POLARITY_FLIP" for r in trace)
+    assert _run_ctx(els).sigma[fw.id] >= 0.5                    # σ untouched by the inert offense
+
+
+def test_r24_nonunique_on_link_dead_not_turned_neg():
+    """§11.24: no separate uniqueness node; NEG reads a DefensiveAttack FROM a
+    Uniqueness directly onto the AFF link (the non-unique), conceded and extended.
+    DefensiveAttack is NOT governed by turn-eligibility (§3.4), so it stays live
+    and drives the link's magnitude to 0 -- the link is DEAD, not turned: sign
+    stays +1, magnitude -> 0, emit MAGNITUDE not POLARITY_FLIP. A uniqueness can
+    mitigate a link but never manufactures offense from it. NEG.
+
+    reason_class is 'AFF structural failure' (an AFF chain existed and collapsed,
+    §7) -- §11.24's looser word 'presumption' is the label to tighten later, the
+    same §11-vs-§7 gap already noted for r2/r8; the judge follows §7."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
+    bd = b.n(BallotDirective, AFF, "2AR")
+    nonuniq = b.n(Uniqueness, NEG, "1NC", label="inevitable regardless of your link")
+    els = [adv, lk, im, bd, nonuniq,
+           b.sup(adv, lk), b.sup(lk, im), b.sup(im, bd),
+           b.datk(nonuniq, lk)]                                 # non-unique defensively kills the link
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == NEG
+    assert _ballot(trace).reason_class == "AFF structural failure"
+    assert not any(r.kind == "POLARITY_FLIP" and r.link_id == lk.id for r in trace)
+    assert any(r.kind == "MAGNITUDE" and r.node_id == lk.id for r in trace)
+    ch = _chains(trace)[0]
+    assert ch.sign == 1 and ch.mag < EPSILON                    # dead (sign +1, mag 0), not turned
+
+
+def test_r25_offense_at_uniqueness_inert_aff():
+    """§11.25: an OffensiveAttack targeting a Uniqueness (either drawn direction).
+    Turn-eligibility (§3.4): a uniqueness bears no offense, so the edge is inert --
+    INERT_ATTACK, σ unchanged, no POLARITY_FLIP, the uniqueness is not turned.
+    Confirms uniqueness is not turn-eligible. AFF (AFF offense)."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC"); bd = b.n(BallotDirective, AFF, "2AR")
+    natk = b.n(Link, NEG, "1NC", label="offense aimed at the uniqueness")
+    els = [adv, uni, lk, im, bd, natk,
+           b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+           b.oatk(natk, uni)]                                   # offense -> Uniqueness: inert
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == AFF
+    assert _ballot(trace).reason_class == "AFF offense"
+    assert any(r.kind == "INERT_ATTACK" and "3.4" in r.reason for r in trace)
+    assert not any(r.kind == "POLARITY_FLIP" for r in trace)
+    assert _run_ctx(els).sigma[uni.id] >= 0.5                   # σ untouched by the inert offense

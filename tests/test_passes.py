@@ -166,21 +166,24 @@ def test_extension_failure_when_spine_not_carried():
 # --- Pass 5a: framework gate in/out -------------------------------------------
 
 def test_framework_gate_excludes_unsupported_impact():
-    # Winning framework supports impact A (in scope) but not impact B (out).
-    # Framework introduced in 2NR (final NEG speech) so it is trivially extended
-    # and unattacked -> "won"; this isolates the in/out gating mechanism.
+    # Winning framework anchors chain A (in scope) but not chain B (out). v6 gates
+    # PER CHAIN by BD-blocking anchoring (§5.3), so A and B are SEPARATE chains
+    # (own BDs): chain A's impact supports the framework directly (im->F, an
+    # anchor); chain B's impact only co-supports its BD (not an anchor). Framework
+    # introduced in 2NR (final NEG speech) so it is trivially maker-extended and
+    # unattacked -> the sole live framework -> governs.
     fw = node(Framework, NEG, "2NR")
     impA = node(Impact, AFF, "1AC"); impB = node(Impact, AFF, "1AC")
-    bd = node(BallotDirective, AFF, "2AR")
-    els = [fw, impA, impB, bd,
-           support(impA, bd), support(impB, bd),
-           support(fw, impA)]                   # only A has a support path to the framework
+    bdA = node(BallotDirective, AFF, "2AR"); bdB = node(BallotDirective, AFF, "2AR")
+    els = [fw, impA, impB, bdA, bdB,
+           support(impA, bdA), support(impB, bdB),
+           support(fw, impA)]                   # only chain A is anchored to the framework
     ctx = passes.build_context(Round(elements=els))
     passes.pass2_drops(ctx); passes.pass3_accrual(ctx); passes.pass4_weighing_towers(ctx); passes.pass5_clashes(ctx); passes.pass6_framework(ctx)
     assert ctx.winning_framework is not None
     gates = {(r.impact_id, r.in_scope) for r in ctx.trace if r.kind == "FRAMEWORK_GATE"}
-    assert (impA.id, True) in gates
-    assert (impB.id, False) in gates
+    assert (impA.id, True) in gates          # anchored to the winning framework
+    assert (impB.id, False) in gates         # only co-supports its BD -> not anchored
 
 
 # --- Pass 5b + 6: weighing preference overriding raw delta --------------------
