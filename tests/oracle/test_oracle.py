@@ -588,3 +588,28 @@ def test_fw_wash_no_extend_regression_lock():
     # all. (At v6 this flips to two in-scope FRAMEWORK_GATE records + one
     # FRAMEWORK_SELECT via="none_survived"; update this assertion then.)
     assert not any(r.kind == "FRAMEWORK_GATE" for r in trace)
+
+
+# --- §11.21 Permutation determinism (RED pre-v6) ------------------------------
+
+def test_r21_permutation_determinism():
+    """Round 21 (§11): fw_weigh_lockout.json judged under N random permutations
+    of the element list. Ballot AND reason_class must be identical across all of
+    them -- the judge is a function of the round, not of on-disk order (§2.1,
+    §5.1).
+
+    RED pre-v6: `winning_framework` is chosen by iteration order (the first
+    surviving+extended Framework in ctx.nodes.values()), so a permutation that
+    puts F_neg's node before F_aff's flips the winning framework and the verdict
+    (observed both ('AFF','AFF offense') and ('NEG','framework lock-out')). Goes
+    green when selection routes through resolve() by live-set cardinality (§5.1).
+    """
+    base = list(_load("fw_weigh_lockout.json").elements)
+    rng = random.Random(20240710)                          # seeded -> reproducible
+    outcomes = set()
+    for _ in range(40):
+        perm = base[:]
+        rng.shuffle(perm)
+        ballot, trace = judge(Round(elements=perm, version=2))
+        outcomes.add((ballot, _ballot(trace).reason_class))
+    assert len(outcomes) == 1, f"order-dependent verdict: {sorted(outcomes)}"
