@@ -131,6 +131,10 @@ def test_r2_conceded_terminal_defense_neg():
         b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
         b.datk(d, lk)], version=2))
     assert ballot == NEG
+    # §7 (redrawn): a complete, extended, still-AFF-favoring chain driven to zero
+    # magnitude = "AFF structural failure" (offense built, then lost). §11.2's
+    # "presumption" was the loose word; §7 is authoritative.
+    assert _ballot(trace).reason_class == "AFF structural failure"
     ch = _chains(trace)[0]
     assert ch.mag < EPSILON                         # link killed -> chain collapsed
 
@@ -152,6 +156,7 @@ def test_r3_answered_defense_mitigation_aff():
         b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
         b.datk(d, lk), b.datk(c, d)], version=2))
     assert ballot == AFF
+    assert _ballot(trace).reason_class == "AFF offense"
     ch = _chains(trace)[0]
     assert ch.mag > EPSILON                         # defense mitigated -> chain survives
 
@@ -304,6 +309,10 @@ def test_r5_link_turn_not_extended_neg():
         b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
         b.oatk(turn, lk)], version=2))
     assert ballot == NEG
+    # §7 (redrawn) + Ruling 3: the AFF link was turned away and NEG did not carry
+    # the turn, so NOBODY established offense and the chain failed extension (no
+    # complete AFF chain stood). A flip is never structural failure -> presumption.
+    assert _ballot(trace).reason_class == "presumption"
     assert any(r.kind == "EXTENSION_FAIL" for r in trace)
 
 
@@ -343,6 +352,10 @@ def test_r8_no_window_new_2ar_offense_inert():
         adv, uni, lk, im, bd,
         b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd)], version=2))
     assert ballot == NEG
+    # §7 (redrawn): the 2AR impact is UNRESOLVED (no window) -- offense never
+    # legitimately existed, no complete AFF chain was ever established -> presumption
+    # (not "AFF structural failure", which requires offense built then lost).
+    assert _ballot(trace).reason_class == "presumption"
     assert any(r.kind == "UNRESOLVED" and r.node_id == im.id for r in trace)
 
 
@@ -379,6 +392,7 @@ def test_r9_turned_link_saved_by_determinate_weigh_aff():
     els, lk_id = _turned_link_round(b)               # AFF weighs; NEG does not counter
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == AFF
+    assert _ballot(trace).reason_class == "AFF offense"
     assert _polarity_via(trace, lk_id) == "preference"     # weigh decided, not the 0.5 sigma rule
     # the WEIGH record shows the link-weigh resolved in favour of the AFF link:
     weigh = [r for r in trace if r.kind == "WEIGH" and r.outcome == "resolved"]
@@ -396,6 +410,12 @@ def test_r10_turned_link_indeterminate_falls_to_magnitude_neg():
     els, lk_id = _turned_link_round(b, counter_weigh=True)
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == NEG
+    # r10 investigation (case a): the symmetric weigh falls to magnitude and the
+    # link FLIPS to NEG (sign -1, mag 1.0). But r10 authors only an AFF BD, so the
+    # NEG-favoring turned offense is orphaned (BD_VALIDATE fails "offense favors NEG,
+    # BD claims AFF") -- NOT a bug (r4 shows a NEG BD would validate it). Nobody
+    # established scoring offense -> presumption. A flip is never structural failure.
+    assert _ballot(trace).reason_class == "presumption"
     assert _polarity_via(trace, lk_id) == "dfquad"         # fell back to the 0.5 sigma threshold
     assert all(r.outcome == "symmetric" for r in trace if r.kind == "WEIGH")
 
@@ -410,6 +430,7 @@ def test_r11_recursive_meta_weigh_breaks_tie_aff():
     els, lk_id = _turned_link_round(b, counter_weigh=True, meta_weigh=True)
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == AFF
+    assert _ballot(trace).reason_class == "AFF offense"
     assert _polarity_via(trace, lk_id) == "preference"     # meta broke the tie -> determinate
 
 
@@ -473,6 +494,9 @@ def test_r13_extended_nonunique_still_contests_neg():
     assert nonuniq_id in _uni_attackers(els, uni_id)       # live: DOES contest
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == NEG
+    # §7 (redrawn): complete extended still-AFF-favoring chain, uniqueness driven
+    # to zero magnitude -> "AFF structural failure" (offense built, then lost).
+    assert _ballot(trace).reason_class == "AFF structural failure"
     ch = _chains(trace)[0]
     assert ch.mag < EPSILON                                # uniqueness zeroed -> chain collapsed
 
@@ -489,6 +513,7 @@ def test_r14_answered_nonunique_still_mitigates_aff():
     assert nonuniq_id in _uni_attackers(els, uni_id)       # live (answered, not lapsed)
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == AFF                                    # answered down -> uniqueness restored
+    assert _ballot(trace).reason_class == "AFF offense"
     ch = _chains(trace)[0]
     assert ch.mag > EPSILON
 
@@ -525,6 +550,7 @@ def test_r15_won_uniqueness_weigh_defeats_nonunique_aff():
     assert nonuniq_id not in _uni_attackers(els, uni_id)   # defeated -> NOT in the attacker set
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == AFF
+    assert _ballot(trace).reason_class == "AFF offense"
     assert any(r.kind == "INERT_ATTACK" and r.reason == "defeated by weigh" for r in trace)
     ch = _chains(trace)[0]
     assert ch.extended and abs(ch.mag - 1.0) < 1e-9        # uniqueness restored -> chain intact
@@ -543,6 +569,9 @@ def test_r16_lost_uniqueness_weigh_nonunique_still_attacks_neg():
     assert nonuniq_id in _uni_attackers(els, uni_id)       # not defeated -> still contests
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == NEG
+    # §7 (redrawn): complete extended still-AFF-favoring chain, uniqueness driven
+    # to zero magnitude -> "AFF structural failure" (offense built, then lost).
+    assert _ballot(trace).reason_class == "AFF structural failure"
     ch = _chains(trace)[0]
     assert ch.mag < EPSILON                                # uniqueness zeroed -> chain collapsed
 

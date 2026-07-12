@@ -142,9 +142,21 @@ def _reason_class(ctx, winner, advocacy_present, complete_chain, inscope_impact,
         return "framework lock-out"
     if N < -EPSILON:
         return "NEG offense"
-    aff_attempted = (any(isinstance(n, Advocacy) for n in ctx.nodes.values())
-                     or any(ch["side"] == AFF for ch in ctx.chains))
-    if aff_attempted and not (advocacy_present and complete_chain and inscope_impact):
+    # AFF structural failure (§7, redrawn): AFF ESTABLISHED offense that then
+    # failed -- a COMPLETE, EXTENDED, still-AFF-favoring chain (sign +1, resolved)
+    # existed but was driven to zero magnitude or gated out of scope, so it reached
+    # the ballot contributing nothing. "advocacy present" is too coarse a proxy for
+    # "offense established" (it fires for a bare advocacy or an unresolved impact),
+    # so we test for the chain itself. A chain merely TURNED to the opponent (sign
+    # flipped) is NOT a structural failure: turned offense becomes the opponent's --
+    # scored if that side anchored a BD (r4), else orphaned to presumption (r10) --
+    # so a flip never collapses AFF's own offense. When such a chain exists AND is
+    # complete/in-scope but the round nets to a tie (|N| <= eps), that is presumption
+    # (offense reached the ballot; it just did not prevail), not structural failure.
+    aff_established = any(ch["side"] == AFF and ch["extended"]
+                         and not ch["unresolved"] and ch["sign"] == 1
+                         for ch in ctx.chains)
+    if aff_established and not (advocacy_present and complete_chain and inscope_impact):
         return "AFF structural failure"
     return "presumption"
 

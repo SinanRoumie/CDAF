@@ -80,12 +80,28 @@ only the collapse, not turn offense.
 These are downstream (DF-QuAD / chain / extension) changes and were explicitly
 left unchanged in E2.
 
-### §11 verdict labels vs §7 (documentation, no code change)
+### §11 verdict labels vs §7 (RESOLVED — §7 redrawn, code proxy corrected)
 
-Per `judge_spec.md` §7, an AFF chain that *existed and collapsed* is an **"AFF
-structural failure"**, distinct from **"presumption"** (no AFF offense ever
-existed). The judge follows §7. §11's worked rounds use the looser word
-"presumption" for some collapses (e.g. round 2: a conceded terminal defense
-collapses the AFF chain → the judge reports "AFF structural failure", which is the
-§7-correct label). §11 can be tightened to match §7's vocabulary; no code change
-is needed.
+§7's two indeterminate-looking labels used to **overlap** (a round with a partial
+AFF structure but no established offense — e.g. round 8's unresolved 2AR impact —
+matched both "AFF structural failure" and "presumption" with no tiebreak), and the
+code used the coarse proxy *advocacy-present* for *offense-established*. Both are
+now fixed:
+
+- **§7 redrawn disjoint.** `AFF structural failure` requires a **complete, extended,
+  still-AFF-favoring** chain (sign +1) driven to **zero magnitude** or **gated out
+  of scope** — offense established, then lost. `presumption` is every other NEG win
+  at |N|≤ε: no such chain ever established (unresolved / no-window impact, or failed
+  extension), a chain **turned to the opponent** (a flip is never structural failure
+  — it becomes NEG offense with a NEG BD, else orphaned), or a complete in-scope
+  chain that merely tied.
+- **Code proxy corrected.** `_reason_class` now tests for the chain itself
+  (`side==AFF ∧ extended ∧ not unresolved ∧ sign==+1`) instead of advocacy-present.
+- **Oracle re-labelled per §7:** r2/r13/r16/r24 → "AFF structural failure" (built
+  then collapsed); r5/r8/r10 → "presumption" (turned away / never established); §11.2
+  and §11.24's loose "presumption" wording tightened to match §7.
+
+The r10 finding that drove the "a flip is never structural failure" clause: a turned
+chain is validated against the flip-favored side's BD when that side authored one
+(round 4 → NEG offense); round 10 authors only an AFF BD, so the NEG-favoring turn is
+correctly orphaned → presumption. Not a turn/BD bug — the ballot re-anchors correctly.

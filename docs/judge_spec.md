@@ -712,11 +712,26 @@ applying won-weighing preferences to the comparison. Then the **asymmetric win c
 
 - **AFF wins** iff **all**: advocacy present; a complete chain with non-zero surviving magnitude; at
   least one in-scope impact; **and N > epsilon**.
-- **NEG wins** otherwise. The `reason_class` distinguishes *why*: `AFF structural failure` (an AFF
-  chain existed but collapsed / missing gate), `framework lock-out`, `NEG offense` (N < -epsilon), or
-  `presumption` (abs(N) <= epsilon, or no AFF offense ever existed — indeterminate drains to NEG).
-  "AFF structural failure" and "presumption" are distinct outcomes and must not be conflated: the
-  former means AFF built offense that failed, the latter means the round is indeterminate.
+- **NEG wins** otherwise. The `reason_class` distinguishes *why*: `AFF structural failure`,
+  `framework lock-out`, `NEG offense` (N < -epsilon), or `presumption`. The two indeterminate-looking
+  labels are **disjoint** — no overlap, so no tiebreak is needed:
+  - **`AFF structural failure`** requires that AFF **established** offense that then **failed**: a
+    **complete, extended, still-AFF-favoring** chain (sign +1, resolved — not turned to the opponent)
+    existed but was **driven to zero magnitude** or **gated out of scope**, so it reached the ballot
+    contributing nothing. Offense was built, then lost. ("Advocacy present" is too coarse a proxy for
+    "offense established" — a bare advocacy, or a chain whose impact was never resolved, has not
+    established offense; the judge tests for the chain itself.)
+  - **`presumption`** is every other NEG win at `abs(N) <= epsilon`: **no** such chain was ever
+    established — offense never legitimately existed (an unresolved / no-window impact, or a chain that
+    failed extension) — **or** a complete in-scope AFF chain did contribute but the round netted to a
+    **tie** (`abs(N) <= epsilon`; offense reached the ballot, it just did not prevail).
+  A **flip is never `AFF structural failure`.** When AFF's link is turned, the offense becomes the
+  opponent's: it **scores for NEG** if that side anchored a `BallotDirective` (a determinate turn with
+  a NEG BD → `NEG offense`), and is **orphaned to presumption** if no such BD exists (the turned chain
+  is incident only to an AFF BD, which rejects opposite-side offense — nobody established scoring
+  offense). A turned-away chain is not AFF's offense collapsing; it is offense changing hands or going
+  nowhere. So the structural-failure collapse modes are *driven-to-zero* and *gated-out-of-scope*,
+  **not** *flipped*.
 
   `framework lock-out` requires `winning_framework is not None` **and** no in-scope AFF impact. A
   **wash** (§5.2) can never produce lock-out, because a wash gates nothing. A round that returns the
@@ -810,14 +825,18 @@ Author each from tau = 1.0. Strengths shown are post-resolution.
    2AC/1AR/2AR. NEG drops everything. Chain mag = 1.0, sign +. N = 1.0 > epsilon. **AFF.**
 2. **Conceded terminal defense.** As (1) but NEG reads a defensive attack on the link in 1NC and AFF
    drops it; NEG extends it through the block and 2NR. Link sigma -> 0, chain mag -> 0, N ~ 0.
-   **NEG (presumption).**
+   **NEG (AFF structural failure).** (A complete, extended, still-AFF-favoring chain was driven to zero
+   magnitude — offense established, then lost — which is `AFF structural failure` per §7, not
+   `presumption`. Earlier drafts wrote "presumption" loosely; §7 is authoritative.)
 3. **Answered defense -> mitigation.** As (2) but AFF answers the defense in 2AC and wins it down, so
    the defender survives only at ~0.5; link sigma ~0.5, chain mag ~0.5 > epsilon. **AFF**, weakened.
 4. **Link turn, extended.** NEG turns the 1AC link in 1NC; AFF concedes; NEG extends both the turn
    and the inherited impact through block + 2NR. Sign flips, NEG offense N < -epsilon. **NEG (offense).**
 5. **Link turn, not extended.** As (4) but NEG fails to extend the inherited impact in 2NR. Chain
    fails §6, contributes 0. No NEG offense; AFF advantage also gone (turned). N ~ 0.
-   **NEG (presumption).**
+   **NEG (presumption).** (The AFF chain was turned away and the turn was not carried, so *nobody*
+   established offense — the chain failed extension, so no complete AFF chain stood. A flip is never
+   `AFF structural failure`, §7.)
 6. **Framework lock-out.** NEG wins a framework that excludes AFF's only impact (no support path).
    AFF has zero in-scope impacts. **NEG (lock-out).**
 7. **Weighing overrides raw delta.** AFF impact delta = 0.8, NEG impact delta = 0.6, but NEG wins a
@@ -872,7 +891,9 @@ Each isolates one clause of §5 and each asserts on `(winner, reason_class)`.
     regardless of your link"), conceded and extended. The link's magnitude drops; drive it to σ ≈ 0 and
     the chain dies. Assert the link is **dead, not turned** (sign stays +1, magnitude → 0, emit
     `MAGNITUDE` not `POLARITY_FLIP`): a uniqueness can mitigate a link but never manufactures offense
-    from it. **NEG (presumption)** at σ ≈ 0, or **AFF weakened** at partial mitigation.
+    from it. **NEG (AFF structural failure)** at σ ≈ 0 (a complete, extended, still-AFF-favoring chain
+    driven to zero magnitude — §7, not `presumption`; the earlier "presumption" wording was loose), or
+    **AFF weakened** at partial mitigation.
 25. **Offense aimed at a uniqueness is inert.** An `OffensiveAttack` targeting a Uniqueness node (either
     drawn direction). Emit `INERT_ATTACK`; σ unchanged; no `POLARITY_FLIP`; the uniqueness is not
     turned. Same treatment as offense aimed at an Advocacy or Framework (§3.4). Confirms uniqueness is
