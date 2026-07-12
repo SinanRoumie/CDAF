@@ -20,6 +20,32 @@ Running record of what's built and what's deliberately deferred. See
   (anti-cycle: `resolve` reads only the weighing tower, never main-chain polarity).
   A determinate link-weigh now saves a turned link. `JUDGE_VERSION = 2`.
 
+- **Framework subsystem + reason-class boundary (judge v6)** — `JUDGE_VERSION = 6`.
+  This milestone moved **two** verdict-affecting boundaries; a bisect landing here
+  should expect both:
+  1. **Framework weigh-defeat + cardinality selection (§5).** `pass6_framework`
+     selects the governing framework by **live-set cardinality**, never element
+     order (order-dependence fixed, was disqualifying for a reward function): live
+     set = σ≥threshold ∧ own-side maker-extension (§5.4); a determinate framework
+     weigh removes the dispreferred framework via the same `resolve` impacts use
+     (§6.5, no magnitude floor); winning = the sole live framework or None (a wash).
+     Gating is per-chain BD-blocking anchoring (§5.3). Turn-eligibility (§3.4): an
+     `OffensiveAttack` flips only between two offense-bearing endpoints; anything
+     else is inert (`DefensiveAttack` is not governed). New trace records
+     `FRAMEWORK_SELECT` / `FRAMEWORK_DEFEAT`; `FRAMEWORK_GATE` is per-chain.
+  2. **Reason-class boundary moved (§7).** `framework lock-out` **narrowed** to
+     `winning_framework is not None ∧ no in-scope AFF impact ∧ N >= -epsilon` (when
+     NEG carries in-scope offense it is `NEG offense`, not lock-out). `AFF
+     structural failure` **redrawn** to require a **complete, extended,
+     still-AFF-favoring (sign +1)** chain driven to zero magnitude or gated out of
+     scope; a turned-away chain and a never-established chain are `presumption` (a
+     flip is never structural failure). `_reason_class` proxy corrected from
+     advocacy-present to the chain itself. Verdicts unchanged in ballot but
+     `reason_class` on several oracle rounds moved (e.g. `fw_weigh_lockout`:
+     lock-out → `NEG offense`; r2/r13/r16/r24 → structural failure; r5/r8/r10 →
+     presumption). Since the harness asserts on `(winner, reason_class)`, this is a
+     semantics change, not cosmetic.
+
 ## Known issues / deferred
 
 ### Framework σ-regime: no "weakened but live" framework in V1 (not a bug)
