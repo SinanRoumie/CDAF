@@ -891,3 +891,100 @@ def test_r25_offense_at_uniqueness_inert_aff():
     assert any(r.kind == "INERT_ATTACK" and "3.4" in r.reason for r in trace)
     assert not any(r.kind == "POLARITY_FLIP" for r in trace)
     assert _run_ctx(els).sigma[uni.id] >= 0.5                   # σ untouched by the inert offense
+
+
+# --- §11.26-28 Framework anchoring: impact-rooted, Advocacy/BD absorbing (§5.3) -
+
+def _gate_for_impact(trace, impact_id):
+    """The FRAMEWORK_GATE record for the chain whose terminal impact is impact_id."""
+    return next(g for g in trace if g.kind == "FRAMEWORK_GATE" and g.impact_id == impact_id)
+
+
+def test_r26_cross_side_direct_anchor_in_scope():
+    """§11.26 / §5.3: a NEG impact that supports DIRECTLY into the AFF framework
+    anchors to it -- "I win even under their framework". F_aff governs by being the
+    sole survivor (NEG reads no framework of its own, so there is no framework
+    debate). Cross-side direct anchoring is NOT side-scoped: the discriminator is
+    the PATH (a direct impact->framework edge), not the side.
+
+    This asserts on the ANCHOR, not the ballot: the round nets N = 0 (one shared
+    framework, both chains in scope, +1 each) and that tie is incidental to what
+    this round tests. The guard is that the impact-rooted walk still REACHES a
+    framework across sides by a direct edge -- the §5.3 fix must not over-correct
+    and sever legitimate cross-side direct anchoring."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uq = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im_a = b.n(Impact, AFF, "1AC")
+    faff = b.n(Framework, AFF, "1AC", label="F_aff"); bda = b.n(BallotDirective, AFF, "2AR")
+    nuq = b.n(Uniqueness, NEG, "1NC"); nlk = b.n(Link, NEG, "1NC"); im_n = b.n(Impact, NEG, "1NC")
+    bdn = b.n(BallotDirective, NEG, "2NR")
+    els = [adv, uq, lk, im_a, faff, bda, nuq, nlk, im_n, bdn,
+           b.sup(adv, uq), b.sup(uq, lk), b.sup(lk, im_a), b.sup(im_a, faff), b.sup(faff, bda),
+           b.sup(nuq, nlk), b.sup(nlk, im_n), b.sup(im_n, faff),   # cross-side DIRECT im_n -> F_aff
+           b.sup(im_n, bdn)]
+    _, trace = judge(Round(elements=els, version=2))
+    assert _select(trace).winning_framework_id == faff.id and _select(trace).via == "sole_survivor"
+    neg_gate = _gate_for_impact(trace, im_n.id)
+    assert faff.id in neg_gate.anchors          # F_aff in anchors(im_n): cross-side direct anchor
+    assert neg_gate.in_scope is True            # NEG chain in scope under the affirmative's framework
+
+
+def test_r27_advocacy_fusion_does_not_anchor_neg():
+    """§5.3 / AFFWINBYFW's isolated twin: a NEG disad whose uniqueness links off the
+    SHARED advocacy (adv -> neg_uq) must NOT thereby anchor to the AFF framework.
+    The disad's IMPACT was never supported into F_aff; only its premise reaches the
+    advocacy, and the advocacy is absorbing (§5.3) -- the walk arrives there and
+    halts, never crossing sideways into the AFF spine. NEG weighs F_neg > F_aff
+    (determinate), so F_aff is defeated, F_neg governs, and only the NEG chain
+    (anchored to F_neg) is in scope: (NEG, "NEG offense"), N < -eps.
+
+    The disad's Support edge off the advocacy STAYS -- the §5.3 walk removes only
+    its spurious anchoring, not the edge. Before the fix (whole-chain undirected
+    walk) BOTH chains anchored {F_aff, F_neg} via the fusion and the round washed
+    to presumption; this is the sentinel that flips red->green on the fix."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uq = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im_a = b.n(Impact, AFF, "1AC")
+    faff = b.n(Framework, AFF, "1AC", label="F_aff"); bda = b.n(BallotDirective, AFF, "2AR")
+    nuq = b.n(Uniqueness, NEG, "1NC"); nlk = b.n(Link, NEG, "1NC"); im_n = b.n(Impact, NEG, "1NC")
+    fneg = b.n(Framework, NEG, "1NC", label="F_neg"); bdn = b.n(BallotDirective, NEG, "2NR")
+    w = b.n(Weighing, NEG, "2NC/1NR", label="F_neg > F_aff")
+    els = [adv, uq, lk, im_a, faff, bda, nuq, nlk, im_n, fneg, bdn, w,
+           b.sup(adv, uq), b.sup(uq, lk), b.sup(lk, im_a), b.sup(im_a, faff), b.sup(faff, bda),
+           b.sup(adv, nuq),                                   # FUSION edge (AFFWINBYFW e9)
+           b.sup(nuq, nlk), b.sup(nlk, im_n), b.sup(im_n, fneg), b.sup(fneg, bdn),
+           b.cmp(w, faff), b.cmp(w, fneg)]
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "NEG offense" and bl.N < -EPSILON
+    # the fusion no longer anchors: each impact reaches only its OWN framework
+    assert fneg.id not in _gate_for_impact(trace, im_a.id).anchors   # F_neg NOT in anchors(im_a)
+    assert faff.id not in _gate_for_impact(trace, im_n.id).anchors   # F_aff NOT in anchors(im_n)
+
+
+def test_r28_aff_framework_win_aff():
+    """§5.3 / AFF-mirror of fw_weigh_lockout: AFF and NEG in SEPARATE Support
+    components (no cross-side edge), AFF weighs {F_aff, F_neg}. The weigh prefers
+    F_aff by the own-side rule (an AFF weigh's preferred member is its own-side
+    framework), so F_neg is defeated, F_aff governs, the NEG chain (anchored only
+    to F_neg) is out of scope: (AFF, "AFF offense"), N = +1. This is the coverage
+    the framework suite lacked -- AFF winning its own framework debate by weigh."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uq = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im_a = b.n(Impact, AFF, "1AC")
+    faff = b.n(Framework, AFF, "1AC", label="F_aff"); bda = b.n(BallotDirective, AFF, "2AR")
+    nuq = b.n(Uniqueness, NEG, "1NC"); nlk = b.n(Link, NEG, "1NC"); im_n = b.n(Impact, NEG, "1NC")
+    fneg = b.n(Framework, NEG, "1NC", label="F_neg"); bdn = b.n(BallotDirective, NEG, "2NR")
+    w = b.n(Weighing, AFF, "2AC", label="F_aff > F_neg")
+    els = [adv, uq, lk, im_a, faff, bda, nuq, nlk, im_n, fneg, bdn, w,
+           b.sup(adv, uq), b.sup(uq, lk), b.sup(lk, im_a), b.sup(im_a, faff), b.sup(faff, bda),
+           b.sup(nuq, nlk), b.sup(nlk, im_n), b.sup(im_n, fneg), b.sup(fneg, bdn),
+           b.cmp(w, faff), b.cmp(w, fneg)]
+    ballot, trace = judge(Round(elements=els, version=2))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and bl.N > EPSILON
+    sel = _select(trace)
+    assert sel.via == "weigh" and sel.winning_framework_id == faff.id and fneg.id in sel.defeated
+    assert _gate_for_impact(trace, im_n.id).in_scope is False        # NEG chain out of scope

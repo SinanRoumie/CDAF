@@ -659,50 +659,15 @@ def _collapse_reason(ctx, extended, ext_fail_node, sign, mag, spine_reps, unreso
 
 # --- Pass 5a: framework gating ------------------------------------------------
 
-def _framework_anchors(ctx: Context, members) -> set:
-    """The chain's framework ANCHORS (§5.3): the Frameworks reachable from the
-    chain by an undirected Support path that DOES NOT traverse a BallotDirective.
-    A framework that only co-supports the same BD as the chain (im->BD, F->BD) is
-    NOT an anchor; a framework the impact supports directly (im->F->BD) is.
-
-    This is the SINGLE source of truth for gating: `in_scope(chain)` is computed
-    as `winning in _framework_anchors(...)`, and the same set is reported as the
-    FRAMEWORK_GATE's descriptive `anchors[]`, so the identity
-    `in_scope == (winning is None or winning in anchors)` holds BY CONSTRUCTION --
-    never two walks that merely happen to agree (FLAG 2)."""
-    anchors: set = set()
-    seen: set = set()
-    stack = [m for m in members if not isinstance(ctx.nodes.get(m), BallotDirective)]
-    while stack:
-        cur = stack.pop()
-        if cur in seen:
-            continue
-        seen.add(cur)
-        if isinstance(ctx.nodes.get(cur), Framework):
-            anchors.add(cur)
-        for nbr, e in ctx.adj.get(cur, []):
-            if not isinstance(e, Support):
-                continue
-            if isinstance(ctx.nodes.get(nbr), BallotDirective):
-                continue                      # BD-blocking: never traverse through a BD
-            if nbr not in seen:
-                stack.append(nbr)
-    return anchors
-
-
-def _terminal_impact(ctx: Context, ch: dict):
-    """The chain's terminal impact -- the one carrying its SCORED delta (§8, FLAG
-    1), never 'first terminal in iteration order'. A terminal impact is an Impact
-    that does not Support another offense-bearing node within the chain (nothing
-    chains forward out of it, §2). Genuinely independent scored terminals are
-    separate chains at discovery, so for a V1 chain this is unique; a deterministic
-    id-sorted tiebreak keeps it order-independent if ever not."""
-    impacts = ch["impacts"]
-    if not impacts:
-        return None
+def _terminal_impacts(ctx: Context, ch: dict) -> list:
+    """The chain's terminal impacts (§2): Impact members with nothing chaining
+    forward out of them within the chain (they do not Support a later
+    offense-bearing node). These seed the §5.3 anchor walk. Genuinely independent
+    scored terminals are separate chains at discovery, so a V1 chain has exactly
+    one; the fallback to all impacts keeps this robust for a malformed graph."""
     members = ch["members"]
     terminals = []
-    for imp in impacts:
+    for imp in ch["impacts"]:
         forwards = any(
             isinstance(e, Support) and nbr in members
             and isinstance(ctx.nodes.get(nbr), OFFENSE_BEARING) and nbr != imp
@@ -712,8 +677,60 @@ def _terminal_impact(ctx: Context, ch: dict):
         )
         if not forwards:
             terminals.append(imp)
-    pool = terminals or impacts
-    return sorted(pool)[0]
+    return terminals or list(ch["impacts"])
+
+
+def _framework_anchors(ctx: Context, ch: dict) -> set:
+    """The chain's framework ANCHORS (§5.3, revised): the Frameworks reachable
+    from the chain's IMPACT TERMINAL(s) over `Support` paths whose interior nodes
+    are never an `Advocacy` or a `BallotDirective`. Anchoring is 'this impact is
+    evaluable under this framework' -- the impact reaching a framework through the
+    conductive spine (Uniqueness/Link/Impact).
+
+    `Advocacy` and `BallotDirective` are NOT conductive spine, so they are
+    ABSORBING, NOT TRAVERSABLE: the walk may ARRIVE at one (a direct impact->
+    advocacy or impact->BD edge is a legal arrival) but may not EXPAND outward from
+    it (arrival != traversal). This is exactly what stops a NEG disad whose
+    uniqueness links off the shared `Advocacy` from reaching the AFF framework by
+    walking backward through its own premises and sideways through the advocacy
+    into the AFF spine -- the walk arrives at the advocacy and halts. A DIRECT
+    cross-side impact->framework edge (§11.26, 'I win even under their framework')
+    still anchors, because it never passes through an absorbing interior node.
+
+    Only `Support` edges are followed, so a framework kritik's `DefensiveAttack`
+    onto the framework it criticizes is NEVER traversed: the kritik anchors to its
+    own framework by the direct Support edge (§5.3), never spuriously to the
+    attacked one.
+
+    SINGLE source of truth for gating: `in_scope(chain)` is `winning in
+    _framework_anchors(...)`, and the same set is the FRAMEWORK_GATE's descriptive
+    `anchors[]`, so the identity `in_scope == (winning is None or winning in
+    anchors)` holds BY CONSTRUCTION -- never two walks that happen to agree (FLAG 2)."""
+    anchors: set = set()
+    seen: set = set()
+    stack = list(_terminal_impacts(ctx, ch))     # impact-terminal seed (§5.3)
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        node = ctx.nodes.get(cur)
+        if isinstance(node, Framework):
+            anchors.add(cur)
+        if isinstance(node, (Advocacy, BallotDirective)):
+            continue                              # absorbing: arrive, do not expand
+        for nbr, e in ctx.adj.get(cur, []):
+            if isinstance(e, Support) and nbr not in seen:
+                stack.append(nbr)
+    return anchors
+
+
+def _terminal_impact(ctx: Context, ch: dict):
+    """The chain's terminal impact -- the one carrying its SCORED delta (§8, FLAG
+    1), never 'first terminal in iteration order'. Deterministic id-sorted tiebreak
+    keeps it order-independent if a chain ever has more than one terminal."""
+    terminals = _terminal_impacts(ctx, ch)
+    return sorted(terminals)[0] if terminals else None
 
 
 def pass6_framework(ctx: Context) -> None:
@@ -771,12 +788,13 @@ def pass6_framework(ctx: Context) -> None:
         ctx.trace.append(T.FrameworkDefeat(
             framework_id=loser, weighing_id=decider, preferred_id=winner))
 
-    # Gate (§5.3): ONE BD-blocking anchor walk feeds both the boolean and the
-    # descriptive anchors[]. A wash (winning is None) gates nothing -- every chain
-    # in scope. Defeat excludes no chain directly: a chain is out only when the
-    # WINNER is not among its anchors, exactly as a chain anchored to nothing is.
+    # Gate (§5.3): ONE impact-rooted anchor walk (Advocacy/BD absorbing) feeds
+    # both the boolean and the descriptive anchors[]. A wash (winning is None)
+    # gates nothing -- every chain in scope. Defeat excludes no chain directly: a
+    # chain is out only when the WINNER is not among its anchors, exactly as a
+    # chain anchored to nothing is.
     for ch in ctx.chains:
-        anchors = _framework_anchors(ctx, ch["members"])
+        anchors = _framework_anchors(ctx, ch)
         in_scope = winning_id is None or winning_id in anchors
         ch["in_scope"] = in_scope
         ctx.trace.append(T.FrameworkGate(
