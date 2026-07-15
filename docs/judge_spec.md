@@ -460,8 +460,16 @@ Only the two `live == 1` rows produce a governing framework.
 
 ### 5.3 The gate
 
-A chain's **framework anchors** are the frameworks reachable from it by a support path (undirected,
-§2.2, §4). A chain may have **several**: an impact may link into both util and social value.
+A chain's **framework anchors** are the frameworks reachable **from its impact terminal(s)** by a
+`Support` path whose interior nodes are never an `Advocacy` or a `BallotDirective` (§2.2, §4).
+Anchoring is the relation *this impact is evaluable under this framework* — the impact reaching a
+framework through the conductive part of a chain (the Uniqueness/Link/Impact spine). `Advocacy` and
+`BallotDirective` are the two node types that are **not conductive spine**: an Advocacy is the shared
+premise both sides litigate (§2.1), sitting *behind* the spine; a BD is terminal, sitting *past* the
+framework. Neither conducts scope, so the anchor walk may **arrive** at one but may not **expand
+outward** from it — they are **absorbing, not traversable** (arrival ≠ traversal). A chain may have
+**several** anchors: an impact that supports *directly* into both util and social value anchors to
+both.
 
 ```
 in_scope(chain) = (winning_framework is None)                     # wash: ungated
