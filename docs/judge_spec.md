@@ -267,6 +267,45 @@ drains to presumption.
 not multiply a probability term in again. In V1 every node's base is 1.0, so severity too is uniform
 until something is argued; the judge never derives any factor from claim content.
 
+### 3.3.1 Redundant paths and convergence to a shared impact (per-path aggregation)
+
+§3.3's `mag = prod_i sigma_i` describes **one** serial root→impact path. When two or more Support
+paths converge on the **same terminal impact** (an impact reachable from the advocacy by more than one
+distinct spine), the impact-component chain is **not** a single flat product over the *union* of every
+spine node — that would let a dead node on **one** redundant path (σ = 0) collapse an impact a clean
+sibling path still fully carries. The component chain is built **per path**, then aggregated to one
+object:
+
+- **(a) Per-path liveness (extension).** Enumerate the distinct root→impact spine paths inside the
+  component. Apply the extension gate (§6) **per path**: a path is *complete* iff every node on its own
+  spine is extended. The **impact survives iff at least one complete path is fully extended.** A path
+  dead at any single node — a de-linked link (σ = 0), a dropped uniqueness (failed extension), a
+  non-unique — removes only **that path**; it never poisons a sibling. Extension is a property of a
+  path, not of the union of all spine nodes in the component.
+
+- **(b) Same-sign redundancy → max, ONE chain per impact.** Among the **surviving** paths that carry
+  the **same sign** into the impact, the impact's magnitude is the **maximum** of their path magnitudes
+  — not their product, not their sum. Redundant support neither compounds nor attenuates (two clean 1.0
+  links onto one impact is one 1.0 impact — not 2.0, not 1.0 × 1.0). This is emitted as **exactly one
+  chain object per impact-component**: the net-offense sum (§7) must see each impact **once**. The
+  per-path enumeration changes only how `mag` / `sign` / `extended` are **computed** for the existing
+  component-keyed chain; it does **not** split the chain into per-path objects. (A per-path-object
+  implementation would double-count a two-link impact as +2; keeping one object per impact, with a max
+  over surviving same-sign paths, is precisely the guard against that.)
+
+- **(c) Convergence sign-conflict (EQUAL magnitude only).** When surviving paths carry **opposite**
+  signs into one shared impact — a clean AFF path (+1) and a **live turned** path (−1) at **equal**
+  magnitude — the impact's AFF offense is **washed**: the shared impact is rendered
+  **non-resolved-+1**, i.e. its sign becomes `?` (UNRESOLVED) or the turned −1 — **never** a resolved
+  +1 chain driven to zero magnitude. This distinction is load-bearing for `reason_class` (§7): a washed
+  impact must not leave a resolved, extended, sign-+1 chain, or the ballot reads `AFF structural
+  failure` (offense established, then zeroed) instead of the correct `presumption` (the round washed;
+  no side established prevailing offense, and the clean chain is intact — it was cancelled, not
+  collapsed). The turned path scores **for** NEG only through an anchored NEG `BallotDirective` (§3.5,
+  §7); absent that BD it banks 0 and the impact simply washes to a tie. **Scoped to equal magnitude
+  only.** Unequal-magnitude convergence (a partial turn that does not fully cancel the clean path) is
+  **out of scope for V1** and is not governed by this rule.
+
 ### 3.4 Coherence is inert, not illegal
 
 An attack operates on a specific factor of its target; an attack with no factor to operate on

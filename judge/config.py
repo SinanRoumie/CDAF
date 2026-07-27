@@ -47,7 +47,18 @@ decisions) and §2.1 (speech order/side).
 #       this (a non-unique on a link, a *->framework attack stay live). Emits
 #       FRAMEWORK_SELECT (once/round) + FRAMEWORK_DEFEAT (per defeat) + a per-chain
 #       FRAMEWORK_GATE (§8).
-JUDGE_VERSION = 6
+#   v7: per-path impact aggregation (§3.3.1). A same-side Support component with a
+#       single terminal impact is scored by folding the DISTINCT root->impact spine
+#       paths converging on that impact (passes._spine_paths/_path_stats/
+#       _aggregate_impact), not the old flat series product over the union spine:
+#       (a) per-path liveness -- the impact survives iff >=1 complete path is
+#       extended and carries non-zero magnitude, so a dead redundant path removes
+#       only itself (r29/r31/r33); (b) same-sign redundancy folds by MAX, emitted as
+#       ONE chain object per impact so the ballot never double-counts (r35);
+#       (c) equal-magnitude sign-conflict at the shared impact WASHES to UNRESOLVED
+#       (r34). Unequal-magnitude convergence and the multi-terminal component remain
+#       OUT OF SCOPE (provisional fallbacks, §3.3.1c).
+JUDGE_VERSION = 7
 
 # --- Ballot values (§0) --------------------------------------------------------
 # The ballot is binary. PRESUMPTION (below) resolves to one of these.

@@ -988,3 +988,106 @@ def test_r28_aff_framework_win_aff():
     sel = _select(trace)
     assert sel.via == "weigh" and sel.winning_framework_id == faff.id and fneg.id in sel.defeated
     assert _gate_for_impact(trace, im_n.id).in_scope is False        # NEG chain out of scope
+
+
+def test_r33_defensive_kill_redundant_link_aff():
+    """§ aggregation (per-path liveness): r33 (renamed from the r30.json probe).
+    Two AFF Support paths converge on one Impact n3 -- a CLEAN path n4->n1->n2->n3
+    (conceded, extended every speech) and a redundant path n1->n7->n3 whose link n7
+    is DEFENSIVELY attacked by a fully-extended NEG link n8 (e7 = DefensiveAttackEdge).
+    Defensive attack drives sigma(n7)->0: the redundant path DIES, but it neither
+    turns nor emigrates. The clean sibling is untouched, so the impact still stands
+    for AFF at +1. AFF wins on its own offense.
+
+    EXPECTED TO FAIL under the CURRENT flattened engine, which folds both paths into
+    one series product: sigma(n7)=0 zeroes the whole chain's magnitude, collapsing an
+    intact AFF case to (NEG, "AFF structural failure"), N=0. Per-path liveness
+    (STEP 4a: an impact survives if >=1 complete root-to-impact path is fully
+    extended) is what turns this green. n7's liveness is "contested" 2AC/1AR/2AR --
+    extension-satisfying, identical to conceded (ruling 1)."""
+    ballot, trace = judge(_load("r33.json"))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
+
+
+def test_r34_turned_redundant_link_washes_shared_impact_neg():
+    """§ aggregation (convergence sign-conflict, EQUAL magnitude only): r34 (renamed
+    from the r32.json probe). Identical to r33 EXCEPT e7 is an OffensiveAttackEdge --
+    n8 TURNS n7 (Link<->Link, turn-eligible). The turned path shares its impact n3
+    with the clean AFF path n4->n1->n2->n3. Ruling 4: a LIVE turned path sharing an
+    impact with a clean AFF path WASHES that impact's AFF offense to 0,
+    unconditionally, even though the clean sibling is fully extended. Equal-magnitude
+    only (both paths mag 1.0; binary-wash and signed-net both yield 0) -- NOT
+    generalized to partial turns.
+
+    The turn scores for NEG only through a NEG BD anchored to it (ruling 2 / r10);
+    there is none, so the turn banks 0, N washes to 0, and NEG wins by PRESUMPTION --
+    NOT structural failure, since chain A is intact.
+
+    EXPECTED TO FAIL mid-STEP-4: once per-path independence (4a) lands but before the
+    convergence rule (4c), the clean path scores alone -> (AFF, "AFF offense"), +1.
+    The convergence wash (4c) returns it to (NEG, "presumption"), N=0. (The CURRENT
+    flattened engine reaches this verdict by accident -- n7's turn flips the whole
+    fused chain to sign -1, driving aff_established false -- but for the wrong reason;
+    the fix must reach "presumption" via the shared-impact wash. STEP-0 finding: the
+    wash MUST leave no resolved sign-+1 extended AFF chain at n3, else _reason_class
+    emits "AFF structural failure" as r33 does, not "presumption".)"""
+    ballot, trace = judge(_load("r34.json"))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "presumption" and abs(bl.N) <= EPSILON
+    # the wash renders the shared impact NON-resolved-+1 (§3.3.1c / STEP-0 constraint):
+    # sign '?', so aff_established is false and the label is "presumption", not
+    # "AFF structural failure". This is what distinguishes the wash from the old
+    # flatten accident (which flipped the whole fused chain to sign -1).
+    chs = _chains(trace)
+    assert len(chs) == 1 and chs[0].sign == "?"
+
+
+def test_r29_shared_impact_one_path_defensive_killed_aff():
+    """§3.3.1(a): two AFF chains to one shared impact n3, sharing advocacy n4.
+    Chain A (n4-n8-n2-n3) is clean and fully extended. Chain B (n4-n9-n7-n3): its
+    uniqueness n9 is clean/extended, its link n7 is fully extended BUT under the
+    live unanswered de-link n11 -> sigma(n7)=0. Path B is dead at the LINK only (no
+    non-unique). Per-path liveness: the impact survives because >=1 complete path
+    (A) is fully extended and carries non-zero magnitude; the dead sibling path
+    removes only itself. Survivor A carries: (AFF, "AFF offense"), N = +1.
+
+    EXPECTED TO FAIL under the current flattened engine (the product over the union
+    spine includes sigma(n7)=0 -> mag 0 -> NEG "AFF structural failure", the r33
+    signature). Per-path aggregation (§3.3.1a) turns it green."""
+    ballot, trace = judge(_load("r29.json"))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
+
+
+def test_r31_shared_impact_one_path_fully_kicked_aff():
+    """§3.3.1(a): as r29 but chain B is kicked WHOLE -- both its link n7 and its
+    uniqueness n9 are dropped (only-1AC) under live extended NEG pressure (de-link
+    n11 -> n7, non-unique n10 -> n9). Path B fails extension outright (not merely
+    zeroed). AFF kicked the dead chain; the clean sibling path A carries the shared
+    impact: (AFF, "AFF offense"), N = +1.
+
+    EXPECTED TO FAIL under the current flattened engine (same collapse as r29/r33).
+    Per-path liveness (impact survives on >=1 complete extended path) turns it
+    green -- a per-path extension failure on B does not poison A."""
+    ballot, trace = judge(_load("r31.json"))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
+
+
+def test_r35_redundant_links_no_double_count_aff():
+    """§3.3.1(b): the double-count guard. One impact n3, two clean fully-extended
+    redundant links (n4-n1-n3 and n4-n2-n3), no attacks, one AFF BD. Same-sign
+    redundancy aggregates by MAX over surviving paths, emitted as ONE chain object
+    per impact-component -- the ballot must see the impact ONCE. Correct: N = +1.0
+    (AFF, "AFF offense"). A per-path-object implementation would double-count to
+    N = +2.0; asserting a single CHAIN record is the standing guard against that."""
+    ballot, trace = judge(_load("r35.json"))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
+    assert len(_chains(trace)) == 1        # one chain per impact, not one per path (no double-count)

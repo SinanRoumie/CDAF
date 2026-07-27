@@ -1,0 +1,90 @@
+{
+  "version": 2,
+  "elements": [
+    {
+      "data": {
+        "id": "n4",
+        "label": "Advocacy",
+        "ntype": "Advocacy",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      },
+      "position": { "x": 264, "y": 148 }
+    },
+    {
+      "data": {
+        "id": "n1",
+        "label": "Link",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      },
+      "position": { "x": 180, "y": 400 }
+    },
+    {
+      "data": {
+        "id": "n2",
+        "label": "Link",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      },
+      "position": { "x": 360, "y": 400 }
+    },
+    {
+      "data": {
+        "id": "n3",
+        "label": "Impact",
+        "ntype": "Impact",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      },
+      "position": { "x": 268, "y": 640 }
+    },
+    {
+      "data": {
+        "id": "n6",
+        "label": "BallotDirective",
+        "ntype": "BallotDirective",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      },
+      "position": { "x": 268, "y": 880 }
+    },
+    { "data": { "id": "e1", "source": "n4", "target": "n1", "etype": "SupportEdge" } },
+    { "data": { "id": "e2", "source": "n4", "target": "n2", "etype": "SupportEdge" } },
+    { "data": { "id": "e3", "source": "n1", "target": "n3", "etype": "SupportEdge" } },
+    { "data": { "id": "e4", "source": "n2", "target": "n3", "etype": "SupportEdge" } },
+    { "data": { "id": "e5", "source": "n6", "target": "n3", "etype": "SupportEdge" } }
+  ]
+}
