@@ -58,7 +58,18 @@ decisions) and §2.1 (speech order/side).
 #       (c) equal-magnitude sign-conflict at the shared impact WASHES to UNRESOLVED
 #       (r34). Unequal-magnitude convergence and the multi-terminal component remain
 #       OUT OF SCOPE (provisional fallbacks, §3.3.1c).
-JUDGE_VERSION = 7
+#   v8: owner-side win condition + BD anchor-membership (§7). The AFF win-gates read
+#       OWNER-side offense -- a chain counts for AFF when its composed sign FAVORS
+#       AFF (owner == AFF), the introducing side for an ordinary chain and the
+#       OPPONENT for a captured/turned chain -- so AFF can win on a NEG disad it
+#       turned, mirroring NEG winning on a captured AFF chain (judge._favored_side /
+#       aff_owned). A live AFF Advocacy must be reachable over Support from that
+#       owner-side offense (judge._advocacy_reachable), the completeness/in-scope/
+#       N>eps floors are unchanged, and presumption stays NEG-asymmetric (T1/T1b/
+#       T2'/T3/T4). A turning link joins the chain it CAPTURED for BD anchoring only,
+#       via `anchor_members`, gated on live capture (eff_pol[target] == -1); union-
+#       find and aggregation still read `members` (passes._build_chains).
+JUDGE_VERSION = 8
 
 # --- Ballot values (§0) --------------------------------------------------------
 # The ballot is binary. PRESUMPTION (below) resolves to one of these.

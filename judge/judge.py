@@ -46,6 +46,30 @@ def _favored_side(ctx: passes.Context, ch: dict):
     return ch["side"] if ch["sign"] > 0 else passes._opposing(ch["side"])
 
 
+def _advocacy_reachable(ctx: passes.Context, chains: list) -> bool:
+    """§7 advocacy gate: is a live AFF Advocacy NODE reachable over undirected
+    `Support` edges from any member of an AFF-owned chain? AFF must tie the plan
+    to the offense it balloted. This is reachability-SCOPED, not global: the walk
+    starts at the AFF-owned chains' members and follows Support only (traversing a
+    cross-side fusion edge like adv->neg_uniqueness, never an OffensiveAttack, and
+    treating BDs as Support leaves), so a live advocacy with no Support path to the
+    balloted offense does NOT satisfy the gate. For an ordinary AFF win the
+    advocacy is itself a chain member and is found trivially."""
+    reach = set()
+    for ch in chains:
+        reach |= ch["members"]
+    stack = list(reach)
+    while stack:
+        cur = stack.pop()
+        for nbr, e in ctx.adj.get(cur, []):
+            if isinstance(e, passes.Support) and nbr not in reach:
+                reach.add(nbr)
+                stack.append(nbr)
+    return any(isinstance(ctx.nodes[m], Advocacy)
+               and passes.node_extension_ok(ctx.nodes[m])[0]
+               for m in reach)
+
+
 def _ballot(ctx: passes.Context) -> str:
     """Pass 6 (§7): validate BDs, sum net offense with weighing preferences,
     apply the asymmetric win condition, drain the indeterminate to presumption."""
@@ -56,7 +80,11 @@ def _ballot(ctx: passes.Context) -> str:
 
     for bd in bds:
         incident = {nbr for nbr, _e in ctx.adj.get(bd.id, [])}
-        anchored = [ch for ch in ctx.chains if ch["members"] & incident]
+        # BD anchoring reads `anchor_members` (§7): a BD may anchor any node on the
+        # chain it directs the ballot toward, including a turning link that captured
+        # the chain (joined by an OffensiveAttack, so absent from `members`). Only BD
+        # incidence uses this superset; union-find and aggregation read `members`.
+        anchored = [ch for ch in ctx.chains if ch["anchor_members"] & incident]
         if not anchored:
             ctx.trace.append(T.BdValidate(bd_id=bd.id, result="fail",
                                           reason="no anchored argument", side=bd.side))
@@ -93,12 +121,21 @@ def _ballot(ctx: passes.Context) -> str:
                 neg_sum += d
     N = aff_sum - neg_sum
 
-    # AFF structural gates
-    aff_valid = [ch for ch in valid if ch["side"] == AFF and ch["id"] not in excluded]
-    advocacy_present = any(isinstance(ctx.nodes[m], Advocacy)
-                           for ch in aff_valid for m in ch["members"])
-    complete_chain = any(ch["mag"] > EPSILON for ch in aff_valid)
-    inscope_impact = any(ch.get("in_scope", True) and ch["impacts"] for ch in aff_valid)
+    # AFF structural gates, read over AFF-OWNED offense (§7): a chain counts for
+    # AFF when the side its composed sign FAVORS is AFF (owner == AFF), which is
+    # the introducing side for an ordinary chain and the opponent for a captured
+    # (turned) chain. This lets AFF win on a NEG disad it turned (r4 mirror),
+    # exactly as NEG wins on a captured AFF chain. The N > eps floor (below) is
+    # unchanged -- it is what stops a bare or washed turn from winning.
+    aff_owned = [ch for ch in valid
+                 if _favored_side(ctx, ch) == AFF and ch["id"] not in excluded]
+    # advocacy_present reads a live AFF Advocacy NODE reachable (over Support) from
+    # the AFF-owned offense -- AFF must tie the plan to the offense it balloted, and
+    # may drop its own advantage yet still hold the plan. Bare presence of any
+    # advocacy anywhere does NOT satisfy it (reachability-scoped, not global).
+    advocacy_present = _advocacy_reachable(ctx, aff_owned)
+    complete_chain = any(ch["mag"] > EPSILON for ch in aff_owned)
+    inscope_impact = any(ch.get("in_scope", True) and ch["impacts"] for ch in aff_owned)
 
     gates = []
     if advocacy_present:

@@ -1091,3 +1091,113 @@ def test_r35_redundant_links_no_double_count_aff():
     bl = _ballot(trace)
     assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
     assert len(_chains(trace)) == 1        # one chain per impact, not one per path (no double-count)
+
+
+# --- Owner-side win condition (§7): AFF wins on captured turn offense ------------
+# A turn hands the captured impact to the side its composed sign FAVORS (`owner`),
+# which for a turned NEG disad is AFF. The win-gates read owner-side offense, not
+# only AFF-introduced offense, so AFF can win on a disad it captured -- exactly as
+# NEG wins on a captured AFF chain (r4). The N>eps floor and presumption asymmetry
+# are the guards; T2'/T3/T4 pin them.
+
+def test_T1_aff_wins_on_captured_disad_turn():
+    """§7 owner-side + anchor-membership: AFF keeps the plan (advocacy n4 fully
+    extended), drops its own advantage (n2/n3/n8 after 2AC), link-turns the NEG disad
+    (n16 OffensiveAttacks n10), weighs the turn over the disad link (n17), and anchors
+    the AFF BD to the TURNING LINK n16 (the natural authoring: n18 -> n16). n16 joins
+    the captured chain only by its OffensiveAttack, so it is not a union-find member
+    -- anchor_members (gated on the live capture eff_pol[n10] == -1) records it, and
+    BD incidence reads that set. The captured chain is side NEG, owner AFF, in scope
+    of the sole framework n12, N = +1: (AFF, "AFF offense"), N = +1.0.
+
+    advocacy_present is satisfied by n4 reachable over Support from the captured
+    chain (via the fusion edge e9: n4 -> n9), NOT by bare presence."""
+    ballot, trace = judge(_load("AFFLinkturnsNeg.json"))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
+
+
+def test_T1b_aff_wins_with_bd_on_captured_impact():
+    """§7 anchor-membership (both targets legal): identical to T1 but the AFF BD
+    anchors the CAPTURED IMPACT n11 (n18 -> n11) instead of the turning link. Ruling 2
+    is withdrawn -- a BD may anchor ANY node on the chain it directs the ballot toward,
+    so both the turning link (T1) and the captured impact (here) are valid anchors and
+    must resolve identically: (AFF, "AFF offense"), N = +1.0. Locks that neither anchor
+    target regresses."""
+    ballot, trace = judge(_load("AFFLinkturnsNeg_impactanchor.json"))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
+
+
+def test_T2prime_outweighed_turn_reverts_to_neg_offense():
+    """§7 floor (turn defeated): as T1 but NEG wins a determinate weigh preferring
+    the disad LINK n10 over the turn n16 (n17 is a NEG weigh). The turn is defeated
+    -- n10 keeps its +1 polarity via preference -- so the disad reverts to NEG
+    offense (side NEG, owner NEG, sign +1), the AFF turn captures nothing, and the
+    NEG BD (n19 -> n11) scores it: N = -1, (NEG, "NEG offense").
+
+    This is the guard that a turn which LOSES its polarity clash never enters
+    owner_valid (favored side is NEG, not AFF). (The engine cannot render a turn's
+    SIGN unresolved -- eff_pol is always +/-1; the sign==UNRESOLVED half of the
+    _favored_side guard is exercised by r34's convergence wash instead.)"""
+    ballot, trace = judge(_load("AFFturnOutweighed.json"))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "NEG offense" and bl.N < -EPSILON
+
+
+def test_T3_neg_mirror_captures_aff_impact():
+    """§7 asymmetry (presumption): the mirror of T1 -- NEG captures an AFF impact by
+    turning the AFF link (turn -> n lk_a), anchors a NEG BD to the captured impact,
+    and weighs the turn. NEG wins by turned offense: (NEG, "NEG offense"), N = -1.
+    NEG needs no owner-side gate of its own -- presumption is the tabula-rasa default
+    and AFF carries the burden, so NEG wins by the ABSENCE of an AFF win. The
+    owner-side change (AFF-only) leaves this untouched: whose offense counts is
+    symmetric, who bears the burden is not."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uq = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
+    fw = b.n(Framework, AFF, "1AC"); abd = b.n(BallotDirective, AFF, "2AR")
+    turn = b.n(Link, NEG, "1NC"); nbd = b.n(BallotDirective, NEG, "2NR")
+    w = b.n(Weighing, NEG, "2NC/1NR")
+    ballot, trace = judge(Round(elements=[
+        adv, uq, lk, im, fw, abd, turn, nbd, w,
+        b.sup(adv, uq), b.sup(uq, lk), b.sup(lk, im), b.sup(im, fw), b.sup(fw, abd),
+        b.oatk(turn, lk), b.sup(nbd, im),           # NEG BD on the captured AFF impact
+        b.cmp(w, turn), b.cmp(w, lk)], version=2))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "NEG offense" and bl.N < -EPSILON
+
+
+def test_T4_captured_turn_washed_to_zero_floor():
+    """§7 N>eps floor: AFF captures the NEG disad (owner AFF, +1) but a clean,
+    independent second NEG disad nets -1, so N washes to 0. The owner-side chain
+    satisfies advocacy + complete + in-scope, yet the FLOOR (N > eps) fails, so NEG
+    wins by presumption: (NEG, "presumption"), N = 0. This is the guard that the
+    owner-side change does NOT become 'any captured turn wins' -- net offense is
+    still required. Frameworkless so the two disads do not fuse through a shared
+    framework; the fusion edge (adv -> uq_n) keeps the AFF advocacy reachable."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC")
+    uq_a = b.n(Uniqueness, AFF, "1AC", {"1AC": CONCEDED, "2AC": CONCEDED})
+    lk_a = b.n(Link, AFF, "1AC", {"1AC": CONCEDED, "2AC": CONCEDED})
+    im_a = b.n(Impact, AFF, "1AC", {"1AC": CONCEDED, "2AC": CONCEDED})
+    uq_n = b.n(Uniqueness, NEG, "1NC"); lk_n = b.n(Link, NEG, "1NC")
+    im_n = b.n(Impact, NEG, "1NC"); nbd = b.n(BallotDirective, NEG, "1NC")
+    turn = b.n(Link, AFF, "2AC"); affbd = b.n(BallotDirective, AFF, "2AC")
+    w = b.n(Weighing, AFF, "2AC")
+    uq2 = b.n(Uniqueness, NEG, "1NC"); lk2 = b.n(Link, NEG, "1NC")
+    im2 = b.n(Impact, NEG, "1NC"); nbd2 = b.n(BallotDirective, NEG, "1NC")
+    ballot, trace = judge(Round(elements=[
+        adv, uq_a, lk_a, im_a, uq_n, lk_n, im_n, nbd, turn, affbd, w, uq2, lk2, im2, nbd2,
+        b.sup(adv, uq_a), b.sup(uq_a, lk_a), b.sup(lk_a, im_a),
+        b.sup(adv, uq_n),                            # fusion: keeps the advocacy reachable
+        b.sup(uq_n, lk_n), b.sup(lk_n, im_n), b.sup(nbd, im_n),
+        b.oatk(turn, lk_n), b.cmp(w, turn), b.cmp(w, lk_n), b.sup(affbd, im_n),
+        b.sup(uq2, lk2), b.sup(lk2, im2), b.sup(nbd2, im2)], version=2))  # clean 2nd NEG disad
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "presumption" and abs(bl.N) <= EPSILON

@@ -755,11 +755,73 @@ From surviving, extended, in-scope, BD-anchored arguments, accumulate net offens
 N = sum(delta_a for surviving AFF args) - sum(delta_a for surviving NEG args)
 ```
 
-applying won-weighing preferences to the comparison. Then the **asymmetric win condition**:
+applying won-weighing preferences to the comparison.
 
-- **AFF wins** iff **all**: advocacy present; a complete chain with non-zero surviving magnitude; at
-  least one in-scope impact; **and N > epsilon**.
-- **NEG wins** otherwise. The `reason_class` distinguishes *why*: `AFF structural failure`,
+**Turned offense does not "emigrate" to the opponent's sum.** A turn is a **negative delta on the
+introducing side's own sum**, scoring for the opponent only through an **opponent `BallotDirective`
+anchored to that chain**; absent that BD it contributes **0** to the ballot sum. `delta_a` already
+carries the polarity flip (§3.2, §3.5): a turned AFF chain has `sign = −1`, so its delta is a
+**negative** term in the **AFF** sum above — never a positive term added into the NEG sum. It scores
+for NEG only when a NEG BD is anchored to it and validates (a determinate turn → `NEG offense`); with
+no such BD the turned chain is incident only to an AFF BD, which rejects opposite-side offense, so it
+banks nothing and is orphaned to presumption (r10). The effect on `N` matches "the offense changed
+hands," but the mechanism is a signed self-side delta gated on an opponent BD, not a literal transfer
+into the opposing sum.
+
+Then the **asymmetric win condition**. It is stated over **AFF-OWNED offense**, not AFF-*introduced*
+offense. A chain's contribution belongs to the side its composed sign **favors** — its `owner`/favored
+side (§3.5) — which is the introducing side for an ordinary chain and the **opponent** for a captured
+(turned) chain. AFF can win on offense it **captured** from a NEG chain by turning it, exactly as NEG
+wins on a captured AFF chain (§3.5, r4). A link turn is affirmative offense and carries a ballot even
+when AFF has dropped its own advantage, provided AFF still defends the plan.
+
+- **AFF wins** iff **all four**:
+  - **a live AFF advocacy** — a reachable `Advocacy` node extended through AFF's speeches (§6). This
+    reads the advocacy **node**, not a surviving advantage chain: AFF may drop its own advantage and
+    still hold the plan, so the advocacy gate must not be tied to a validated AFF-side offense chain.
+  - **a complete AFF-owned chain** — a BD-validated chain whose **favored side is AFF** (`owner == AFF`,
+    **not** `side == AFF`) with non-zero surviving magnitude. A captured NEG disad (`side == NEG`,
+    `owner == AFF`) satisfies this; a turned-**away** AFF chain (`side == AFF`, `owner == NEG`) does not.
+  - **at least one in-scope AFF-owned impact** — that chain is in scope of the winning framework (§5),
+    read over `owner == AFF` chains (the same owner-side quantifier as `framework lock-out`, below).
+  - **and N > epsilon** — net offense favors AFF past the floor.
+- **NEG wins** otherwise (presumption). NEG never satisfies these gates — it wins whenever AFF does
+  not — because presumption is the tabula-rasa default and **AFF carries the burden**. So NEG capturing
+  an AFF impact wins by the *absence* of an AFF win (AFF's offense turned away → gates unmet), needing no
+  owner-side gate of its own; AFF capturing a NEG impact must still clear all four. The owner-side rule
+  makes **whose offense counts** symmetric; presumption keeps **who bears the burden** asymmetric. A NEG
+  mirror of the AFF-captures-disad round therefore resolves NEG by presumption / `NEG offense`, never by
+  a NEG structural gate.
+
+**Balloting a captured turn (§3.5 / r4).** A `BallotDirective` may anchor to **any node on the chain
+it directs the ballot toward**, and a **turning link that captured a chain is on that chain** — so a BD
+on the turning link anchors the captured chain, exactly as a BD on the captured impact does. Both are
+legal authorings; neither is privileged. Mechanically the turning link joins the captured chain only by
+an `OffensiveAttack`, which is not a chain-membership (spine) edge (§3.3) — union-find keys on same-side
+`Support`, so the link is absent from the chain's `members`. Anchoring therefore reads a distinct
+**`anchor_members`** set (= `members` ∪ the live turning links that captured a member), used **only** by
+BD incidence; `union-find`, per-path aggregation (§3.3.1), and the chain's `side`/`sign`/`mag`/`owner`
+continue to read `members` alone, so anchoring adds BD **reach** and never changes accounting. **No
+walk crosses an `OffensiveAttack` edge** — `anchor_members` is a one-hop record set at chain-build time,
+not a traversal; framework anchoring still uses the Support-only impact→framework walk (§5.3).
+
+Anchor-membership is gated on **live capture**: a turning link earns anchor reach on the chain
+containing the node it attacks **only if that node actually flipped** (`eff_pol == -1`). A **defeated or
+washed** turn — one whose target kept its polarity — earns **no** anchor reach, even though it remains
+in `offense_on` (which is populated pre-resolution and so is not by itself evidence of capture). Note
+this gate is about **reach**, not **direction**: whichever side a BD claims, validation still checks the
+chain's `owner` (`_favored_side`), so a BD anchored to a captured chain scores only if the chain's
+offense favors that BD's side.
+
+**The `N > epsilon` floor is load-bearing and unchanged.** Recognizing AFF-owned offense in the three
+structural gates does **not** let a bare or washed turn win: a captured chain that nets to a tie or
+worse (`N <= epsilon` — outweighed at the polarity clash, or cancelled by opposing NEG offense) fails
+the floor, and NEG wins by presumption even though the owned chain satisfies advocacy + complete +
+in-scope. The floor is the only gate that reads **net** offense; the other three read structure. (This
+is what stops "any turn wins": the owner-side change adds a *path* to an AFF win, never removes the
+net-offense requirement on it.)
+
+The `reason_class` distinguishes *why* NEG won: `AFF structural failure`,
   `framework lock-out`, `NEG offense` (N < -epsilon), or `presumption`. The two indeterminate-looking
   labels are **disjoint** — no overlap, so no tiebreak is needed:
   - **`AFF structural failure`** requires that AFF **established** offense that then **failed**: a
@@ -780,8 +842,11 @@ applying won-weighing preferences to the comparison. Then the **asymmetric win c
   nowhere. So the structural-failure collapse modes are *driven-to-zero* and *gated-out-of-scope*,
   **not** *flipped*.
 
-  `framework lock-out` requires `winning_framework is not None` **and** no in-scope AFF impact. A
-  **wash** (§5.2) can never produce lock-out, because a wash gates nothing. A round that returns the
+  `framework lock-out` requires `winning_framework is not None` **and** no in-scope **AFF-owned**
+  impact (the same owner-side quantifier as the win condition, so a captured disad in scope of the
+  winning framework is *not* locked out — it reaches the ballot and either wins on `N > epsilon` or, if
+  washed, drains to `presumption`, never to lock-out). A **wash** (§5.2) can never produce lock-out,
+  because a wash gates nothing. A round that returns the
   right winner via the wrong `reason_class` is a **failing** round: the harness asserts on the
   `(winner, reason_class)` pair, never on the winner alone. A verdict that is correct by presumption
   where it should be correct by lock-out is a judge that will drift, and a winner-only fixture cannot
