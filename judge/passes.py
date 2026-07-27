@@ -600,6 +600,15 @@ def _aggregate_impact(ctx: Context, spine_set, impact, roots, side):
             # unequal magnitude is OUT OF SCOPE for V1 (ruling 4): provisional --
             # the strongest single surviving path carries the impact. No current
             # fixture exercises this; its isolating round is authored later.
+            #
+            # FENCE (B, §3.3.1c): emit a WRITE-ONLY marker so the RL env's episode-
+            # init validator can REFUSE any round that reaches this unaudited branch.
+            # This is purely descriptive -- the return value below is byte-identical
+            # whether or not this record is appended, and no downstream pass or gate
+            # reads it, so the judge's verdict is unchanged (the judge stays pure;
+            # the env owns episode validity). See judge.trace.ConvergenceOutOfScope.
+            ctx.trace.append(T.ConvergenceOutOfScope(
+                impact_id=impact, pos_mag=hp, neg_mag=hn))
             return (1, hp, True, None) if hp > hn else (-1, hn, True, None)
         if pos:                                           # (b) same-sign redundancy -> max
             return 1, max(pos), True, None

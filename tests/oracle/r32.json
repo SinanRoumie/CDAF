@@ -1,0 +1,89 @@
+{
+  "version": 2,
+  "elements": [
+    {
+      "data": {
+        "id": "n4",
+        "label": "Advocacy",
+        "ntype": "Advocacy",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {"1AC": "conceded", "2AC": "conceded", "1AR": "conceded", "2AR": "conceded"}
+      },
+      "position": {"x": 264.0, "y": 148.0}
+    },
+    {
+      "data": {
+        "id": "n1",
+        "label": "Uniqueness (shared cut-vertex)",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {"1AC": "conceded", "2AC": "conceded", "1AR": "conceded", "2AR": "conceded"}
+      },
+      "position": {"x": 268.0, "y": 324.0}
+    },
+    {
+      "data": {
+        "id": "n2",
+        "label": "Link A",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {"1AC": "conceded", "2AC": "conceded", "1AR": "conceded", "2AR": "conceded"}
+      },
+      "position": {"x": 207.0, "y": 618.0}
+    },
+    {
+      "data": {
+        "id": "n7",
+        "label": "Link B",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {"1AC": "conceded", "2AC": "conceded", "1AR": "conceded", "2AR": "conceded"}
+      },
+      "position": {"x": 315.0, "y": 796.0}
+    },
+    {
+      "data": {
+        "id": "n3",
+        "label": "Impact (shared)",
+        "ntype": "Impact",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {"1AC": "conceded", "2AC": "conceded", "1AR": "conceded", "2AR": "conceded"}
+      },
+      "position": {"x": 252.0, "y": 1023.0}
+    },
+    {
+      "data": {
+        "id": "n6",
+        "label": "BallotDirective",
+        "ntype": "BallotDirective",
+        "side": "AFF",
+        "speech": "2AR",
+        "liveness": {"2AR": "conceded"}
+      },
+      "position": {"x": 244.0, "y": 1292.0}
+    },
+    {
+      "data": {
+        "id": "n8",
+        "label": "Non-unique (kills the shared uniqueness)",
+        "ntype": "Uniqueness",
+        "side": "NEG",
+        "speech": "1NC",
+        "liveness": {"1NC": "conceded", "2NC/1NR": "conceded", "2NR": "conceded"}
+      },
+      "position": {"x": 595.0, "y": 324.0}
+    },
+    {"data": {"id": "e1", "source": "n4", "target": "n1", "etype": "SupportEdge"}},
+    {"data": {"id": "e2", "source": "n1", "target": "n2", "etype": "SupportEdge"}},
+    {"data": {"id": "e3", "source": "n2", "target": "n3", "etype": "SupportEdge"}},
+    {"data": {"id": "e4", "source": "n1", "target": "n7", "etype": "SupportEdge"}},
+    {"data": {"id": "e5", "source": "n7", "target": "n3", "etype": "SupportEdge"}},
+    {"data": {"id": "e6", "source": "n6", "target": "n3", "etype": "SupportEdge"}},
+    {"data": {"id": "e7", "source": "n8", "target": "n1", "etype": "DefensiveAttackEdge"}}
+  ]
+}

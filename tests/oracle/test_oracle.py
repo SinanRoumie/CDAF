@@ -1201,3 +1201,190 @@ def test_T4_captured_turn_washed_to_zero_floor():
     assert ballot == NEG
     bl = _ballot(trace)
     assert bl.reason_class == "presumption" and abs(bl.N) <= EPSILON
+
+
+# --- Gap-audit CLOSEs (STEP 4): corners a self-play agent reaches that no prior
+# --- round pinned. Each asserts the ruled verdict for a previously-unaudited path.
+
+def test_C_impact_pair_weigh_drops_dispreferred_chain():
+    """§6.5 SCOPE CLASH at the ballot (gap C). Two independently-BD-validated impact
+    chains -- an AFF advantage and a NEG disad -- both reach the ballot; an AFF
+    Weighing ranks the two TERMINAL IMPACTS {im_aff, im_neg}, determinate for im_aff
+    (own-side preference). §6.5 (spec 'scope clashes exclude'): the DISPREFERRED
+    impact's whole chain is EXCLUDED from the tally -- dropped entirely, no residual
+    -- so the NEG chain contributes nothing and N reflects only the survivor.
+
+    Without the weigh N = +1 - +1 = 0 -> NEG (presumption); the determinate impact-
+    pair weigh drops the NEG chain, so N = +1 -> AFF. This is the ONLY path through
+    judge._weighing_excluded, exercised by no prior round (every other weigh ranks
+    links / uniquenesses / frameworks, never a terminal-impact pair at the ballot)."""
+    b = _B()
+    adv_a = b.n(Advocacy, AFF, "1AC"); uni_a = b.n(Uniqueness, AFF, "1AC")
+    lk_a = b.n(Link, AFF, "1AC"); im_a = b.n(Impact, AFF, "1AC"); bd_a = b.n(BallotDirective, AFF, "2AR")
+    uni_n = b.n(Uniqueness, NEG, "1NC"); lk_n = b.n(Link, NEG, "1NC")
+    im_n = b.n(Impact, NEG, "1NC"); bd_n = b.n(BallotDirective, NEG, "2NR")
+    w = b.n(Weighing, AFF, "2AC", label="AFF: our impact outweighs theirs")
+    ballot, trace = judge(Round(elements=[
+        adv_a, uni_a, lk_a, im_a, bd_a, uni_n, lk_n, im_n, bd_n, w,
+        b.sup(adv_a, uni_a), b.sup(uni_a, lk_a), b.sup(lk_a, im_a), b.sup(im_a, bd_a),
+        b.sup(uni_n, lk_n), b.sup(lk_n, im_n), b.sup(im_n, bd_n),
+        b.cmp(w, im_a), b.cmp(w, im_n)], version=2))          # weigh ranks the two IMPACTS
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
+    dec = {d["side"]: d for d in bl.decomposition}
+    assert dec[AFF]["contributed"] is True                    # survivor scores
+    assert dec[NEG]["contributed"] is False                   # dispreferred chain DROPPED entirely
+    won = [r for r in trace if r.kind == "WEIGH" and r.outcome == "resolved"]
+    assert won and won[0].preferred_node == im_a.id and set(won[0].pair) == {im_a.id, im_n.id}
+
+
+def test_D_r32_shared_uniqueness_cut_vertex_kill_neg():
+    """§3.3.1 shared cut-vertex (gap D / parked r32). One shared Uniqueness n1 feeds
+    TWO clean Links (n2, n7) that converge on ONE shared Impact n3; a live conceded
+    NEG non-unique n8 DefensiveAttacks n1 to sigma 0. Every root->impact path runs
+    THROUGH n1, so the per-path magnitude product zeroes on BOTH paths -- the impact
+    has no surviving carrier and dies. 'Both chains die' by construction: neither
+    link individually was touched (sigma(n2) = sigma(n7) = 1.0), yet killing the one
+    shared node collapses both. -> (NEG, 'AFF structural failure'), the chain sign
+    still +1 (a defensive kill, NOT a turn), mag 0."""
+    ballot, trace = judge(_load("r32.json"))
+    assert ballot == NEG
+    assert _ballot(trace).reason_class == "AFF structural failure"
+    chs = _chains(trace)
+    assert len(chs) == 1                                       # one component, one chain object
+    assert chs[0].sign == 1 and chs[0].mag < EPSILON          # defensive kill, not a flip
+    # it is specifically the SHARED cut-vertex that died -- both links are healthy:
+    ctx = _run_ctx(list(_load("r32.json").elements))
+    assert ctx.sigma["n1"] < EPSILON                          # shared uniqueness dead
+    assert ctx.sigma["n2"] >= 0.5 and ctx.sigma["n7"] >= 0.5  # both links individually intact
+
+
+def test_E_rebuttal_introduced_chain_not_extended_neg():
+    """§6 'no new chains in rebuttals' chain-level guard (gap E). A whole NEG disad
+    is introduced for the first time in the 2NR (a rebuttal speech), fully conceded.
+    The component's earliest introduction is in REBUTTAL_SPEECHES, so it is forced
+    extended=False and establishes no offense -- even though the 2NR impact has a
+    later opposing speech (2AR) and would otherwise resolve. Without the guard the
+    conceded disad nets N < 0 (NEG offense); the guard zeroes it -> N = 0 -> NEG by
+    PRESUMPTION. Exercises the intro_speech-in-rebuttals branch (missing_speech ==
+    the rebuttal itself)."""
+    b = _B()
+    uni = b.n(Uniqueness, NEG, "2NR", {"2NR": CONCEDED}); lk = b.n(Link, NEG, "2NR", {"2NR": CONCEDED})
+    im = b.n(Impact, NEG, "2NR", {"2NR": CONCEDED}); bd = b.n(BallotDirective, NEG, "2NR", {"2NR": CONCEDED})
+    ballot, trace = judge(Round(elements=[
+        uni, lk, im, bd, b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd)], version=2))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "presumption" and abs(bl.N) <= EPSILON
+    ch = _chains(trace)[0]
+    assert not ch.extended and not any(d["contributed"] for d in bl.decomposition)
+    ef = [r for r in trace if r.kind == "EXTENSION_FAIL"]
+    assert ef and ef[0].missing_speech == "2NR"               # the rebuttal-intro branch
+
+
+def test_F_no_window_continuation_resolves_answered_aff():
+    """§4 final-speech CONTINUATION refinement (gap F). AFF's terminal impact is
+    introduced fresh in the 2AR (final speech, no response window), but it CONTINUES
+    a clash that was CONTESTED entering the prior opposing speech (2NR): the link it
+    attaches to carries a '2NR: contested' stamp. Unlike a fresh 2AR spike (r8, which
+    goes UNRESOLVED), a legitimate continuation resolves 'answered' -- neither
+    dropped nor unresolved -- so the chain stands and AFF wins on offense. This is
+    the continues==True branch that r8 (continues==False) does not reach."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC", {"1AC": CONCEDED, "2AC": CONCEDED, "1AR": CONCEDED,
+                                "2AR": CONCEDED, "2NR": CONTESTED})   # clash live entering 2NR
+    im = b.n(Impact, AFF, "2AR", {"2AR": CONCEDED})           # fresh 2AR, but CONTINUES the clash
+    bd = b.n(BallotDirective, AFF, "2AR")
+    ballot, trace = judge(Round(elements=[
+        adv, uni, lk, im, bd,
+        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd)], version=2))
+    assert ballot == AFF
+    assert _ballot(trace).reason_class == "AFF offense"
+    assert not any(r.kind == "UNRESOLVED" and r.node_id == im.id for r in trace)  # not inert
+    assert not any(r.kind == "DROP" and r.node_id == im.id for r in trace)        # not dropped
+    ch = _chains(trace)[0]
+    assert ch.sign == 1 and ch.extended
+
+
+def test_H_severed_advocacy_fails_gate_neg():
+    """§7 advocacy gate false branch (gap H). AFF builds a COMPLETE, IN-SCOPE,
+    positive-N owner-side advantage (uniqueness->link->impact->BD, all conceded,
+    N = +1) -- but the plan Advocacy is SEVERED: it sits in a disjoint Support
+    component (linked only to a stray NEG BD), so it is NOT reachable over Support
+    from the balloted offense. AFF must tie the plan to its offense; with no
+    reachable advocacy the gate denies the win. Every OTHER gate passes -- the
+    ballot's gates_passed carries complete_chain, in_scope_impact and N>eps but NOT
+    'advocacy' -- so AFF loses to NEG on the advocacy gate alone. No prior round
+    exercises this false branch (advocacy is reachable in every other AFF win)."""
+    b = _B()
+    uni_a = b.n(Uniqueness, AFF, "1AC"); lk_a = b.n(Link, AFF, "1AC")
+    im_a = b.n(Impact, AFF, "1AC"); bd_a = b.n(BallotDirective, AFF, "2AR")
+    adv = b.n(Advocacy, AFF, "1AC"); bd_n = b.n(BallotDirective, NEG, "2NR")
+    ballot, trace = judge(Round(elements=[
+        uni_a, lk_a, im_a, bd_a, adv, bd_n,
+        b.sup(uni_a, lk_a), b.sup(lk_a, im_a), b.sup(im_a, bd_a),
+        b.sup(adv, bd_n)], version=2))               # advocacy severed onto a disjoint component
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF structural failure" and bl.N > EPSILON
+    assert "advocacy" not in bl.gates_passed                  # the gate that failed
+    assert {"complete_chain", "in_scope_impact", "N>eps"} <= set(bl.gates_passed)  # all others passed
+
+
+def test_G1_backwards_drawn_attack_still_applies_neg():
+    """§2.2 direction-agnostic attack (gap G, sentinel 1). r2's conceded defensive
+    kill, but the DefensiveAttack edge is drawn BACKWARDS -- source = the earlier
+    link (1AC), target = the later non-unique (1NC). Attacks are oriented by SPEECH
+    RECENCY, not draw direction: the later-speech node is still the attacker, so the
+    edge applies identically and kills the link -> NEG. It is NOT inert (the reversed
+    draw is coherent); this pins the ib>ia swap branch."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC"); bd = b.n(BallotDirective, AFF, "2AR")
+    d = b.n(Link, NEG, "1NC")
+    ballot, trace = judge(Round(elements=[
+        adv, uni, lk, im, bd, d,
+        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+        b.datk(lk, d)], version=2))                  # BACKWARDS: source=1AC, target=1NC
+    assert ballot == NEG
+    ch = _chains(trace)[0]
+    assert ch.mag < EPSILON                                   # applied despite the reversed draw
+    assert not any(r.kind == "INERT_ATTACK" for r in trace)  # coherent, not inert
+
+
+def test_G2_same_speech_clash_inert():
+    """§2.2 (gap G, sentinel 2). Two nodes in the SAME speech joined by an attack:
+    with no speech-recency ordering there is no attacker/target, so the edge is inert
+    ('same-speech clash'). Attached beside a clean AFF advantage; the inert edge does
+    nothing -> AFF, and the INERT_ATTACK is recorded."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC"); bd = b.n(BallotDirective, AFF, "2AR")
+    na = b.n(Link, NEG, "1NC"); nb = b.n(Link, NEG, "1NC")    # both 1NC
+    ballot, trace = judge(Round(elements=[
+        adv, uni, lk, im, bd, na, nb,
+        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+        b.sup(na, bd), b.sup(nb, na), b.datk(na, nb)], version=2))
+    assert ballot == AFF
+    assert any(r.kind == "INERT_ATTACK" and "same-speech" in r.reason for r in trace)
+
+
+def test_G3_same_side_attack_inert():
+    """§2.2 (gap G, sentinel 3). An attack between two SAME-SIDE nodes (AFF on AFF,
+    different speeches) is incoherent -- a side does not attack itself -- so it is
+    inert and changes no magnitude. The clean AFF advantage stands -> AFF, mag 1.0,
+    with the INERT_ATTACK recorded."""
+    b = _B()
+    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
+    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC"); bd = b.n(BallotDirective, AFF, "2AR")
+    na = b.n(Link, AFF, "2AC")                                # AFF attacking the AFF link
+    ballot, trace = judge(Round(elements=[
+        adv, uni, lk, im, bd, na,
+        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
+        b.datk(na, lk)], version=2))
+    assert ballot == AFF
+    ch = _chains(trace)[0]
+    assert abs(ch.mag - 1.0) < 1e-9                           # inert -> magnitude untouched
+    assert any(r.kind == "INERT_ATTACK" and "same-side" in r.reason for r in trace)

@@ -102,6 +102,25 @@ class InertAttack(TraceRecord):
 
 
 @dataclass
+class ConvergenceOutOfScope(TraceRecord):
+    """WRITE-ONLY fence marker (§3.3.1c). Emitted when `_aggregate_impact` reaches
+    the UNEQUAL-magnitude sign-conflict convergence branch -- a V1-out-of-scope
+    case whose verdict is only provisional (the strongest single path carries the
+    impact). It records that the branch was reached; it is NEVER read by any
+    downstream pass or gate, so the verdict is identical whether or not this record
+    is emitted (an inert descriptive tag, like JUDGE_VERSION). The RL environment's
+    episode-init validator reads it OFF THE TRACE to REFUSE the round; the judge
+    itself does not act on it. `pos_mag`/`neg_mag` are the two conflicting paths'
+    magnitudes (unequal here, which is exactly what puts it out of scope)."""
+    impact_id: str
+    pos_mag: float
+    neg_mag: float
+
+    kind: ClassVar[str] = "CONVERGENCE_OUT_OF_SCOPE"
+    pass_no: ClassVar[str] = "5"
+
+
+@dataclass
 class Chain(TraceRecord):
     """A resolved argument chain: sign and magnitude products -> delta.
 
@@ -237,6 +256,7 @@ RECORD_CLASSES = {
     cls.kind: cls
     for cls in (
         Drop, Unresolved, ExtensionFail, Magnitude, PolarityFlip, InertAttack,
+        ConvergenceOutOfScope,
         Chain, FrameworkSelect, FrameworkDefeat, FrameworkGate, Weigh, BdValidate,
         Ballot,
     )
