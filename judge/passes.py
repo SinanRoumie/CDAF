@@ -734,6 +734,13 @@ def _build_chains(ctx: Context) -> None:
     for nid in ids:
         comps[find(nid)].append(nid)
 
+    # §12.5: satellite (v9) uniqueness nodes are chain MEMBERS, never premise ROOTS.
+    # They are leaves wired to a post-world node, so treating one as a root seeds a
+    # spurious [impact, satellite] path that sign-conflicts with the real spine path
+    # (and washes a turn capture). Empty for old spine-rooted fixtures, so excluding
+    # them is additive-only. They still count in `members`/`anchor_members` below.
+    satellites = {u for us in ctx.wired_uniqueness.values() for u in us}
+
     for root, members in comps.items():
         impacts = [m for m in members if isinstance(ctx.nodes[m], Impact)]
         if not impacts:
@@ -752,8 +759,8 @@ def _build_chains(ctx: Context) -> None:
         )
         spine_set = set(spine_reps)
         roots = ([m for m in spine_reps if isinstance(ctx.nodes[m], Advocacy)]
-                 or [m for m in spine_reps if isinstance(ctx.nodes[m], Uniqueness)]
-                 or [m for m in spine_reps if not isinstance(ctx.nodes[m], Impact)]
+                 or [m for m in spine_reps if isinstance(ctx.nodes[m], Uniqueness) and m not in satellites]
+                 or [m for m in spine_reps if not isinstance(ctx.nodes[m], Impact) and m not in satellites]
                  or list(impacts))
         terminals = _terminals(ctx, members, impacts)
 
