@@ -54,12 +54,9 @@ from .config import (
 ATTACK_TYPES = (DefensiveAttack, OffensiveAttack)
 SPINE_TYPES = (Uniqueness, Link, Impact, Advocacy)
 OFFENSE_BEARING = (Link, Impact)
-# v9 uniform-uniqueness schema (§12): a post-world node is Link/Impact; its
-# mechanism parents are the spine sources feeding it (Advocacy/Link) -- NOT its
-# terminal impact and NOT its wired Uniqueness satellite. Used only for the
-# structural index below (Step 5); the spine change that consumes it is Step 6.
+# v9 uniform-uniqueness schema (§12): a post-world node is Link/Impact -- the node
+# type that carries a wired uniqueness (§12.4.3 poisoning gate reads this set).
 POSTWORLD_TYPES = (Link, Impact)
-MECHANISM_PARENT_TYPES = (Advocacy, Link)
 # Rebuttal speeches: a NEW chain first introduced here does not count (§6).
 REBUTTAL_SPEECHES = frozenset({"1AR", "2NR", "2AR"})
 
@@ -125,15 +122,10 @@ class Context:
     weighings: List = field(default_factory=list)
     weigh_pair: Dict[str, object] = field(default_factory=dict)   # weigh id -> frozenset(pair)
 
-    # v9 uniform-uniqueness schema (§12) STRUCTURAL index (Step 5). Populated in
-    # build_context; NOT yet read by any scoring pass -- the per-node evaluation
-    # and spine change that consume these land together in Step 6 (§12.4), so the
-    # judge is never in a state where a non-unique has no effect.
-    #   wired_uniqueness: post-world node id -> Uniqueness ids wired to it (Support).
-    #   multi_parent: post-world node id -> its >=2 mechanism parents (Advocacy/Link
-    #     support-neighbours) -- a recognized AND-join / convergence (§12.3.2).
+    # v9 uniform-uniqueness schema (§12): post-world node id -> the SATELLITE
+    # Uniqueness ids wired to it over Support (built in build_context, consumed by
+    # the §12.4.3 poisoning gate). Empty for old spine-rooted rounds.
     wired_uniqueness: Dict[str, List[str]] = field(default_factory=dict)
-    multi_parent: Dict[str, List[str]] = field(default_factory=dict)
 
 
 # --- Pass 1: discovery + structural indexing ----------------------------------
@@ -166,10 +158,8 @@ def _index_uniqueness(ctx: Context) -> None:
     never feeds an Advocacy. The OLD spine-root wiring (Advocacy->Uniqueness->Link)
     therefore never populates the map (its uniqueness feeds an Advocacy), so the
     Step-6 poisoning gate is completely inert on old-style construction and the
-    spine mechanism is left untouched (additive-only per the agreed plan). Its own
-    verdict effect is via the gate; multi_parent records >=2 mechanism parents
-    (Advocacy/Link support-neighbours) -- a recognized AND-join / convergence
-    (§12.3.2)."""
+    spine mechanism is left untouched (additive-only per the agreed plan). Its verdict
+    effect is via the §12.4.3 poisoning gate."""
     def _support_nbrs(uid):
         return [ctx.nodes.get(nbr) for nbr, e in ctx.adj.get(uid, [])
                 if isinstance(e, Support) and nbr in ctx.reachable]
@@ -185,16 +175,6 @@ def _index_uniqueness(ctx: Context) -> None:
         for n in nbrs:
             wired[n.id].append(uid)
     ctx.wired_uniqueness = {k: sorted(set(v)) for k, v in wired.items()}
-
-    parents: Dict[str, List[str]] = defaultdict(list)
-    for nid in ctx.reachable:
-        if not isinstance(ctx.nodes.get(nid), POSTWORLD_TYPES):
-            continue
-        for nbr, e in ctx.adj.get(nid, []):
-            if (isinstance(e, Support) and nbr in ctx.reachable
-                    and isinstance(ctx.nodes.get(nbr), MECHANISM_PARENT_TYPES)):
-                parents[nid].append(nbr)
-    ctx.multi_parent = {k: sorted(set(v)) for k, v in parents.items() if len(set(v)) >= 2}
 
 
 def _index_weighings(ctx: Context) -> None:
