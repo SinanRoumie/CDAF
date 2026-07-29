@@ -19,7 +19,7 @@ window.dash_clientside = window.dash_clientside || {};
 
 const CDAF = {
     LEFT: 120,
-    COL_W: 280,        // columns are adjacent (no gap)
+    COL_W: 560,        // columns are adjacent (no gap)
     NODE_W: 170,
     WORLD_TOP: 20,     // panning cannot go above this graph-top
     SPEECHES: ["1AC", "1NC", "2AC", "2NC/1NR", "1AR", "2NR", "2AR"],
@@ -155,6 +155,33 @@ window.dash_clientside.cdaf = {
                 if (n && n.length && !n.data("bg") && !n.data("hdr")) n.position(posmap[id]);
             });
         });
+        return "";
+    },
+
+    // Re-add edges dash-cytoscape drops on a first element patch (endpoint nodes
+    // added in the same update, autoRefreshLayout=False). Additive/idempotent:
+    // only inserts an edge that is in Dash's `elements` but missing from cy, and
+    // only once both its endpoints exist. Never removes -- a deleted edge (absent
+    // from `elements`) is not resurrected. Fixes "attack edge missing until the
+    // round is loaded a second time".
+    repairEdges: function (elements) {
+        var tries = 0;
+        var run = function () {
+            var cy = cdafGetCy();
+            if (!cy) { if (tries++ < 10) setTimeout(run, 120); return; }
+            cy.batch(function () {
+                (elements || []).forEach(function (el) {
+                    var d = (el && el.data) || {};
+                    if (!d.source || !d.target || d.bg) return;   // not an edge
+                    if (cy.getElementById(d.id).length) return;   // already present
+                    if (cy.getElementById(d.source).length &&
+                        cy.getElementById(d.target).length) {
+                        cy.add({ group: "edges", data: d });
+                    }
+                });
+            });
+        };
+        requestAnimationFrame(run);
         return "";
     },
 

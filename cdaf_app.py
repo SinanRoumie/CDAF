@@ -102,7 +102,7 @@ SIDE_COLUMN = {"AFF": {"tint": "#e8f5ee"}, "NEG": {"tint": "#fbe9e9"}}
 
 # Isometric layout geometry (kept in sync with assets/cdaf.js).
 LEFT = 120
-COL_W = 280            # columns are adjacent (no gap): band width == COL_W
+COL_W = 560            # columns are adjacent (no gap): band width == COL_W
 DEPTH_DX = 46          # horizontal isometric offset per layer (content/framework/ballot)
 NODE_W = 170
 ROW_H = 88             # vertical stacking step
@@ -936,6 +936,7 @@ app.layout = html.Div([
     dcc.Store(id="trace-store", data=[]),
     dcc.Store(id="applysel-dummy", data=""),
     dcc.Store(id="applypos-dummy", data=""),
+    dcc.Store(id="edgerepair-dummy", data=""),
     left_panel, graph_area, inspector, choose_modal, edge_dialog, weighing_dialog,
 ], className="app-root")
 
@@ -957,6 +958,19 @@ app.clientside_callback(
     ClientsideFunction(namespace="cdaf", function_name="applyPositions"),
     Output("applypos-dummy", "data"),
     Input("apply-positions", "data"),
+    prevent_initial_call=True,
+)
+
+# dash-cytoscape can drop an edge whose source/target nodes are added in the SAME
+# first element patch (autoRefreshLayout=False): the endpoints don't yet exist in
+# the live instance when the edge is applied, so it is silently discarded, and it
+# only appears when the round is loaded a second time (nodes already present). This
+# re-adds any edge that is in the Dash `elements` prop but missing from cy. It is
+# additive/idempotent -- it never removes, so a deleted edge is not resurrected.
+app.clientside_callback(
+    ClientsideFunction(namespace="cdaf", function_name="repairEdges"),
+    Output("edgerepair-dummy", "data"),
+    Input("cytoscape", "elements"),
     prevent_initial_call=True,
 )
 
