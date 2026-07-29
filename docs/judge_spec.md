@@ -51,6 +51,10 @@ These are settled. They are named constants in `judge/config.py`.
 **Note on stale numbers.** Earlier project docs used tau = 0.5 and declared link magnitudes (the
 0.7 / 0.165 worked examples). Those are superseded. Build oracle fixtures fresh from tau = 1.0.
 
+**Note on uniqueness (v9).** These pinned decisions predate the uniform-uniqueness migration:
+uniqueness is no longer a root-only node — every post-world node carries its own uniqueness attack
+surface. Superseded, see §12.
+
 ---
 
 ## 2. The graph, as the judge sees it
@@ -372,6 +376,9 @@ Emit `POLARITY_FLIP` (via `preference`/`dfquad`) and `CHAIN` for the turned chai
 sign, preserved magnitude, and owning side. **This is a judge-semantics change → version bump (v3);
 re-confirm the oracle harness.**
 
+**Uniqueness under v9.** A turn capturing a chain now also captures the uniqueness nodes wired to
+its post-world nodes, joining the capturing side's anchor set. Superseded, see §12.5.
+
 ### 3.6 Each node's σ is consumed exactly once
 
 Strength accrues identically at every node (§3.1). What a node's surviving σ then *does* is fixed by
@@ -509,6 +516,10 @@ framework. Neither conducts scope, so the anchor walk may **arrive** at one but 
 outward** from it — they are **absorbing, not traversable** (arrival ≠ traversal). A chain may have
 **several** anchors: an impact that supports *directly* into both util and social value anchors to
 both.
+
+**Uniqueness under v9.** Uniqueness nodes count as chain members for `anchor_members` and
+reachability; a turn capturing a chain brings its wired uniqueness nodes into the capturing side's
+anchor set. Superseded, see §12.5.
 
 ```
 in_scope(chain) = (winning_framework is None)                     # wash: ungated
@@ -1006,7 +1017,144 @@ Each isolates one clause of §5 and each asserts on `(winner, reason_class)`.
     from it. **NEG (AFF structural failure)** at σ ≈ 0 (a complete, extended, still-AFF-favoring chain
     driven to zero magnitude — §7, not `presumption`; the earlier "presumption" wording was loose), or
     **AFF weakened** at partial mitigation.
+    *v9: superseded, see §12 — uniqueness is now a distinct per-post-world node, not "no separate
+    uniqueness node"; this verdict is unchanged, only the construction.*
 25. **Offense aimed at a uniqueness is inert.** An `OffensiveAttack` targeting a Uniqueness node (either
     drawn direction). Emit `INERT_ATTACK`; σ unchanged; no `POLARITY_FLIP`; the uniqueness is not
     turned. Same treatment as offense aimed at an Advocacy or Framework (§3.4). Confirms uniqueness is
     not turn-eligible.
+    *v9: superseded, see §12 — uniqueness is now wired per post-world node; verdict unchanged.*
+
+---
+
+## 12. Schema migration: uniform uniqueness nodes (v9)
+
+**This is a judge-semantics change → JUDGE_VERSION 8 → 9.** It invalidates cross-run
+comparisons with any prior (v8 and earlier) version; every run must record the judge version it
+was scored under. Pre-v9 oracle fixtures are not valid under v9 and are redrawn, not
+reinterpreted, before re-ruling (migration process tracked outside this spec).
+
+**Supersedes.** This section overrides the root-only uniqueness model wherever prior text assumes
+uniqueness lives only at a chain root:
+
+- §1's "impact = terminal node, positional only" still holds, but **every** post-world node now
+  carries the uniqueness attack surface (§12.2.1), not only the terminal impact.
+- §11 rounds 24–25 ("no separate uniqueness node"; a single uniqueness landing on the link) are
+  re-expressed under the uniform model: uniqueness is always a distinct node, one wired per
+  post-world node. Their **verdicts are unchanged**; only their construction is superseded.
+- Any prior handling of uniqueness as a one-off root node (context in §3.5, §5.3).
+
+### 12.1 Motivation
+
+The pre-v9 schema treated uniqueness as a distinct node type reserved for the root of a chain.
+This is a structural primitive that isn't supported by how uniqueness actually functions in
+debate: non-uniqueness attacks are legal against any step in a causal chain, not only its origin.
+Restricting the attack surface to the root encodes a strategic distinction (where non-unique
+arguments may be run) that should instead be left for self-play agents to discover, per the
+emergence-over-hardcoding principle.
+
+This migration removes that restriction by making uniqueness a uniform, repeatable node type wired
+to every post-world node in a chain, rather than a one-off root node. Pre-world is not a separate
+field or a bare attribute — it is represented by the uniqueness node itself, which is why no
+additional "pre-world node" type is needed.
+
+### 12.2 Node types
+
+#### 12.2.1 Post-world (mechanism) nodes
+
+A post-world node represents a claimed state produced by one or more inbound mechanism edges.
+Every post-world node in a chain — not only the terminal impact — has the same
+three-attack-surface structure:
+
+- **Non-unique**: attacks the wired uniqueness node. Argues the claimed post-world state would
+  obtain independent of the mechanism.
+- **Delink**: attacks the node directly. Argues the mechanism does not produce the claimed state.
+- **Turn**: attacks the node's sign. Argues the mechanism produces the opposite of the claimed
+  state.
+
+Internal nodes carry link/probability strength; the terminal node in a chain additionally carries
+impact magnitude. This is a positional attribute difference, not a difference in node type — all
+post-world nodes share the same attack surface and evaluation pass regardless of position.
+
+#### 12.2.2 Uniqueness nodes
+
+A single reusable node type. One uniqueness node is wired to each post-world node, representing
+that node's pre-world / status quo baseline. Uniqueness nodes:
+
+- Are attackable via non-unique arguments (evidence that the status quo baseline does not hold).
+- Do not themselves require separate delink/turn surfaces — they are the pre-world claim, not a
+  mechanism claim.
+- Follow the standard v4 binary extension rule with no type-based exemption (see §12.4).
+
+Pre-world for node N is defined as: the uniqueness node wired to N. In the ordinary single-parent
+case this will typically restate or depend on node N−1's post-world value, but it is represented as
+its own node so it can be independently attacked, extended, and evaluated — not collapsed into an
+attribute of the edge.
+
+### 12.3 Edges and multi-parent structure
+
+#### 12.3.1 Single-parent (advantage-style) chains
+
+Standard case: node N has one inbound mechanism edge from node N−1, plus one wired uniqueness node.
+Evaluation is a straightforward per-node pass down the chain.
+
+#### 12.3.2 Multi-parent (disad-style) links
+
+A disad link node has two inbound mechanism edges — one from the advocacy branch ("plan enacted")
+and one from the uniqueness-of-trend branch ("status quo heading in direction D") — that combine to
+produce the disrupted-trend post-world claim. This is an AND-join into the same per-node
+evaluation, not a distinct node type or a distinct aggregation rule. DF-QuAD/QPN propagation logic
+is unchanged; only the number of inbound contributions being joined at that node changes.
+
+Cardinality ruling: one uniqueness node attaches to the joined post-world claim, not one per parent
+branch. The post-world state is singular even though multiple mechanisms feed it.
+
+### 12.4 Evaluation order
+
+Per-node evaluation, applied in topological order down the chain:
+
+1. Check the node's wired uniqueness node. If it is zeroed (non-unique argument extended against it
+   per §12.4.1), the node's inbound mechanism contribution is zeroed at this node only.
+2. Apply defensive attacks (delink) at this node.
+3. Run QPN sign/magnitude propagation using this node's resolved value as input to the next node.
+
+No new cascade mechanism is required. Zeroing a node's contribution via non-unique propagates
+forward automatically through standard QPN multiplication — a zeroed input at node N produces a
+zeroed contribution to node N+1 through existing chain math. This composes without modification
+with per-path OR semantics and max aggregation (§3.3.1): zeroing one path's node does not affect a
+parallel independent path reaching the same downstream impact.
+
+#### 12.4.1 Extension rule for uniqueness nodes
+
+Uniqueness nodes follow the same v4 binary extension rule as every other node. There is no
+type-based or function-based exemption. A non-unique argument must be extended in the final speech
+to zero its wired uniqueness node; if dropped, the uniqueness node is treated as standing and the
+chain evaluates at full, non-zeroed value.
+
+This ruling is scoped specifically to uniqueness nodes. It does not reopen or resolve the parked
+general question of whether extended-but-unanswered defense requires re-mention to survive; that
+question remains parked and is not settled by the "binary rule, no exemption" phrasing here.
+
+#### 12.4.2 Final-speech gate, no liveness grandfathering
+
+Contested-liveness (both sides actively engaging an argument) satisfies extension while speeches
+remain in the round. It does not substitute for presence in the literal final speech. If an
+argument — including a uniqueness node or a non-unique attack against one — was live earlier in the
+round but is absent from the relevant side's final speech, it is dropped under the standard binary
+rule regardless of how contested it was previously.
+
+### 12.5 Anchor and reachability accounting for uniqueness nodes
+
+Uniqueness nodes count as chain members for `anchor_members`, per-path extension checks, and
+reachability-from-captured-chain purposes. This follows from §12.4.1: since uniqueness nodes are
+subject to the standard binary extension rule and can be dropped, they need the same
+liveness/reachability tracking that governs whether any other chain member counts as extended.
+Treating them as satellite nodes outside this accounting would be inconsistent — there would be no
+mechanism for the judge to determine whether a uniqueness node was reachable and therefore eligible
+to be extended in the first place.
+
+Practical effect on the anchor-walk fix (§5.3): turning links currently join `anchor_members` of
+the chain they capture. Uniqueness nodes wired to captured post-world nodes are included in that
+membership, so a turn capturing a chain also brings its wired uniqueness nodes into the capturing
+side's anchor set. This extends the existing fix's scope, not its logic — no modification to
+union-find or aggregation is required.
