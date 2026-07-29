@@ -54,6 +54,12 @@ from .config import (
 ATTACK_TYPES = (DefensiveAttack, OffensiveAttack)
 SPINE_TYPES = (Uniqueness, Link, Impact, Advocacy)
 OFFENSE_BEARING = (Link, Impact)
+# v9 uniform-uniqueness schema (§12): a post-world node is Link/Impact; its
+# mechanism parents are the spine sources feeding it (Advocacy/Link) -- NOT its
+# terminal impact and NOT its wired Uniqueness satellite. Used only for the
+# structural index below (Step 5); the spine change that consumes it is Step 6.
+POSTWORLD_TYPES = (Link, Impact)
+MECHANISM_PARENT_TYPES = (Advocacy, Link)
 # Rebuttal speeches: a NEW chain first introduced here does not count (§6).
 REBUTTAL_SPEECHES = frozenset({"1AR", "2NR", "2AR"})
 
@@ -119,6 +125,16 @@ class Context:
     weighings: List = field(default_factory=list)
     weigh_pair: Dict[str, object] = field(default_factory=dict)   # weigh id -> frozenset(pair)
 
+    # v9 uniform-uniqueness schema (§12) STRUCTURAL index (Step 5). Populated in
+    # build_context; NOT yet read by any scoring pass -- the per-node evaluation
+    # and spine change that consume these land together in Step 6 (§12.4), so the
+    # judge is never in a state where a non-unique has no effect.
+    #   wired_uniqueness: post-world node id -> Uniqueness ids wired to it (Support).
+    #   multi_parent: post-world node id -> its >=2 mechanism parents (Advocacy/Link
+    #     support-neighbours) -- a recognized AND-join / convergence (§12.3.2).
+    wired_uniqueness: Dict[str, List[str]] = field(default_factory=dict)
+    multi_parent: Dict[str, List[str]] = field(default_factory=dict)
+
 
 # --- Pass 1: discovery + structural indexing ----------------------------------
 
@@ -139,7 +155,35 @@ def build_context(rnd) -> Context:
     _discover(ctx)
     _classify_attacks(ctx)
     _index_weighings(ctx)
+    _index_uniqueness(ctx)
     return ctx
+
+
+def _index_uniqueness(ctx: Context) -> None:
+    """v9 STRUCTURAL index (§12, Step 5). For each reachable post-world node
+    (Link/Impact), record the Uniqueness node(s) wired to it over a Support edge,
+    and its mechanism parents (Advocacy/Link support-neighbours -- excluding its own
+    wired uniqueness and its terminal impact). A post-world node with >=2 mechanism
+    parents is a recognized AND-join / convergence (§12.3.2). Purely descriptive:
+    NO pass reads `wired_uniqueness`/`multi_parent` in Step 5, so the verdict for
+    every existing fixture is byte-identical (behaviour-neutral scaffolding). The
+    spine change and per-node evaluation that consume this land in Step 6."""
+    wired: Dict[str, List[str]] = defaultdict(list)
+    parents: Dict[str, List[str]] = defaultdict(list)
+    for nid in ctx.reachable:
+        node = ctx.nodes.get(nid)
+        if not isinstance(node, POSTWORLD_TYPES):
+            continue
+        for nbr, e in ctx.adj.get(nid, []):
+            if not isinstance(e, Support) or nbr not in ctx.reachable:
+                continue
+            nbrnode = ctx.nodes.get(nbr)
+            if isinstance(nbrnode, Uniqueness):
+                wired[nid].append(nbr)
+            elif isinstance(nbrnode, MECHANISM_PARENT_TYPES):
+                parents[nid].append(nbr)
+    ctx.wired_uniqueness = {k: sorted(set(v)) for k, v in wired.items()}
+    ctx.multi_parent = {k: sorted(set(v)) for k, v in parents.items() if len(set(v)) >= 2}
 
 
 def _index_weighings(ctx: Context) -> None:
