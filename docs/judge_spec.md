@@ -1114,15 +1114,17 @@ branch. The post-world state is singular even though multiple mechanisms feed it
 Per-node evaluation, applied in topological order down the chain:
 
 1. Check the node's wired uniqueness node. If it is zeroed (non-unique argument extended against it
-   per §12.4.1), the node's inbound mechanism contribution is zeroed at this node only.
+   per §12.4.1), the node's inbound mechanism contribution is zeroed — and, per §12.4.3, if that
+   node is a link feeding a shared impact, the impact's offense (for the chain's owning side) is
+   zeroed across ALL live paths, not this node only.
 2. Apply defensive attacks (delink) at this node.
 3. Run QPN sign/magnitude propagation using this node's resolved value as input to the next node.
 
-No new cascade mechanism is required. Zeroing a node's contribution via non-unique propagates
-forward automatically through standard QPN multiplication — a zeroed input at node N produces a
-zeroed contribution to node N+1 through existing chain math. This composes without modification
-with per-path OR semantics and max aggregation (§3.3.1): zeroing one path's node does not affect a
-parallel independent path reaching the same downstream impact.
+Zeroing a node's contribution via non-unique propagates forward through standard QPN
+multiplication. For a DELINK this composes with per-path OR / max aggregation (§3.3.1): zeroing one
+path's link does not affect a parallel independent path to the same impact (r29). A NON-UNIQUE does
+NOT compose this way — it is a claim about a shared post-world STATE, not one causal pathway, and
+poisons the convergent impact for its owning side across all live paths (§12.4.3).
 
 #### 12.4.1 Extension rule for uniqueness nodes
 
@@ -1142,6 +1144,31 @@ remain in the round. It does not substitute for presence in the literal final sp
 argument — including a uniqueness node or a non-unique attack against one — was live earlier in the
 round but is absent from the relevant side's final speech, it is dropped under the standard binary
 rule regardless of how contested it was previously.
+
+#### 12.4.3 Non-unique is state-level: convergence poisoning and the delink kick-out
+
+Stated for a generic chain and its owning side; by the orientation principle (§2.2) it applies
+identically whichever side (AFF or NEG) owns the chain and whichever side runs the non-unique
+against it — the same way every other rule in this spec is side-agnostic.
+
+A non-unique attacks a post-world state's uniqueness, not a single link. Because every link feeding
+an impact converges on the SAME state, a non-unique that zeroes the wired uniqueness of ANY live
+link feeding an impact (or the impact's own uniqueness) zeroes that impact's offense for the
+chain's owning side in full — even when a parallel, independently-clean link also reaches it. A
+second pathway to a non-unique state does not restore the state's uniqueness (r33, r32). This is
+the one place §3.3.1's per-path OR / max aggregation does NOT apply.
+
+**Kick-out (the only escape).** The chain's owning side may neutralize a non-unique by CONCEDING A
+DELINK on the non-unique'd link, driving that link's σ→0. A severed (dead) link no longer feeds the
+impact, so its non-unique has no live carrier to the shared state; the impact is then evaluated on
+the remaining clean links with their own intact uniqueness (r31). A non-unique feeding an impact
+zeroes it only while its link is live; delinked to σ→0 (or dropped by extension failure, §6), the
+non-unique lapses with the link. A non-unique on the impact's OWN uniqueness has no such escape —
+there is no link to sever — so it is unconditional (r32). This holds symmetrically: NEG kicks a
+non-unique on its disad exactly as AFF kicks one on its advantage.
+
+Reason class follows §7 for any complete, extended chain of either side driven to zero magnitude
+(structural failure of the owning side's chain); it is never special-cased to one side.
 
 ### 12.5 Anchor and reachability accounting for uniqueness nodes
 
