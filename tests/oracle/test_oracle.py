@@ -100,13 +100,7 @@ def _polarity_via(trace, link_id):
 def test_r1_clean_uncontested_advantage_aff():
     """1AC advocacy->uniqueness->link->impact, all extended AFF 2AC/1AR/2AR;
     NEG drops everything. Chain mag 1.0, sign +. N = 1.0 > eps. -> AFF."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
-    bd = b.n(BallotDirective, AFF, "2AR")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, bd,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd)], version=2))
+    ballot, trace = judge(_load("r1.json"))
     assert ballot == AFF
     bl = _ballot(trace)
     assert bl.N > EPSILON and bl.reason_class == "AFF offense"
@@ -121,15 +115,7 @@ def test_r2_conceded_terminal_defense_neg():
     """As (1) but NEG reads a defensive attack on the link in 1NC and AFF drops
     it (NEG carries it through the block + 2NR). Link sigma -> 0, chain mag -> 0,
     N ~ 0. -> NEG."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
-    bd = b.n(BallotDirective, AFF, "2AR")
-    d = b.n(Link, NEG, "1NC")                       # conceded defensive attack, NEG-extended
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, bd, d,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.datk(d, lk)], version=2))
+    ballot, trace = judge(_load("r2.json"))
     assert ballot == NEG
     # §7 (redrawn): a complete, extended, still-AFF-favoring chain driven to zero
     # magnitude = "AFF structural failure" (offense built, then lost). §11.2's
@@ -145,16 +131,7 @@ def test_r3_answered_defense_mitigation_aff():
     """As (2) but AFF answers the defense in 2AC (a conceded counter), removing
     the defender; the link survives and the advantage stands. -> AFF (in V1 the
     magnitude restores fully rather than to ~0.5)."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
-    bd = b.n(BallotDirective, AFF, "2AR")
-    d = b.n(Link, NEG, "1NC")                       # NEG defense on the link
-    c = b.n(Link, AFF, "2AC")                       # AFF answers the defense (conceded)
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, bd, d, c,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.datk(d, lk), b.datk(c, d)], version=2))
+    ballot, trace = judge(_load("r3.json"))
     assert ballot == AFF
     assert _ballot(trace).reason_class == "AFF offense"
     ch = _chains(trace)[0]
@@ -175,18 +152,7 @@ def test_r4_link_turn_generates_neg_offense():
     UNION of both sides' stamps, the turned chain GENERATES real NEG offense --
     sign -1, mag > eps, N < -eps -- rather than merely zeroing the AFF advantage.
     This is NEG winning ON turn offense, not a 0-0 presumption win."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC", {"1AC": CONTESTED, "1NC": CONTESTED,
-                                "2NC/1NR": CONTESTED, "2NR": CONTESTED})
-    im = b.n(Impact, AFF, "1AC", {"1AC": CONCEDED, "1NC": CONCEDED,
-                                  "2NC/1NR": CONCEDED, "2NR": CONCEDED})
-    turn = b.n(Link, NEG, "1NC")                    # the offensive turn
-    bd = b.n(BallotDirective, NEG, "2NR")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, turn, bd,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.oatk(turn, lk)], version=2))
+    ballot, trace = judge(_load("r4.json"))
     assert ballot == NEG
     # NEG wins ON turn offense: the turned chain carries NEG-favoring sign at real
     # magnitude, so N is genuinely negative (not a 0-0 presumption).
@@ -209,17 +175,7 @@ def test_r4b_turn_into_dead_impact_generates_nothing_neg():
     chain generates NOTHING: no NEG offense (N ~ 0), decided by presumption. This
     is the union-liveness gate (§3.5, §6): a turn into a node no one kept live
     produces no offense."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC", {"1AC": CONTESTED, "1NC": CONTESTED,
-                                "2NC/1NR": CONTESTED, "2NR": CONTESTED})
-    im = b.n(Impact, AFF, "1AC", {"1AC": CONCEDED})     # dead: no one carried it forward
-    turn = b.n(Link, NEG, "1NC")
-    bd = b.n(BallotDirective, NEG, "2NR")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, turn, bd,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.oatk(turn, lk)], version=2))
+    ballot, trace = judge(_load("r4b.json"))
     assert ballot == NEG
     # The turn neutralizes but generates NO NEG offense -- N is ~0, not negative:
     bl = _ballot(trace)
@@ -240,21 +196,7 @@ def test_r4c_double_turn_returns_to_aff_inherited_strength():
     falls straight out of sign product x the magnitude invariant. A judge that
     zeroed magnitude on a flip would give mag 0 -> N 0 -> NEG here; the AFF win
     is the regression test for magnitude preservation through two flips."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    # AFF re-extends the turned link + impact through its speeches (§6); NEG's
-    # 1NC/2NR contested stamps and AFF's 2AC/1AR/2AR conceded stamps coexist on
-    # the same side-agnostic union record.
-    live = {"1AC": CONTESTED, "1NC": CONTESTED, "2AC": CONCEDED,
-            "1AR": CONCEDED, "2NR": CONTESTED, "2AR": CONCEDED}
-    lk = b.n(Link, AFF, "1AC", dict(live)); im = b.n(Impact, AFF, "1AC", dict(live))
-    turnL = b.n(Link, NEG, "1NC", label="link turn")
-    turnI = b.n(Link, NEG, "1NC", label="impact turn")
-    bd = b.n(BallotDirective, AFF, "2AR")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, turnL, turnI, bd,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.oatk(turnL, lk), b.oatk(turnI, im)], version=2))
+    ballot, trace = judge(_load("r4c.json"))
     assert ballot == AFF
     bl = _ballot(trace)
     assert bl.reason_class == "AFF offense" and bl.N > EPSILON
@@ -273,18 +215,7 @@ def test_r4d_turn_live_by_union_win_path_a_neg():
     (kept alive by SOMEONE), not by the turning side alone. This is the case a
     'favored-side-only' liveness check wrongly rejects; the union check must accept
     it -> NEG on turn offense."""
-    b = _B()
-    aff_live = {"1AC": CONCEDED, "2AC": CONCEDED, "1AR": CONCEDED, "2AR": CONCEDED}
-    adv = b.n(Advocacy, AFF, "1AC", dict(aff_live)); uni = b.n(Uniqueness, AFF, "1AC", dict(aff_live))
-    lk = b.n(Link, AFF, "1AC", {"1AC": CONTESTED, "2AC": CONTESTED,
-                                "1AR": CONTESTED, "2AR": CONTESTED})   # AFF keeps it live
-    im = b.n(Impact, AFF, "1AC", dict(aff_live))                      # AFF keeps it live
-    turn = b.n(Link, NEG, "1NC")                                     # NEG carries the turn
-    bd = b.n(BallotDirective, NEG, "2NR")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, turn, bd,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.oatk(turn, lk)], version=2))
+    ballot, trace = judge(_load("r4d.json"))
     assert ballot == NEG
     ch = _chains(trace)[0]
     assert ch.sign == -1 and ch.mag > EPSILON and ch.extended   # union kept the turned chain live
@@ -296,18 +227,7 @@ def test_r4d_turn_live_by_union_win_path_a_neg():
 def test_r5_link_turn_not_extended_neg():
     """As (4) but NEG fails to carry the inherited impact in 2NR (its liveness
     stops at the block). The chain still fails §6. -> NEG."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC", {"1AC": CONTESTED, "1NC": CONTESTED,
-                                "2NC/1NR": CONTESTED, "2NR": CONTESTED})
-    im = b.n(Impact, AFF, "1AC", {"1AC": CONCEDED, "1NC": CONCEDED,
-                                  "2NC/1NR": CONCEDED})     # gap at 2NR
-    turn = b.n(Link, NEG, "1NC")
-    bd = b.n(BallotDirective, NEG, "2NR")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, turn, bd,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.oatk(turn, lk)], version=2))
+    ballot, trace = judge(_load("r5.json"))
     assert ballot == NEG
     # §7 (redrawn) + Ruling 3: the AFF link was turned away and NEG did not carry
     # the turn, so NOBODY established offense and the chain failed extension (no
@@ -322,19 +242,11 @@ def test_r6_framework_lockout_neg():
     """NEG wins a framework (unattacked + extended) with no support path to AFF's
     only impact, so that impact is out of scope. AFF has zero in-scope impacts.
     -> NEG (framework lock-out)."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
-    bd = b.n(BallotDirective, AFF, "2AR")
-    fw = b.n(Framework, NEG, "1NC")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, bd, fw,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.sup(fw, bd)], version=2))                 # fw reachable via BD, no path to the impact
+    ballot, trace = judge(_load("r6.json"))
     assert ballot == NEG
     assert _ballot(trace).reason_class == "framework lock-out"
     gates = {(r.impact_id, r.in_scope) for r in trace if r.kind == "FRAMEWORK_GATE"}
-    assert (im.id, False) in gates                  # AFF impact locked out
+    assert ("im", False) in gates                  # AFF impact locked out
 
 
 # --- §11.8 No-window new 2AR offense -> inert ---------------------------------
@@ -343,60 +255,28 @@ def test_r8_no_window_new_2ar_offense_inert():
     """AFF's terminal impact is introduced fresh in the 2AR (final speech); NEG
     never had standing and the attachment was not contested entering the 2AR, so
     it is UNRESOLVED (inert) -- establishes no offense. -> NEG."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC")
-    im = b.n(Impact, AFF, "2AR", {"2AR": CONCEDED})     # brand-new 2AR offense
-    bd = b.n(BallotDirective, AFF, "2AR")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, bd,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd)], version=2))
+    ballot, trace = judge(_load("r8.json"))
     assert ballot == NEG
     # §7 (redrawn): the 2AR impact is UNRESOLVED (no window) -- offense never
     # legitimately existed, no complete AFF chain was ever established -> presumption
     # (not "AFF structural failure", which requires offense built then lost).
     assert _ballot(trace).reason_class == "presumption"
-    assert any(r.kind == "UNRESOLVED" and r.node_id == im.id for r in trace)
+    assert any(r.kind == "UNRESOLVED" and r.node_id == "im" for r in trace)
 
 
 # --- Recursive weighing (§6.5) -- clash resolution decides polarity -----------
-
-def _turned_link_round(b, counter_weigh=False, meta_weigh=False):
-    """AFF advocacy->UQ->link->impact + BD (AFF wins alone); NEG turns the link
-    (OffensiveAttack). AFF weighs {AFF link, the turn}. Optionally NEG counter-
-    weighs the same pair oppositely, and optionally an AFF meta-weigh ranks the
-    two weighs. Returns (elements, link_id)."""
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC", label="AFF link"); im = b.n(Impact, AFF, "1AC")
-    bd = b.n(BallotDirective, AFF, "2AR")
-    turn = b.n(Link, NEG, "1NC", label="NEG turn")
-    waff = b.n(Weighing, AFF, "2AC", label="AFF: our link beats the turn")
-    els = [adv, uni, lk, im, bd, turn, waff,
-           b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-           b.oatk(turn, lk),                         # NEG turns the AFF link
-           b.cmp(waff, lk), b.cmp(waff, turn)]       # AFF weighs {link, turn}
-    if counter_weigh:
-        wneg = b.n(Weighing, NEG, "2NC/1NR", label="NEG: the turn beats their link")
-        els += [wneg, b.cmp(wneg, lk), b.cmp(wneg, turn)]
-        if meta_weigh:
-            meta = b.n(Weighing, AFF, "1AR", label="AFF meta: our weigh controls")
-            els += [meta, b.cmp(meta, waff), b.cmp(meta, wneg)]
-    return els, lk.id
-
 
 def test_r9_turned_link_saved_by_determinate_weigh_aff():
     """A determinate won link-weigh decides the polarity clash for AFF: the link
     keeps its polarity via PREFERENCE (not sigma), the defeated turn drops from
     the chain magnitude, the chain survives, and AFF takes the ballot."""
-    b = _B()
-    els, lk_id = _turned_link_round(b)               # AFF weighs; NEG does not counter
-    ballot, trace = judge(Round(elements=els, version=2))
+    ballot, trace = judge(_load("r9.json"))
     assert ballot == AFF
     assert _ballot(trace).reason_class == "AFF offense"
-    assert _polarity_via(trace, lk_id) == "preference"     # weigh decided, not the 0.5 sigma rule
+    assert _polarity_via(trace, "lk") == "preference"     # weigh decided, not the 0.5 sigma rule
     # the WEIGH record shows the link-weigh resolved in favour of the AFF link:
     weigh = [r for r in trace if r.kind == "WEIGH" and r.outcome == "resolved"]
-    assert weigh and weigh[0].preferred_node == lk_id and weigh[0].via == "preference"
+    assert weigh and weigh[0].preferred_node == "lk" and weigh[0].via == "preference"
     ch = _chains(trace)[0]
     assert ch.sign == 1 and ch.mag > EPSILON               # link kept polarity, magnitude survived
 
@@ -406,9 +286,7 @@ def test_r10_turned_link_indeterminate_falls_to_magnitude_neg():
     weigh: the weighing layer has no lone survivor (§6.5 case b), so the clash
     falls to DF-QuAD magnitude -- the turn resolves as it did before the upgrade
     (link flips via the sigma threshold) and NEG takes the ballot."""
-    b = _B()
-    els, lk_id = _turned_link_round(b, counter_weigh=True)
-    ballot, trace = judge(Round(elements=els, version=2))
+    ballot, trace = judge(_load("r10.json"))
     assert ballot == NEG
     # r10 investigation (case a): the symmetric weigh falls to magnitude and the
     # link FLIPS to NEG (sign -1, mag 1.0). But r10 authors only an AFF BD, so the
@@ -416,7 +294,7 @@ def test_r10_turned_link_indeterminate_falls_to_magnitude_neg():
     # BD claims AFF") -- NOT a bug (r4 shows a NEG BD would validate it). Nobody
     # established scoring offense -> presumption. A flip is never structural failure.
     assert _ballot(trace).reason_class == "presumption"
-    assert _polarity_via(trace, lk_id) == "dfquad"         # fell back to the 0.5 sigma threshold
+    assert _polarity_via(trace, "lk") == "dfquad"         # fell back to the 0.5 sigma threshold
     assert all(r.outcome == "symmetric" for r in trace if r.kind == "WEIGH")
 
 
@@ -426,33 +304,13 @@ def test_r11_recursive_meta_weigh_breaks_tie_aff():
     lone survivor at the base clash -> determinate -> the link is saved -> AFF.
     This is the case a fixed depth-2 check gets wrong; it must stay a recursion,
     so this is a permanent regression test that resolve is not depth-limited."""
-    b = _B()
-    els, lk_id = _turned_link_round(b, counter_weigh=True, meta_weigh=True)
-    ballot, trace = judge(Round(elements=els, version=2))
+    ballot, trace = judge(_load("r11.json"))
     assert ballot == AFF
     assert _ballot(trace).reason_class == "AFF offense"
-    assert _polarity_via(trace, lk_id) == "preference"     # meta broke the tie -> determinate
+    assert _polarity_via(trace, "lk") == "preference"     # meta broke the tie -> determinate
 
 
 # --- Attacker-liveness gate (§3.1, §6 -- v4) ----------------------------------
-
-def _uniqueness_attack_round(b, nonuniq_live, answer=False):
-    """AFF advantage advocacy->uniqueness->link->impact + BD, all AFF-extended to
-    2AR. NEG reads a non-unique (DefensiveAttack) on the uniqueness in 1NC with
-    liveness `nonuniq_live`. If `answer`, AFF attacks the non-unique in 2AC (a
-    conceded counter). Returns (elements, uniqueness_id, nonuniq_id)."""
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
-    bd = b.n(BallotDirective, AFF, "2AR")
-    nonuniq = b.n(Uniqueness, NEG, "1NC", nonuniq_live, label="NEG non-unique")
-    els = [adv, uni, lk, im, bd, nonuniq,
-           b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-           b.datk(nonuniq, uni)]                      # NEG non-unique attacks the uniqueness
-    if answer:
-        counter = b.n(Uniqueness, AFF, "2AC", label="AFF answer to the non-unique")
-        els += [counter, b.datk(counter, nonuniq)]    # AFF attacks the attacker (mitigation)
-    return els, uni.id, nonuniq.id
-
 
 def _uni_attackers(els, uni_id):
     """The uniqueness's DF-QuAD attacker-id set AT THE BALLOT -- after the liveness
@@ -471,9 +329,8 @@ def test_r12_dropped_nonunique_lapses_aff():
     it is removed from the uniqueness's attacker set and contributes nothing -- it
     is NOT scored 'conceded' just because AFF didn't answer it. The uniqueness
     survives at sigma 1.0, the chain holds at mag 1.0, and AFF wins cleanly."""
-    b = _B()
-    els, uni_id, nonuniq_id = _uniqueness_attack_round(b, {"1NC": CONTESTED})
-    assert nonuniq_id not in _uni_attackers(els, uni_id)   # lapsed: NOT in the attacker set
+    els = list(_load("r12.json").elements)
+    assert "nonuniq" not in _uni_attackers(els, "uni")   # lapsed: NOT in the attacker set
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == AFF
     bl = _ballot(trace)
@@ -488,10 +345,8 @@ def test_r13_extended_nonunique_still_contests_neg():
     2NR (full NEG liveness). It stays LIVE, so it remains in the uniqueness's
     attacker set at full strength and drives the uniqueness to 0 -> chain mag 0 ->
     NEG. The gate removes only attacks the MAKER abandoned, never live ones."""
-    b = _B()
-    full_neg = {"1NC": CONTESTED, "2NC/1NR": CONCEDED, "2NR": CONCEDED}
-    els, uni_id, nonuniq_id = _uniqueness_attack_round(b, full_neg)
-    assert nonuniq_id in _uni_attackers(els, uni_id)       # live: DOES contest
+    els = list(_load("r13.json").elements)
+    assert "nonuniq" in _uni_attackers(els, "uni")       # live: DOES contest
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == NEG
     # §7 (redrawn): complete extended still-AFF-favoring chain, uniqueness driven
@@ -507,10 +362,8 @@ def test_r14_answered_nonunique_still_mitigates_aff():
     live attack in the set; the leaves-first DF-QuAD then reduces it via AFF's
     counter (in V1 a conceded counter removes it entirely), so the uniqueness
     survives and AFF wins. The fix did not break the answer path."""
-    b = _B()
-    full_neg = {"1NC": CONTESTED, "2NC/1NR": CONCEDED, "2NR": CONCEDED}
-    els, uni_id, nonuniq_id = _uniqueness_attack_round(b, full_neg, answer=True)
-    assert nonuniq_id in _uni_attackers(els, uni_id)       # live (answered, not lapsed)
+    els = list(_load("r14.json").elements)
+    assert "nonuniq" in _uni_attackers(els, "uni")       # live (answered, not lapsed)
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == AFF                                    # answered down -> uniqueness restored
     assert _ballot(trace).reason_class == "AFF offense"
@@ -520,24 +373,6 @@ def test_r14_answered_nonunique_still_mitigates_aff():
 
 # --- Won weigh defeats the attacker across types (§6.5 -- v5) ------------------
 
-def _uniqueness_weigh_round(b, weigh_side):
-    """AFF advantage; NEG non-unique (extended, live) attacks the uniqueness;
-    `weigh_side` weighs {uniqueness, non-unique}. Returns (els, uni_id, nonuniq_id).
-    The weigh's preferred member is its own-side node -- AFF prefers the uniqueness,
-    NEG prefers the non-unique (§6.5)."""
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
-    bd = b.n(BallotDirective, AFF, "2AR")
-    nonuniq = b.n(Uniqueness, NEG, "1NC", label="NEG non-unique")   # full NEG liveness -> live
-    speech = "2AC" if weigh_side == AFF else "2NC/1NR"
-    w = b.n(Weighing, weigh_side, speech, label="weigh {uniqueness, non-unique}")
-    els = [adv, uni, lk, im, bd, nonuniq, w,
-           b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-           b.datk(nonuniq, uni),                        # non-unique attacks the uniqueness
-           b.cmp(w, uni), b.cmp(w, nonuniq)]            # weigh ranks {uniqueness, non-unique}
-    return els, uni.id, nonuniq.id
-
-
 def test_r15_won_uniqueness_weigh_defeats_nonunique_aff():
     """THE BUG FIX (§6.5 -- v5). AFF WINS a determinate weigh over the uniqueness
     clash {n1, n7} (preferred = the AFF uniqueness). The defeated non-unique n7 does
@@ -545,9 +380,8 @@ def test_r15_won_uniqueness_weigh_defeats_nonunique_aff():
     at sigma 1.0, the chain holds at mag 1.0, and AFF wins. Previously the weigh was
     decorative -- n7 still zeroed n1. Same rule as the link case (r9), now over
     uniquenesses."""
-    b = _B()
-    els, uni_id, nonuniq_id = _uniqueness_weigh_round(b, AFF)
-    assert nonuniq_id not in _uni_attackers(els, uni_id)   # defeated -> NOT in the attacker set
+    els = list(_load("r15.json").elements)
+    assert "nonuniq" not in _uni_attackers(els, "uni")   # defeated -> NOT in the attacker set
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == AFF
     assert _ballot(trace).reason_class == "AFF offense"
@@ -555,7 +389,7 @@ def test_r15_won_uniqueness_weigh_defeats_nonunique_aff():
     ch = _chains(trace)[0]
     assert ch.extended and abs(ch.mag - 1.0) < 1e-9        # uniqueness restored -> chain intact
     won = [r for r in trace if r.kind == "WEIGH" and r.outcome == "resolved"]
-    assert won and won[0].preferred_node == uni_id         # the weigh resolved for the uniqueness
+    assert won and won[0].preferred_node == "uni"         # the weigh resolved for the uniqueness
 
 
 def test_r16_lost_uniqueness_weigh_nonunique_still_attacks_neg():
@@ -564,9 +398,8 @@ def test_r16_lost_uniqueness_weigh_nonunique_still_attacks_neg():
     attacker set, and drives n1 to 0 -> chain mag 0 -> NEG. A weigh only removes the
     attacker when the winner is the TARGET; a lost/indeterminate weigh leaves the
     attack contesting (the no-weigh fallback is r13)."""
-    b = _B()
-    els, uni_id, nonuniq_id = _uniqueness_weigh_round(b, NEG)
-    assert nonuniq_id in _uni_attackers(els, uni_id)       # not defeated -> still contests
+    els = list(_load("r16.json").elements)
+    assert "nonuniq" in _uni_attackers(els, "uni")       # not defeated -> still contests
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == NEG
     # §7 (redrawn): complete extended still-AFF-favoring chain, uniqueness driven
@@ -725,23 +558,13 @@ def test_r19_dual_anchored_impact_survives_defeat_aff():
     still anchored to F_sv -> in scope. AFF (AFF offense). Rejecting a framework is
     not rejecting the argument that linked into it (§5.3: defeat is not
     exclusion)."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC"); bd = b.n(BallotDirective, AFF, "2AR")
-    futil = b.n(Framework, AFF, "1AC", label="F_util")
-    fsv = b.n(Framework, NEG, "1NC", label="F_sv")
-    w = b.n(Weighing, NEG, "2NC/1NR", label="NEG: F_sv > F_util")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, bd, futil, fsv, w,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.sup(im, futil), b.sup(im, fsv),
-        b.cmp(w, futil), b.cmp(w, fsv)], version=2))
+    ballot, trace = judge(_load("r19.json"))
     assert ballot == AFF
     bl = _ballot(trace)
     assert bl.reason_class == "AFF offense" and bl.N > EPSILON
     sel = _select(trace)
-    assert sel.via == "weigh" and sel.winning_framework_id == fsv.id
-    assert futil.id in sel.defeated
+    assert sel.via == "weigh" and sel.winning_framework_id == "fsv"
+    assert "futil" in sel.defeated
 
 
 def test_r20_kritik_offense_independent_of_kicked_framework_neg():
@@ -830,20 +653,13 @@ def test_r22_offense_at_framework_inert_aff():
     (§3.4): a framework bears no polarity, so the edge is inert -- emit
     INERT_ATTACK, σ unchanged, no POLARITY_FLIP. Same treatment as offense aimed
     at an Advocacy. F_aff governs and anchors the AFF chain -> AFF (AFF offense)."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
-    fw = b.n(Framework, AFF, "1AC", label="F_aff"); bd = b.n(BallotDirective, AFF, "2AR")
-    natk = b.n(Link, NEG, "1NC", label="offense aimed at the framework")
-    els = [adv, uni, lk, im, fw, bd, natk,
-           b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, fw), b.sup(fw, bd),
-           b.oatk(natk, fw)]                                     # offense -> Framework: inert
+    els = list(_load("r22.json").elements)
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == AFF
     assert _ballot(trace).reason_class == "AFF offense"
     assert any(r.kind == "INERT_ATTACK" and "3.4" in r.reason for r in trace)
     assert not any(r.kind == "POLARITY_FLIP" for r in trace)
-    assert _run_ctx(els).sigma[fw.id] >= 0.5                    # σ untouched by the inert offense
+    assert _run_ctx(els).sigma["fw"] >= 0.5                    # σ untouched by the inert offense
 
 
 def test_r24_nonunique_on_link_dead_not_turned_neg():
@@ -878,19 +694,13 @@ def test_r25_offense_at_uniqueness_inert_aff():
     Turn-eligibility (§3.4): a uniqueness bears no offense, so the edge is inert --
     INERT_ATTACK, σ unchanged, no POLARITY_FLIP, the uniqueness is not turned.
     Confirms uniqueness is not turn-eligible. AFF (AFF offense)."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC"); bd = b.n(BallotDirective, AFF, "2AR")
-    natk = b.n(Link, NEG, "1NC", label="offense aimed at the uniqueness")
-    els = [adv, uni, lk, im, bd, natk,
-           b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-           b.oatk(natk, uni)]                                   # offense -> Uniqueness: inert
+    els = list(_load("r25.json").elements)
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == AFF
     assert _ballot(trace).reason_class == "AFF offense"
     assert any(r.kind == "INERT_ATTACK" and "3.4" in r.reason for r in trace)
     assert not any(r.kind == "POLARITY_FLIP" for r in trace)
-    assert _run_ctx(els).sigma[uni.id] >= 0.5                   # σ untouched by the inert offense
+    assert _run_ctx(els).sigma["uni"] >= 0.5                   # σ untouched by the inert offense
 
 
 # --- §11.26-28 Framework anchoring: impact-rooted, Advocacy/BD absorbing (§5.3) -
@@ -912,20 +722,10 @@ def test_r26_cross_side_direct_anchor_in_scope():
     this round tests. The guard is that the impact-rooted walk still REACHES a
     framework across sides by a direct edge -- the §5.3 fix must not over-correct
     and sever legitimate cross-side direct anchoring."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uq = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im_a = b.n(Impact, AFF, "1AC")
-    faff = b.n(Framework, AFF, "1AC", label="F_aff"); bda = b.n(BallotDirective, AFF, "2AR")
-    nuq = b.n(Uniqueness, NEG, "1NC"); nlk = b.n(Link, NEG, "1NC"); im_n = b.n(Impact, NEG, "1NC")
-    bdn = b.n(BallotDirective, NEG, "2NR")
-    els = [adv, uq, lk, im_a, faff, bda, nuq, nlk, im_n, bdn,
-           b.sup(adv, uq), b.sup(uq, lk), b.sup(lk, im_a), b.sup(im_a, faff), b.sup(faff, bda),
-           b.sup(nuq, nlk), b.sup(nlk, im_n), b.sup(im_n, faff),   # cross-side DIRECT im_n -> F_aff
-           b.sup(im_n, bdn)]
-    _, trace = judge(Round(elements=els, version=2))
-    assert _select(trace).winning_framework_id == faff.id and _select(trace).via == "sole_survivor"
-    neg_gate = _gate_for_impact(trace, im_n.id)
-    assert faff.id in neg_gate.anchors          # F_aff in anchors(im_n): cross-side direct anchor
+    _, trace = judge(_load("r26.json"))
+    assert _select(trace).winning_framework_id == "faff" and _select(trace).via == "sole_survivor"
+    neg_gate = _gate_for_impact(trace, "im_n")
+    assert "faff" in neg_gate.anchors          # F_aff in anchors(im_n): cross-side direct anchor
     assert neg_gate.in_scope is True            # NEG chain in scope under the affirmative's framework
 
 
@@ -942,25 +742,13 @@ def test_r27_advocacy_fusion_does_not_anchor_neg():
     its spurious anchoring, not the edge. Before the fix (whole-chain undirected
     walk) BOTH chains anchored {F_aff, F_neg} via the fusion and the round washed
     to presumption; this is the sentinel that flips red->green on the fix."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uq = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im_a = b.n(Impact, AFF, "1AC")
-    faff = b.n(Framework, AFF, "1AC", label="F_aff"); bda = b.n(BallotDirective, AFF, "2AR")
-    nuq = b.n(Uniqueness, NEG, "1NC"); nlk = b.n(Link, NEG, "1NC"); im_n = b.n(Impact, NEG, "1NC")
-    fneg = b.n(Framework, NEG, "1NC", label="F_neg"); bdn = b.n(BallotDirective, NEG, "2NR")
-    w = b.n(Weighing, NEG, "2NC/1NR", label="F_neg > F_aff")
-    els = [adv, uq, lk, im_a, faff, bda, nuq, nlk, im_n, fneg, bdn, w,
-           b.sup(adv, uq), b.sup(uq, lk), b.sup(lk, im_a), b.sup(im_a, faff), b.sup(faff, bda),
-           b.sup(adv, nuq),                                   # FUSION edge (AFFWINBYFW e9)
-           b.sup(nuq, nlk), b.sup(nlk, im_n), b.sup(im_n, fneg), b.sup(fneg, bdn),
-           b.cmp(w, faff), b.cmp(w, fneg)]
-    ballot, trace = judge(Round(elements=els, version=2))
+    ballot, trace = judge(_load("r27.json"))
     assert ballot == NEG
     bl = _ballot(trace)
     assert bl.reason_class == "NEG offense" and bl.N < -EPSILON
     # the fusion no longer anchors: each impact reaches only its OWN framework
-    assert fneg.id not in _gate_for_impact(trace, im_a.id).anchors   # F_neg NOT in anchors(im_a)
-    assert faff.id not in _gate_for_impact(trace, im_n.id).anchors   # F_aff NOT in anchors(im_n)
+    assert "fneg" not in _gate_for_impact(trace, "im_a").anchors   # F_neg NOT in anchors(im_a)
+    assert "faff" not in _gate_for_impact(trace, "im_n").anchors   # F_aff NOT in anchors(im_n)
 
 
 def test_r28_aff_framework_win_aff():
@@ -970,24 +758,13 @@ def test_r28_aff_framework_win_aff():
     framework), so F_neg is defeated, F_aff governs, the NEG chain (anchored only
     to F_neg) is out of scope: (AFF, "AFF offense"), N = +1. This is the coverage
     the framework suite lacked -- AFF winning its own framework debate by weigh."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uq = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im_a = b.n(Impact, AFF, "1AC")
-    faff = b.n(Framework, AFF, "1AC", label="F_aff"); bda = b.n(BallotDirective, AFF, "2AR")
-    nuq = b.n(Uniqueness, NEG, "1NC"); nlk = b.n(Link, NEG, "1NC"); im_n = b.n(Impact, NEG, "1NC")
-    fneg = b.n(Framework, NEG, "1NC", label="F_neg"); bdn = b.n(BallotDirective, NEG, "2NR")
-    w = b.n(Weighing, AFF, "2AC", label="F_aff > F_neg")
-    els = [adv, uq, lk, im_a, faff, bda, nuq, nlk, im_n, fneg, bdn, w,
-           b.sup(adv, uq), b.sup(uq, lk), b.sup(lk, im_a), b.sup(im_a, faff), b.sup(faff, bda),
-           b.sup(nuq, nlk), b.sup(nlk, im_n), b.sup(im_n, fneg), b.sup(fneg, bdn),
-           b.cmp(w, faff), b.cmp(w, fneg)]
-    ballot, trace = judge(Round(elements=els, version=2))
+    ballot, trace = judge(_load("r28.json"))
     assert ballot == AFF
     bl = _ballot(trace)
     assert bl.reason_class == "AFF offense" and bl.N > EPSILON
     sel = _select(trace)
-    assert sel.via == "weigh" and sel.winning_framework_id == faff.id and fneg.id in sel.defeated
-    assert _gate_for_impact(trace, im_n.id).in_scope is False        # NEG chain out of scope
+    assert sel.via == "weigh" and sel.winning_framework_id == "faff" and "fneg" in sel.defeated
+    assert _gate_for_impact(trace, "im_n").in_scope is False        # NEG chain out of scope
 
 
 def test_r33_nonunique_on_live_link_poisons_shared_impact_neg():
@@ -1154,17 +931,7 @@ def test_T3_neg_mirror_captures_aff_impact():
     and AFF carries the burden, so NEG wins by the ABSENCE of an AFF win. The
     owner-side change (AFF-only) leaves this untouched: whose offense counts is
     symmetric, who bears the burden is not."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uq = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC")
-    fw = b.n(Framework, AFF, "1AC"); abd = b.n(BallotDirective, AFF, "2AR")
-    turn = b.n(Link, NEG, "1NC"); nbd = b.n(BallotDirective, NEG, "2NR")
-    w = b.n(Weighing, NEG, "2NC/1NR")
-    ballot, trace = judge(Round(elements=[
-        adv, uq, lk, im, fw, abd, turn, nbd, w,
-        b.sup(adv, uq), b.sup(uq, lk), b.sup(lk, im), b.sup(im, fw), b.sup(fw, abd),
-        b.oatk(turn, lk), b.sup(nbd, im),           # NEG BD on the captured AFF impact
-        b.cmp(w, turn), b.cmp(w, lk)], version=2))
+    ballot, trace = judge(_load("T3.json"))
     assert ballot == NEG
     bl = _ballot(trace)
     assert bl.reason_class == "NEG offense" and bl.N < -EPSILON
@@ -1265,11 +1032,7 @@ def test_E_rebuttal_introduced_chain_not_extended_neg():
     conceded disad nets N < 0 (NEG offense); the guard zeroes it -> N = 0 -> NEG by
     PRESUMPTION. Exercises the intro_speech-in-rebuttals branch (missing_speech ==
     the rebuttal itself)."""
-    b = _B()
-    uni = b.n(Uniqueness, NEG, "2NR", {"2NR": CONCEDED}); lk = b.n(Link, NEG, "2NR", {"2NR": CONCEDED})
-    im = b.n(Impact, NEG, "2NR", {"2NR": CONCEDED}); bd = b.n(BallotDirective, NEG, "2NR", {"2NR": CONCEDED})
-    ballot, trace = judge(Round(elements=[
-        uni, lk, im, bd, b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd)], version=2))
+    ballot, trace = judge(_load("E.json"))
     assert ballot == NEG
     bl = _ballot(trace)
     assert bl.reason_class == "presumption" and abs(bl.N) <= EPSILON
@@ -1287,19 +1050,11 @@ def test_F_no_window_continuation_resolves_answered_aff():
     goes UNRESOLVED), a legitimate continuation resolves 'answered' -- neither
     dropped nor unresolved -- so the chain stands and AFF wins on offense. This is
     the continues==True branch that r8 (continues==False) does not reach."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC", {"1AC": CONCEDED, "2AC": CONCEDED, "1AR": CONCEDED,
-                                "2AR": CONCEDED, "2NR": CONTESTED})   # clash live entering 2NR
-    im = b.n(Impact, AFF, "2AR", {"2AR": CONCEDED})           # fresh 2AR, but CONTINUES the clash
-    bd = b.n(BallotDirective, AFF, "2AR")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, bd,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd)], version=2))
+    ballot, trace = judge(_load("F.json"))
     assert ballot == AFF
     assert _ballot(trace).reason_class == "AFF offense"
-    assert not any(r.kind == "UNRESOLVED" and r.node_id == im.id for r in trace)  # not inert
-    assert not any(r.kind == "DROP" and r.node_id == im.id for r in trace)        # not dropped
+    assert not any(r.kind == "UNRESOLVED" and r.node_id == "im" for r in trace)  # not inert
+    assert not any(r.kind == "DROP" and r.node_id == "im" for r in trace)        # not dropped
     ch = _chains(trace)[0]
     assert ch.sign == 1 and ch.extended
 
@@ -1336,14 +1091,7 @@ def test_G1_backwards_drawn_attack_still_applies_neg():
     RECENCY, not draw direction: the later-speech node is still the attacker, so the
     edge applies identically and kills the link -> NEG. It is NOT inert (the reversed
     draw is coherent); this pins the ib>ia swap branch."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC"); bd = b.n(BallotDirective, AFF, "2AR")
-    d = b.n(Link, NEG, "1NC")
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, bd, d,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.datk(lk, d)], version=2))                  # BACKWARDS: source=1AC, target=1NC
+    ballot, trace = judge(_load("G1.json"))
     assert ballot == NEG
     ch = _chains(trace)[0]
     assert ch.mag < EPSILON                                   # applied despite the reversed draw
@@ -1355,14 +1103,7 @@ def test_G2_same_speech_clash_inert():
     with no speech-recency ordering there is no attacker/target, so the edge is inert
     ('same-speech clash'). Attached beside a clean AFF advantage; the inert edge does
     nothing -> AFF, and the INERT_ATTACK is recorded."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC"); bd = b.n(BallotDirective, AFF, "2AR")
-    na = b.n(Link, NEG, "1NC"); nb = b.n(Link, NEG, "1NC")    # both 1NC
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, bd, na, nb,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.sup(na, bd), b.sup(nb, na), b.datk(na, nb)], version=2))
+    ballot, trace = judge(_load("G2.json"))
     assert ballot == AFF
     assert any(r.kind == "INERT_ATTACK" and "same-speech" in r.reason for r in trace)
 
@@ -1372,14 +1113,7 @@ def test_G3_same_side_attack_inert():
     different speeches) is incoherent -- a side does not attack itself -- so it is
     inert and changes no magnitude. The clean AFF advantage stands -> AFF, mag 1.0,
     with the INERT_ATTACK recorded."""
-    b = _B()
-    adv = b.n(Advocacy, AFF, "1AC"); uni = b.n(Uniqueness, AFF, "1AC")
-    lk = b.n(Link, AFF, "1AC"); im = b.n(Impact, AFF, "1AC"); bd = b.n(BallotDirective, AFF, "2AR")
-    na = b.n(Link, AFF, "2AC")                                # AFF attacking the AFF link
-    ballot, trace = judge(Round(elements=[
-        adv, uni, lk, im, bd, na,
-        b.sup(adv, uni), b.sup(uni, lk), b.sup(lk, im), b.sup(im, bd),
-        b.datk(na, lk)], version=2))
+    ballot, trace = judge(_load("G3.json"))
     assert ballot == AFF
     ch = _chains(trace)[0]
     assert abs(ch.mag - 1.0) < 1e-9                           # inert -> magnitude untouched

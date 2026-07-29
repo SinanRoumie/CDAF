@@ -1,0 +1,77 @@
+{
+  "version": 2,
+  "elements": [
+    {
+      "data": {
+        "id": "uni",
+        "label": "NEG uniqueness",
+        "ntype": "Uniqueness",
+        "side": "NEG",
+        "speech": "2NR",
+        "liveness": {
+          "2NR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "lk",
+        "label": "NEG link",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "2NR",
+        "liveness": {
+          "2NR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "im",
+        "label": "NEG impact",
+        "ntype": "Impact",
+        "side": "NEG",
+        "speech": "2NR",
+        "liveness": {
+          "2NR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "bd",
+        "label": "NEG ballot",
+        "ntype": "BallotDirective",
+        "side": "NEG",
+        "speech": "2NR",
+        "liveness": {
+          "2NR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "e1",
+        "source": "uni",
+        "target": "lk",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e2",
+        "source": "lk",
+        "target": "im",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e3",
+        "source": "im",
+        "target": "bd",
+        "etype": "SupportEdge"
+      }
+    }
+  ]
+}

@@ -62,7 +62,7 @@ def aff_chain_extended():
     link = node(Link, AFF, "1AC"); imp = node(Impact, AFF, "1AC")
     bd = node(BallotDirective, AFF, "2AR")
     els = [adv, uni, link, imp, bd,
-           support(adv, uni), support(uni, link), support(link, imp), support(imp, bd)]
+           support(adv, link), support(uni, link), support(link, imp), support(imp, bd)]
     return els, {"adv": adv, "uni": uni, "link": link, "imp": imp, "bd": bd}
 
 
@@ -155,7 +155,7 @@ def test_extension_failure_when_spine_not_carried():
     imp = node(Impact, AFF, "1AC")
     bd = node(BallotDirective, AFF, "2AR")
     els = [adv, uni, link, imp, bd,
-           support(adv, uni), support(uni, link), support(link, imp), support(imp, bd)]
+           support(adv, link), support(uni, link), support(link, imp), support(imp, bd)]
     ctx = passes.build_context(Round(elements=els))
     passes.pass2_drops(ctx); passes.pass3_accrual(ctx); passes.pass4_weighing_towers(ctx); passes.pass5_clashes(ctx)
     ch = [c for c in ctx.chains if c["side"] == AFF][0]
@@ -209,7 +209,7 @@ def _strength_chain(els, side, add_defense):
     intro = "1AC" if side == AFF else "1NC"
     adv = node(Advocacy, side, intro); uni = node(Uniqueness, side, intro)
     link = node(Link, side, intro); imp = node(Impact, side, intro)
-    els += [adv, uni, link, imp, support(adv, uni), support(uni, link), support(link, imp)]
+    els += [adv, uni, link, imp, support(adv, link), support(uni, link), support(link, imp)]
     if add_defense:
         opp = NEG if side == AFF else AFF
         win = passes.response_window(intro, side)
@@ -386,7 +386,7 @@ def test_rfd_turned_contributor_reads_as_one_statement():
     turn = node(Link, NEG, "1NC")
     bd = node(BallotDirective, NEG, "2NR")
     els = [adv, uni, link, imp, turn, bd,
-           support(adv, uni), support(uni, link), support(link, imp), support(imp, bd),
+           support(adv, link), support(uni, link), support(link, imp), support(imp, bd),
            oatk(turn, link)]
     ballot, trace = judge(Round(elements=els))
     assert ballot == NEG
