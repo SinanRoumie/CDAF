@@ -52,7 +52,7 @@ from .config import (
 )
 
 ATTACK_TYPES = (DefensiveAttack, OffensiveAttack)
-SPINE_TYPES = (Uniqueness, Link, Impact, Advocacy)
+SPINE_TYPES = (Link, Impact, Advocacy)
 OFFENSE_BEARING = (Link, Impact)
 # v9 uniform-uniqueness schema (§12): a post-world node is Link/Impact -- the node
 # type that carries a wired uniqueness (§12.4.3 poisoning gate reads this set).
@@ -714,13 +714,6 @@ def _build_chains(ctx: Context) -> None:
     for nid in ids:
         comps[find(nid)].append(nid)
 
-    # §12.5: satellite (v9) uniqueness nodes are chain MEMBERS, never premise ROOTS.
-    # They are leaves wired to a post-world node, so treating one as a root seeds a
-    # spurious [impact, satellite] path that sign-conflicts with the real spine path
-    # (and washes a turn capture). Empty for old spine-rooted fixtures, so excluding
-    # them is additive-only. They still count in `members`/`anchor_members` below.
-    satellites = {u for us in ctx.wired_uniqueness.values() for u in us}
-
     for root, members in comps.items():
         impacts = [m for m in members if isinstance(ctx.nodes[m], Impact)]
         if not impacts:
@@ -738,9 +731,10 @@ def _build_chains(ctx: Context) -> None:
             key=lambda x: (_sidx(ctx.nodes[x].speech) or 0, x),
         )
         spine_set = set(spine_reps)
+        # v9: Uniqueness is no longer a spine type, so satellite uniqueness is never
+        # a premise root (it stays a chain member via `members` -> anchor_members).
         roots = ([m for m in spine_reps if isinstance(ctx.nodes[m], Advocacy)]
-                 or [m for m in spine_reps if isinstance(ctx.nodes[m], Uniqueness) and m not in satellites]
-                 or [m for m in spine_reps if not isinstance(ctx.nodes[m], Impact) and m not in satellites]
+                 or [m for m in spine_reps if not isinstance(ctx.nodes[m], Impact)]
                  or list(impacts))
         terminals = _terminals(ctx, members, impacts)
 
