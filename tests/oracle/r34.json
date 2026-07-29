@@ -3,63 +3,6 @@
   "elements": [
     {
       "data": {
-        "id": "n1",
-        "label": "Uniqueness",
-        "ntype": "Uniqueness",
-        "side": "AFF",
-        "speech": "1AC",
-        "liveness": {
-          "1AC": "conceded",
-          "2AC": "conceded",
-          "1AR": "conceded",
-          "2AR": "conceded"
-        }
-      },
-      "position": {
-        "x": 268.35908175953494,
-        "y": 324.0184502191405
-      }
-    },
-    {
-      "data": {
-        "id": "n2",
-        "label": "Link",
-        "ntype": "Link",
-        "side": "AFF",
-        "speech": "1AC",
-        "liveness": {
-          "1AC": "conceded",
-          "2AC": "conceded",
-          "1AR": "conceded",
-          "2AR": "conceded"
-        }
-      },
-      "position": {
-        "x": 207.30588235294118,
-        "y": 618.6763638625068
-      }
-    },
-    {
-      "data": {
-        "id": "n3",
-        "label": "Impact",
-        "ntype": "Impact",
-        "side": "AFF",
-        "speech": "1AC",
-        "liveness": {
-          "1AC": "conceded",
-          "2AC": "conceded",
-          "1AR": "conceded",
-          "2AR": "conceded"
-        }
-      },
-      "position": {
-        "x": 252.18570993277905,
-        "y": 1023.202379010404
-      }
-    },
-    {
-      "data": {
         "id": "n4",
         "label": "Advocacy",
         "ntype": "Advocacy",
@@ -71,10 +14,51 @@
           "1AR": "conceded",
           "2AR": "conceded"
         }
-      },
-      "position": {
-        "x": 264.2705882352941,
-        "y": 148.00000000000006
+      }
+    },
+    {
+      "data": {
+        "id": "n2",
+        "label": "Link A (clean)",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "n7",
+        "label": "Link B (redundant)",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "n3",
+        "label": "Impact (shared)",
+        "ntype": "Impact",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
       }
     },
     {
@@ -90,29 +74,81 @@
           "1AR": "conceded",
           "2AR": "conceded"
         }
-      },
-      "position": {
-        "x": 244.18923974466367,
-        "y": 1292.839222508791
       }
     },
     {
       "data": {
-        "id": "n7",
-        "label": "Link",
-        "ntype": "Link",
+        "id": "u2",
+        "label": "Uniqueness (Link A)",
+        "ntype": "Uniqueness",
         "side": "AFF",
         "speech": "1AC",
         "liveness": {
           "1AC": "conceded",
-          "2AC": "contested",
-          "1AR": "contested",
-          "2AR": "contested"
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
         }
-      },
-      "position": {
-        "x": 315,
-        "y": 796.6846301515287
+      }
+    },
+    {
+      "data": {
+        "id": "u7",
+        "label": "Uniqueness (Link B)",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "u3",
+        "label": "Uniqueness (Impact)",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "n8",
+        "label": "Turn (flips Link B)",
+        "ntype": "Link",
+        "side": "NEG",
+        "speech": "1NC",
+        "liveness": {
+          "1NC": "conceded",
+          "2NC/1NR": "conceded",
+          "2NR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "e1",
+        "source": "n4",
+        "target": "n2",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e2",
+        "source": "n4",
+        "target": "n7",
+        "etype": "SupportEdge"
       }
     },
     {
@@ -125,31 +161,7 @@
     },
     {
       "data": {
-        "id": "e1",
-        "source": "n4",
-        "target": "n1",
-        "etype": "SupportEdge"
-      }
-    },
-    {
-      "data": {
-        "id": "e2",
-        "source": "n1",
-        "target": "n2",
-        "etype": "SupportEdge"
-      }
-    },
-    {
-      "data": {
         "id": "e4",
-        "source": "n1",
-        "target": "n7",
-        "etype": "SupportEdge"
-      }
-    },
-    {
-      "data": {
-        "id": "e5",
         "source": "n7",
         "target": "n3",
         "etype": "SupportEdge"
@@ -157,7 +169,7 @@
     },
     {
       "data": {
-        "id": "e6",
+        "id": "e5",
         "source": "n6",
         "target": "n3",
         "etype": "SupportEdge"
@@ -165,25 +177,31 @@
     },
     {
       "data": {
-        "id": "n8",
-        "label": "Link",
-        "ntype": "Link",
-        "side": "NEG",
-        "speech": "1NC",
-        "liveness": {
-          "1NC": "conceded",
-          "2NC/1NR": "conceded",
-          "2NR": "conceded"
-        }
-      },
-      "position": {
-        "x": 595,
-        "y": 785.6
+        "id": "e6",
+        "source": "u2",
+        "target": "n2",
+        "etype": "SupportEdge"
       }
     },
     {
       "data": {
         "id": "e7",
+        "source": "u7",
+        "target": "n7",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e8",
+        "source": "u3",
+        "target": "n3",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e9",
         "source": "n8",
         "target": "n7",
         "etype": "OffensiveAttackEdge"

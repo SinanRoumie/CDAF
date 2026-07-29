@@ -990,25 +990,23 @@ def test_r28_aff_framework_win_aff():
     assert _gate_for_impact(trace, im_n.id).in_scope is False        # NEG chain out of scope
 
 
-def test_r33_defensive_kill_redundant_link_aff():
-    """§ aggregation (per-path liveness): r33 (renamed from the r30.json probe).
-    Two AFF Support paths converge on one Impact n3 -- a CLEAN path n4->n1->n2->n3
-    (conceded, extended every speech) and a redundant path n1->n7->n3 whose link n7
-    is DEFENSIVELY attacked by a fully-extended NEG link n8 (e7 = DefensiveAttackEdge).
-    Defensive attack drives sigma(n7)->0: the redundant path DIES, but it neither
-    turns nor emigrates. The clean sibling is untouched, so the impact still stands
-    for AFF at +1. AFF wins on its own offense.
-
-    EXPECTED TO FAIL under the CURRENT flattened engine, which folds both paths into
-    one series product: sigma(n7)=0 zeroes the whole chain's magnitude, collapsing an
-    intact AFF case to (NEG, "AFF structural failure"), N=0. Per-path liveness
-    (STEP 4a: an impact survives if >=1 complete root-to-impact path is fully
-    extended) is what turns this green. n7's liveness is "contested" 2AC/1AR/2AR --
-    extension-satisfying, identical to conceded (ruling 1)."""
+def test_r33_nonunique_on_live_link_poisons_shared_impact_neg():
+    """§12.4.3 (v9, repurposed from the r30/delink probe): clean path A (u2->n2->n3)
+    and redundant path B (u7->n7->n3), BOTH live and fully extended. A conceded NEG
+    non-unique n8 zeroes Link B's uniqueness u7. A non-unique is STATE-level: because
+    Link B is LIVE, it poisons the shared post-world state at impact n3 across ALL
+    paths -- the clean sibling A does NOT rescue it (contrast r29's per-path delink).
+    The complete, extended, sign-+1 AFF chain is driven to mag 0 -> AFF structural
+    failure (§7). Contrast r31, where AFF concedes a delink on B and kicks out."""
     ballot, trace = judge(_load("r33.json"))
-    assert ballot == AFF
-    bl = _ballot(trace)
-    assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
+    assert ballot == NEG
+    assert _ballot(trace).reason_class == "AFF structural failure"
+    chs = _chains(trace)
+    assert len(chs) == 1                                       # one component, one chain object
+    assert chs[0].sign == 1 and chs[0].mag < EPSILON          # non-unique kill, not a flip
+    ctx = _run_ctx(list(_load("r33.json").elements))
+    assert ctx.sigma["u7"] < EPSILON                          # Link B's uniqueness dead
+    assert ctx.sigma["n2"] >= 0.5 and ctx.sigma["n7"] >= 0.5  # both links individually intact
 
 
 def test_r34_turned_redundant_link_washes_shared_impact_neg():
@@ -1239,24 +1237,22 @@ def test_C_impact_pair_weigh_drops_dispreferred_chain():
     assert won and won[0].preferred_node == im_a.id and set(won[0].pair) == {im_a.id, im_n.id}
 
 
-def test_D_r32_shared_uniqueness_cut_vertex_kill_neg():
-    """§3.3.1 shared cut-vertex (gap D / parked r32). One shared Uniqueness n1 feeds
-    TWO clean Links (n2, n7) that converge on ONE shared Impact n3; a live conceded
-    NEG non-unique n8 DefensiveAttacks n1 to sigma 0. Every root->impact path runs
-    THROUGH n1, so the per-path magnitude product zeroes on BOTH paths -- the impact
-    has no surviving carrier and dies. 'Both chains die' by construction: neither
-    link individually was touched (sigma(n2) = sigma(n7) = 1.0), yet killing the one
-    shared node collapses both. -> (NEG, 'AFF structural failure'), the chain sign
-    still +1 (a defensive kill, NOT a turn), mag 0."""
+def test_D_r32_nonunique_on_convergence_impact_kills_all_paths_neg():
+    """§12.4.3 (v9, redrawn from the shared cut-vertex): two clean Links (n2, n7)
+    converge on one shared Impact n3, each with its own satellite uniqueness; a live
+    conceded NEG non-unique n8 zeroes the IMPACT's uniqueness u3. A non-unique on the
+    convergence impact's own uniqueness is UNCONDITIONAL (there is no link to sever,
+    so no kick-out): the shared state is non-unique, so both paths collapse. Neither
+    link was individually touched (sigma(n2)=sigma(n7)=1.0), yet the impact dies.
+    -> (NEG, 'AFF structural failure'), sign +1 (a non-unique kill, NOT a turn), mag 0."""
     ballot, trace = judge(_load("r32.json"))
     assert ballot == NEG
     assert _ballot(trace).reason_class == "AFF structural failure"
     chs = _chains(trace)
     assert len(chs) == 1                                       # one component, one chain object
-    assert chs[0].sign == 1 and chs[0].mag < EPSILON          # defensive kill, not a flip
-    # it is specifically the SHARED cut-vertex that died -- both links are healthy:
+    assert chs[0].sign == 1 and chs[0].mag < EPSILON          # non-unique kill, not a flip
     ctx = _run_ctx(list(_load("r32.json").elements))
-    assert ctx.sigma["n1"] < EPSILON                          # shared uniqueness dead
+    assert ctx.sigma["u3"] < EPSILON                          # impact uniqueness dead
     assert ctx.sigma["n2"] >= 0.5 and ctx.sigma["n7"] >= 0.5  # both links individually intact
 
 

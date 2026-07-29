@@ -3,42 +3,8 @@
   "elements": [
     {
       "data": {
-        "id": "n2",
-        "label": "Link",
-        "ntype": "Link",
-        "side": "AFF",
-        "speech": "1AC",
-        "liveness": {
-          "1AC": "conceded",
-          "2AC": "conceded"
-        }
-      },
-      "position": {
-        "x": 205,
-        "y": 642.1663217974836
-      }
-    },
-    {
-      "data": {
-        "id": "n3",
-        "label": "Impact",
-        "ntype": "Impact",
-        "side": "AFF",
-        "speech": "1AC",
-        "liveness": {
-          "1AC": "conceded",
-          "2AC": "conceded"
-        }
-      },
-      "position": {
-        "x": 236.33914313485644,
-        "y": 1197.5146137875522
-      }
-    },
-    {
-      "data": {
         "id": "n4",
-        "label": "Advocacy",
+        "label": "AFF advocacy (plan)",
         "ntype": "Advocacy",
         "side": "AFF",
         "speech": "1AC",
@@ -48,42 +14,38 @@
           "1AR": "conceded",
           "2AR": "conceded"
         }
-      },
-      "position": {
-        "x": 264.2705882352941,
-        "y": 148.00000000000006
       }
     },
     {
       "data": {
-        "id": "n12",
-        "label": "Framework",
-        "ntype": "Framework",
-        "side": "NEG",
-        "speech": "1NC",
+        "id": "n2",
+        "label": "AFF link (dropped after 2AC)",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AC",
         "liveness": {
-          "1NC": "conceded",
-          "2NC/1NR": "conceded",
-          "2NR": "conceded"
+          "1AC": "conceded",
+          "2AC": "conceded"
         }
-      },
-      "position": {
-        "x": 590.4724094863079,
-        "y": 1043.5127343654394
       }
     },
     {
       "data": {
-        "id": "e3",
-        "source": "n2",
-        "target": "n3",
-        "etype": "SupportEdge"
+        "id": "n3",
+        "label": "AFF impact (dropped)",
+        "ntype": "Impact",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded"
+        }
       }
     },
     {
       "data": {
         "id": "n8",
-        "label": "Uniqueness",
+        "label": "AFF link uniqueness",
         "ntype": "Uniqueness",
         "side": "AFF",
         "speech": "1AC",
@@ -91,40 +53,25 @@
           "1AC": "conceded",
           "2AC": "conceded"
         }
-      },
-      "position": {
-        "x": 205,
-        "y": 413.9294117647059
       }
     },
     {
       "data": {
-        "id": "e12",
-        "source": "n11",
-        "target": "n12",
-        "etype": "SupportEdge"
-      }
-    },
-    {
-      "data": {
-        "id": "e8",
-        "source": "n8",
-        "target": "n4",
-        "etype": "SupportEdge"
-      }
-    },
-    {
-      "data": {
-        "id": "e7",
-        "source": "n2",
-        "target": "n8",
-        "etype": "SupportEdge"
+        "id": "u3a",
+        "label": "AFF impact uniqueness (added)",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded"
+        }
       }
     },
     {
       "data": {
         "id": "n9",
-        "label": "Uniqueness",
+        "label": "NEG uniqueness-of-trend",
         "ntype": "Uniqueness",
         "side": "NEG",
         "speech": "1NC",
@@ -133,34 +80,26 @@
           "2NC/1NR": "conceded",
           "2NR": "conceded"
         }
-      },
-      "position": {
-        "x": 546.0672909074599,
-        "y": 365.23820236260633
       }
     },
     {
       "data": {
         "id": "n10",
-        "label": "Link",
+        "label": "NEG disad link",
         "ntype": "Link",
         "side": "NEG",
         "speech": "1NC",
         "liveness": {
           "1NC": "conceded",
-          "2NC/1NR": "contested",
-          "2NR": "contested"
+          "2NC/1NR": "conceded",
+          "2NR": "conceded"
         }
-      },
-      "position": {
-        "x": 577.7604245033051,
-        "y": 543.7900126364495
       }
     },
     {
       "data": {
         "id": "n11",
-        "label": "Impact",
+        "label": "NEG disad impact",
         "ntype": "Impact",
         "side": "NEG",
         "speech": "1NC",
@@ -169,83 +108,13 @@
           "2NC/1NR": "conceded",
           "2NR": "conceded"
         }
-      },
-      "position": {
-        "x": 542.9327090925401,
-        "y": 706.4952561123703
       }
     },
     {
       "data": {
-        "id": "e9",
-        "source": "n4",
-        "target": "n9",
-        "etype": "SupportEdge"
-      }
-    },
-    {
-      "data": {
-        "id": "e10",
-        "source": "n9",
-        "target": "n10",
-        "etype": "SupportEdge"
-      }
-    },
-    {
-      "data": {
-        "id": "e11",
-        "source": "n10",
-        "target": "n11",
-        "etype": "SupportEdge"
-      }
-    },
-    {
-      "data": {
-        "id": "n18",
-        "label": "BallotDirective",
-        "ntype": "BallotDirective",
-        "side": "AFF",
-        "speech": "2AC",
-        "liveness": {
-          "2AC": "conceded",
-          "1AR": "conceded",
-          "2AR": "conceded"
-        }
-      },
-      "position": {
-        "x": 854.6258426883853,
-        "y": 1129.5369541255902
-      }
-    },
-    {
-      "data": {
-        "id": "e19",
-        "source": "n18",
-        "target": "n11",
-        "etype": "SupportEdge"
-      }
-    },
-    {
-      "data": {
-        "id": "e17",
-        "source": "n17",
-        "target": "n16",
-        "etype": "ComparisonEdge"
-      }
-    },
-    {
-      "data": {
-        "id": "e18",
-        "source": "n17",
-        "target": "n10",
-        "etype": "ComparisonEdge"
-      }
-    },
-    {
-      "data": {
-        "id": "n19",
-        "label": "BallotDirective",
-        "ntype": "BallotDirective",
+        "id": "u11",
+        "label": "NEG impact uniqueness (added)",
+        "ntype": "Uniqueness",
         "side": "NEG",
         "speech": "1NC",
         "liveness": {
@@ -253,24 +122,26 @@
           "2NC/1NR": "conceded",
           "2NR": "conceded"
         }
-      },
-      "position": {
-        "x": 485,
-        "y": 863.8088640236072
       }
     },
     {
       "data": {
-        "id": "e20",
-        "source": "n19",
-        "target": "n11",
-        "etype": "SupportEdge"
+        "id": "n12",
+        "label": "NEG framework",
+        "ntype": "Framework",
+        "side": "NEG",
+        "speech": "1NC",
+        "liveness": {
+          "1NC": "conceded",
+          "2NC/1NR": "conceded",
+          "2NR": "conceded"
+        }
       }
     },
     {
       "data": {
         "id": "n16",
-        "label": "Link",
+        "label": "AFF turn link",
         "ntype": "Link",
         "side": "AFF",
         "speech": "2AC",
@@ -279,24 +150,12 @@
           "1AR": "conceded",
           "2AR": "conceded"
         }
-      },
-      "position": {
-        "x": 875,
-        "y": 722.6298379272902
-      }
-    },
-    {
-      "data": {
-        "id": "e16",
-        "source": "n16",
-        "target": "n10",
-        "etype": "OffensiveAttackEdge"
       }
     },
     {
       "data": {
         "id": "n17",
-        "label": "Weighing",
+        "label": "NEG weigh: disad link > turn",
         "ntype": "Weighing",
         "side": "NEG",
         "speech": "2NC/1NR",
@@ -304,10 +163,146 @@
           "2NC/1NR": "conceded",
           "2NR": "conceded"
         }
-      },
-      "position": {
-        "x": 767.2637952568462,
-        "y": 887.5988766600569
+      }
+    },
+    {
+      "data": {
+        "id": "n18",
+        "label": "AFF ballot",
+        "ntype": "BallotDirective",
+        "side": "AFF",
+        "speech": "2AC",
+        "liveness": {
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "n19",
+        "label": "NEG ballot",
+        "ntype": "BallotDirective",
+        "side": "NEG",
+        "speech": "1NC",
+        "liveness": {
+          "1NC": "conceded",
+          "2NC/1NR": "conceded",
+          "2NR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "e1",
+        "source": "n2",
+        "target": "n3",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e2",
+        "source": "n2",
+        "target": "n8",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e3",
+        "source": "n8",
+        "target": "n4",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e4",
+        "source": "u3a",
+        "target": "n3",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e5",
+        "source": "n4",
+        "target": "n9",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e6",
+        "source": "n9",
+        "target": "n10",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e7",
+        "source": "n10",
+        "target": "n11",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e8",
+        "source": "u11",
+        "target": "n11",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e9",
+        "source": "n11",
+        "target": "n12",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e10",
+        "source": "n17",
+        "target": "n16",
+        "etype": "ComparisonEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e11",
+        "source": "n17",
+        "target": "n10",
+        "etype": "ComparisonEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e12",
+        "source": "n18",
+        "target": "n11",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e13",
+        "source": "n19",
+        "target": "n11",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e14",
+        "source": "n16",
+        "target": "n10",
+        "etype": "OffensiveAttackEdge"
       }
     }
   ]
