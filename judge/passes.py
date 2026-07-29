@@ -160,29 +160,40 @@ def build_context(rnd) -> Context:
 
 
 def _index_uniqueness(ctx: Context) -> None:
-    """v9 STRUCTURAL index (§12, Step 5). For each reachable post-world node
-    (Link/Impact), record the Uniqueness node(s) wired to it over a Support edge,
-    and its mechanism parents (Advocacy/Link support-neighbours -- excluding its own
-    wired uniqueness and its terminal impact). A post-world node with >=2 mechanism
-    parents is a recognized AND-join / convergence (§12.3.2). Purely descriptive:
-    NO pass reads `wired_uniqueness`/`multi_parent` in Step 5, so the verdict for
-    every existing fixture is byte-identical (behaviour-neutral scaffolding). The
-    spine change and per-node evaluation that consume this land in Step 6."""
+    """v9 STRUCTURAL index (§12). wired_uniqueness maps a post-world node (Link/
+    Impact) to the SATELLITE Uniqueness node(s) wired to it. A Uniqueness counts as
+    a satellite ONLY if EVERY one of its Support-neighbours is post-world -- i.e. it
+    never feeds an Advocacy. The OLD spine-root wiring (Advocacy->Uniqueness->Link)
+    therefore never populates the map (its uniqueness feeds an Advocacy), so the
+    Step-6 poisoning gate is completely inert on old-style construction and the
+    spine mechanism is left untouched (additive-only per the agreed plan). Its own
+    verdict effect is via the gate; multi_parent records >=2 mechanism parents
+    (Advocacy/Link support-neighbours) -- a recognized AND-join / convergence
+    (§12.3.2)."""
+    def _support_nbrs(uid):
+        return [ctx.nodes.get(nbr) for nbr, e in ctx.adj.get(uid, [])
+                if isinstance(e, Support) and nbr in ctx.reachable]
+
     wired: Dict[str, List[str]] = defaultdict(list)
+    for uid in ctx.reachable:
+        u = ctx.nodes.get(uid)
+        if not isinstance(u, Uniqueness):
+            continue
+        nbrs = _support_nbrs(uid)
+        if not nbrs or any(not isinstance(n, POSTWORLD_TYPES) for n in nbrs):
+            continue                       # feeds an Advocacy/other -> old spine root
+        for n in nbrs:
+            wired[n.id].append(uid)
+    ctx.wired_uniqueness = {k: sorted(set(v)) for k, v in wired.items()}
+
     parents: Dict[str, List[str]] = defaultdict(list)
     for nid in ctx.reachable:
-        node = ctx.nodes.get(nid)
-        if not isinstance(node, POSTWORLD_TYPES):
+        if not isinstance(ctx.nodes.get(nid), POSTWORLD_TYPES):
             continue
         for nbr, e in ctx.adj.get(nid, []):
-            if not isinstance(e, Support) or nbr not in ctx.reachable:
-                continue
-            nbrnode = ctx.nodes.get(nbr)
-            if isinstance(nbrnode, Uniqueness):
-                wired[nid].append(nbr)
-            elif isinstance(nbrnode, MECHANISM_PARENT_TYPES):
+            if (isinstance(e, Support) and nbr in ctx.reachable
+                    and isinstance(ctx.nodes.get(nbr), MECHANISM_PARENT_TYPES)):
                 parents[nid].append(nbr)
-    ctx.wired_uniqueness = {k: sorted(set(v)) for k, v in wired.items()}
     ctx.multi_parent = {k: sorted(set(v)) for k, v in parents.items() if len(set(v)) >= 2}
 
 
@@ -624,13 +635,51 @@ def _path_stats(ctx: Context, path, side):
     return sign, mag, True, None
 
 
+def _impact_poisoned(ctx: Context, impact: str, path_links) -> bool:
+    """§12.4.3 (v9): is this impact's offense zeroed by a non-unique? A non-unique is
+    a claim about the shared post-world STATE, so it poisons the convergent impact
+    across ALL paths. True iff the impact's OWN wired uniqueness is zeroed
+    (unconditional -- there is no link to sever, r32), or a LIVE link feeding the
+    impact has a zeroed wired uniqueness (state-level poison, r33). A link that is
+    delinked (mag_sigma below threshold) or fails its own-side extension is KICKED --
+    it no longer carries the state, so its non-unique lapses with it (kick-out, r31).
+    Reads only the SATELLITE wired_uniqueness map, so old spine-root uniqueness (never
+    in that map) can never trip this -- the gate is additive over the old mechanism."""
+    def _zeroed(uid):
+        return ctx.sigma.get(uid, TAU) < POLARITY_THRESHOLD
+
+    if any(_zeroed(u) for u in ctx.wired_uniqueness.get(impact, [])):
+        return True
+    for lid in path_links:
+        if ctx.mag_sigma.get(lid, TAU) < POLARITY_THRESHOLD:
+            continue                                   # delinked -> kicked
+        if not node_extension_ok(ctx.nodes[lid])[0]:
+            continue                                   # dropped -> kicked
+        if any(_zeroed(u) for u in ctx.wired_uniqueness.get(lid, [])):
+            return True
+    return False
+
+
 def _aggregate_impact(ctx: Context, spine_set, impact, roots, side):
     """§3.3.1(a-c): fold the paths converging on one shared impact into a single
     (sign, mag, extended, ext_fail_node) for the ONE component chain. Per-path
     liveness (a: impact survives iff >=1 complete path is extended); same-sign
     redundancy -> MAX not product (b); equal-magnitude sign-conflict -> wash to
     UNRESOLVED (c). The ballot never sees a path twice -- one object per impact."""
-    stats = [_path_stats(ctx, p, side) for p in _spine_paths(ctx, spine_set, impact, roots)]
+    paths = _spine_paths(ctx, spine_set, impact, roots)
+    stats = [_path_stats(ctx, p, side) for p in paths]
+
+    # §12.4.3 convergence poisoning + kick-out (v9). A non-unique is STATE-level, so
+    # it zeroes the shared impact across all paths -- checked BEFORE the per-path OR
+    # below. The chain keeps its (un-poisoned) favouring sign so a complete extended
+    # chain driven to mag 0 reads as structural failure (§7), not presumption.
+    links_to_impact = {n for p in paths for n in p if isinstance(ctx.nodes[n], Link)}
+    if _impact_poisoned(ctx, impact, links_to_impact):
+        ext = [s for s in stats if s[2]]
+        sgn = max(ext, key=lambda s: s[1])[0] if ext else (stats[0][0] if stats else 1)
+        if sgn == qpn.UNRESOLVED:
+            sgn = 1
+        return sgn, 0.0, True, None
     ext_fail_node = next((s[3] for s in stats if not s[2]), None)
     # live carriers: complete path, non-zero magnitude, resolved sign
     live = [(sg, mg) for (sg, mg, ext, _f) in stats if ext and mg > EPSILON and sg != qpn.UNRESOLVED]
