@@ -1,47 +1,36 @@
 """Episode-validity fences for the CDAF RL environment.
 
 A self-play agent explores the whole space of well-typed argument graphs,
-including corners no hand-authored oracle round covers. Where the judge has a
-RULED semantics for a corner we CLOSE it with an oracle round; where it does NOT
-(the branch is provisional / out of scope / malformed), the ENVIRONMENT must
-refuse the graph so no training episode is ever scored against an unaudited
-verdict. Those refusals live here, NOT in the judge -- the judge stays a pure
-scoring function; the env owns episode validity.
+including corners no hand-authored oracle round covers. Two DISTINCT concerns
+live here, deliberately split (Phase-1 Ruling 1):
 
-Three fences (gap-audit STEP 3/4), each verdict-pure and detected where the fact
-is knowable:
+  1. STRUCTURAL ADMISSION (`validate_round`, Fences A + G). Well-formedness of a
+     completed round: the graph the judge is handed must be one the judge has a
+     ruled answer over. Under Phase 1 these corners are made UNREACHABLE by the
+     legal-action generator (Fence A is a local, monotonic generator check; Fence
+     G is satisfied by construction because the env stamps every node's speech
+     from the current slot). So at the termination step `validate_round` is an
+     ASSERTION, not a branch: if it ever fails, that is an environment BUG and the
+     caller must raise loudly rather than return any reward value.
 
-  A. MULTI-TERMINAL / MALFORMED COMPONENT (structural, pure ingest). A same-side
-     Support component that contains an Impact but whose terminal-impact count is
-     not exactly 1 hits the flat pre-per-path fallback (passes._build_chains else
-     branch), which has none of the §3.3.1 per-path protections. Knowable from
-     Pass-1 structure alone (adjacency + speech order), so it is checked at pure
-     ingest. The component/terminal computation REUSES the judge's own primitives
-     (`passes.build_context`, `passes._union_find`, `passes._terminals`) so it
-     cannot drift from what the judge actually does.
+  2. SCOPE GUARD (`assert_scope_ruled`, Fence B). A SEPARATE concern with a
+     separate call site: "does the judge have a RULED semantics for this round,"
+     not "is this round well-formed." `CONVERGENCE_OUT_OF_SCOPE` fires on the
+     unequal-magnitude convergence case (§3.3.1c), which is an UNRULED semantic
+     question, not a malformed graph. In V1 it is PROVABLY UNREACHABLE -- binary
+     accrual pins every live path magnitude at exactly 1.0, so the equal-magnitude
+     wash (§3.3.1c) always fires and the unequal branch is never entered. The
+     guard therefore asserts the marker NEVER appears; it must never silently
+     return a reward value. Fence B becomes live only under a fractional-magnitude
+     regime, which is itself a versioned environment update under judge-versioning
+     discipline, so that switch forces a re-ruling of this guard anyway.
 
-  G. OFF-VOCAB SPEECH (structural, pure ingest). A node whose `speech` is not in
-     SPEECH_ORDER is not inert in the judge: the judge's `_sidx` maps it to None,
-     which silently short-circuits `node_extension_ok` to "extended" (privileging
-     the node), dodges drop detection, and fakes a 1AC intro -- while the model's
-     own `speech_index` maps the same string to len(SPEECH_ORDER) (treats it as
-     last). There is no coherent inert semantics to fall back on, so an off-vocab
-     speech is rejected as malformed at ingest.
-
-  B. UNEQUAL-MAGNITUDE CONVERGENCE (judge trace marker). Two sign-conflicting
-     paths converging on one shared impact with UNEQUAL magnitudes is declared out
-     of scope for V1 (§3.3.1c); the judge's handling there is provisional. Whether
-     a graph reaches it is only knowable AFTER passes 1-5 (it depends on resolved
-     sign and magnitude), so it cannot be a pure structural predicate. The judge
-     emits a WRITE-ONLY `CONVERGENCE_OUT_OF_SCOPE` marker when it reaches that
-     branch (verdict unchanged -- see judge.trace.ConvergenceOutOfScope); this
-     validator RUNS the pure judge and refuses any round whose trace carries the
-     marker. We read the judge's own signal rather than re-deriving the condition
-     in a second resolver, because a drifted second resolver is exactly the
-     silent-divergence bug this pass exists to prevent.
-
-`validate_round(rnd)` returns a `RoundValidity`; the RL env calls it at
-episode-init and only admits graphs where `.ok` is True.
+Fences A and G are pure structural predicates (adjacency + speech order), knowable
+at ingest. Fence A REUSES the judge's own Pass-1 primitives (`passes.build_context`,
+`passes._union_find`, `passes._terminals`) so it cannot drift from what the judge
+actually does. Fence B reads a WRITE-ONLY marker off a trace the judge already
+produced -- it never re-derives the condition in a second resolver (a drifted
+second resolver is exactly the silent-divergence bug the split exists to prevent).
 """
 
 from __future__ import annotations
@@ -51,7 +40,6 @@ from dataclasses import dataclass, field
 from typing import List
 
 from model import Impact, Support, SPEECH_ORDER
-from judge import judge as run_judge
 from judge import passes
 
 CONVERGENCE_MARKER = "CONVERGENCE_OUT_OF_SCOPE"
@@ -59,16 +47,19 @@ CONVERGENCE_MARKER = "CONVERGENCE_OUT_OF_SCOPE"
 
 @dataclass
 class RoundValidity:
-    """Result of validating one Round for episode admission. `ok` is True iff no
-    fence tripped; `reasons` lists every rejection (keyed by fence tag) so a
-    training harness can log/aggregate which corner an agent tried to reach."""
+    """Result of the STRUCTURAL admission check (Fences A + G). `ok` is True iff no
+    structural fence tripped; `reasons` lists every rejection (keyed by fence tag)
+    so a training harness can log which corner an agent reached. Fence B is NOT a
+    validity fence and does not appear here -- see `assert_scope_ruled`."""
     ok: bool
     reasons: List[str] = field(default_factory=list)
 
 
 def _offvocab_speech_nodes(rnd) -> List[str]:
     """FENCE G: node ids whose `speech` is not a canonical speech (∉ SPEECH_ORDER).
-    Reads the raw round; no resolution needed."""
+    Reads the raw round; no resolution needed. In the env this is satisfied by
+    construction (every node's speech is stamped from the current slot), so at
+    termination this is a belt-and-suspenders assertion."""
     vocab = set(SPEECH_ORDER)
     return [n.id for n in rnd.nodes if getattr(n, "speech", None) not in vocab]
 
@@ -81,8 +72,9 @@ def _multiterminal_components(rnd) -> List[List[str]]:
 
     REUSES the judge's own Pass-1 context and helpers so the enumeration is
     byte-identical to `passes._build_chains`; the only thing mirrored here is the
-    same-side Support union loop (`_build_chains` lines ~624-637), kept in lockstep
-    with that source of truth."""
+    same-side Support union loop, kept in lockstep with that source of truth. The
+    legal-action generator calls this on the PROSPECTIVE round after a candidate
+    action to enforce the same predicate locally and monotonically (Ruling 2)."""
     ctx = passes.build_context(rnd)                    # Pass 1 only: structure/adjacency
     ids = list(ctx.reachable)
     find, union, _parent = passes._union_find(ids)
@@ -108,28 +100,12 @@ def _multiterminal_components(rnd) -> List[List[str]]:
     return bad
 
 
-def trace_has_convergence_marker(trace) -> bool:
-    """Pure predicate: does this trace carry the write-only CONVERGENCE_OUT_OF_SCOPE
-    marker? Separated from the judge run so the fence mechanism is unit-testable
-    independently of whether any V1 graph can reach the branch (in binary V1 accrual
-    every live path magnitude is exactly 1.0, so the equal-magnitude WASH fires and
-    the unequal branch is unreachable -- the fence is future-proofing for any regime
-    that introduces fractional magnitudes)."""
-    return any(getattr(r, "kind", None) == CONVERGENCE_MARKER for r in trace)
-
-
-def _reaches_convergence_marker(rnd) -> bool:
-    """FENCE B: run the pure judge and report whether it emitted the write-only
-    CONVERGENCE_OUT_OF_SCOPE marker (the unequal-magnitude convergence branch,
-    §3.3.1c). Reading the judge's own trace avoids a drifted second resolver."""
-    _ballot, trace = run_judge(rnd)
-    return trace_has_convergence_marker(trace)
-
-
 def validate_round(rnd) -> RoundValidity:
-    """Validate a Round for episode admission. Applies the three fences; returns a
-    RoundValidity with every tripped fence recorded. Structural fences (A, G) run
-    first (cheap, no resolution); the marker fence (B) runs the judge last."""
+    """STRUCTURAL admission (Fences A + G). Returns a RoundValidity with every
+    tripped structural fence recorded. This is the check the termination step runs
+    as an ASSERTION: under Phase 1 the generator makes both corners unreachable, so
+    a non-`ok` result at termination is an environment bug, and the env must raise.
+    Fence B is NOT run here (it is a scope guard -- see `assert_scope_ruled`)."""
     reasons: List[str] = []
 
     offvocab = _offvocab_speech_nodes(rnd)
@@ -143,14 +119,40 @@ def validate_round(rnd) -> RoundValidity:
             f"A/multi-terminal: {len(multiterm)} same-side Support component(s) with "
             f"a terminal-impact count != 1: {multiterm}")
 
-    if _reaches_convergence_marker(rnd):
-        reasons.append(
-            "B/unequal-magnitude-convergence: judge emitted CONVERGENCE_OUT_OF_SCOPE "
-            "(§3.3.1c out of scope for V1)")
-
     return RoundValidity(ok=not reasons, reasons=reasons)
 
 
 def is_valid(rnd) -> bool:
-    """Convenience boolean for the RL loop's admission check."""
+    """Convenience boolean for the structural admission check (Fences A + G)."""
     return validate_round(rnd).ok
+
+
+# --- Fence B: scope guard (separate concern, separate call site) --------------
+
+def trace_has_convergence_marker(trace) -> bool:
+    """Pure predicate: does this trace carry the write-only CONVERGENCE_OUT_OF_SCOPE
+    marker? Separated from any judge run so the mechanism is unit-testable
+    independently of whether any V1 graph can reach the branch (in binary V1 accrual
+    every live path magnitude is exactly 1.0, so the equal-magnitude WASH fires and
+    the unequal branch is unreachable -- future-proofing for a fractional-magnitude
+    regime)."""
+    return any(getattr(r, "kind", None) == CONVERGENCE_MARKER for r in trace)
+
+
+def assert_scope_ruled(trace) -> None:
+    """FENCE B as a SCOPE GUARD (Ruling 1). Reads the judge's own terminal trace and
+    asserts the write-only CONVERGENCE_OUT_OF_SCOPE marker is ABSENT. In V1 the
+    unequal-magnitude convergence branch (§3.3.1c) is unreachable, so this NEVER
+    fires; if it ever does, the round entered an UNRULED judge corner and the
+    episode must NOT be scored -- we raise rather than return any reward value (any
+    number is something a policy can learn to chase). Becomes live only under a
+    fractional-magnitude regime, itself a versioned env update that re-rules this
+    guard.
+
+    Takes the trace the termination step ALREADY produced (the judge is run once);
+    it does not re-run the judge."""
+    assert not trace_has_convergence_marker(trace), (
+        "SCOPE GUARD (Fence B) tripped: judge emitted CONVERGENCE_OUT_OF_SCOPE "
+        "(§3.3.1c unequal-magnitude convergence). This branch is UNREACHABLE in V1 "
+        "binary accrual, so reaching it is an environment/judge-version bug -- the "
+        "episode is in an unruled corner and must not be scored.")
