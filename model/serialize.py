@@ -19,7 +19,7 @@ import json
 
 from .convert import convert
 from .edges import EDGE_CLASSES, Edge
-from .nodes import NODE_CLASSES, Node, Position
+from .nodes import NODE_CLASSES, Node, Position, Weighing
 from .round import SCHEMA_VERSION, Round
 from .speeches import speech_index
 
@@ -37,6 +37,8 @@ def node_to_element(node: Node) -> dict:
     if node.liveness:
         data["liveness"] = {s: node.liveness[s]
                             for s in sorted(node.liveness, key=speech_index)}
+    if getattr(node, "favors", None) is not None:   # Weighing preference pointer (§6.5)
+        data["favors"] = node.favors
     element = {"data": data}
     if node.position is not None:
         element["position"] = {"x": node.position.x, "y": node.position.y}
@@ -73,10 +75,13 @@ def element_to_obj(element: dict):
     pos = element.get("position")
     position = Position(pos["x"], pos["y"]) if pos else None  # optional on load
     liveness = data.get("liveness")  # {speech: status} on v2; absent on v1
-    return cls(
+    kwargs = dict(
         id=data["id"], label=data["label"], side=data["side"],
         speech=data["speech"], position=position, liveness=liveness,
     )
+    if cls is Weighing and "favors" in data:     # preference pointer, Weighing only
+        kwargs["favors"] = data["favors"]
+    return cls(**kwargs)
 
 
 def _element(obj) -> dict:

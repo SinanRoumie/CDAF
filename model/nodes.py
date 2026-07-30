@@ -95,6 +95,12 @@ class Framework(Node):
 
 @dataclass
 class Weighing(Node):
+    """A weigh over a same-type pair. `favors` is the explicit pointer at the pair
+    member this weigh prefers (one of the two nodes its Comparison edges connect),
+    read directly by the judge (§6.5). Optional: a legacy round (pre-favors channel)
+    omits it and the judge derives a structural default."""
+    favors: Optional[str] = None
+
     ntype: ClassVar[str] = "Weighing"
 
 

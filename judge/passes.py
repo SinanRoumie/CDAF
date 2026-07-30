@@ -402,22 +402,24 @@ def pass4_weighing_towers(ctx: Context) -> None:
     emit a WEIGH record. These read ONLY the weighing nodes' own accrual
     (sigma/extension) and Comparison pairs -- never main-chain polarity -- so they
     settle before the clash resolution that consumes them and cannot cycle (§9)."""
-    from .resolve import resolve
+    from .resolve import resolve, favors_source
     for w in ctx.weighings:
         pair = ctx.weigh_pair.get(w.id)
         if pair is None:
             ctx.trace.append(T.Weigh(weighing_id=w.id, outcome="symmetric",
-                                     preferred_node=None, via="malformed", pair=[]))
+                                     preferred_node=None, via="malformed", pair=[],
+                                     favors_source=None))
             continue
         determinate, winner, _decider = resolve(ctx, pair)
+        src = favors_source(ctx, w)   # explicit / legacy_default / None (§6.5)
         if determinate:
             ctx.trace.append(T.Weigh(weighing_id=w.id, outcome="resolved",
                                      preferred_node=winner, via="preference",
-                                     pair=sorted(pair)))
+                                     pair=sorted(pair), favors_source=src))
         else:
             ctx.trace.append(T.Weigh(weighing_id=w.id, outcome="symmetric",
                                      preferred_node=None, via="magnitude",
-                                     pair=sorted(pair)))
+                                     pair=sorted(pair), favors_source=src))
 
     # The towers are resolved -- now CONSUME them against accrual (§6.5, v5): a
     # determinate weigh defeats the dispreferred member of a clash, and a defeated

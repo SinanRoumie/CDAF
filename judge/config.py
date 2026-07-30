@@ -77,7 +77,14 @@ decisions) and §2.1 (speech order/side).
 #       rooted-uniqueness deletion (b57761c), and the v9 fixture migration (c6904df).
 #       These landed in judge/passes.py + oracle fixtures WITHOUT bumping this
 #       constant; v9 stamps them (no code change here -- the semantics already shipped).
-JUDGE_VERSION = 9
+#   v10: weigh reads the explicit `favors` pointer (§6.5). CROSS-SIDE weighs take the
+#       Weighing's `favors` member directly (legacy default = the lone own-side member,
+#       byte-identical); SAME-SIDE weighs are DESCRIPTIVE-ONLY (inert in resolve, zero
+#       tally effect) and only enrich the WEIGH trace via `favors_source`
+#       (resolve.preferred_node / favors_source). Model: Weighing carries `favors`,
+#       round-tripped by serialize. No pre-existing fixture verdict moves (all 20
+#       corpus weighs are cross-side).
+JUDGE_VERSION = 10
 
 # --- Ballot values (§0) --------------------------------------------------------
 # The ballot is binary. PRESUMPTION (below) resolves to one of these.

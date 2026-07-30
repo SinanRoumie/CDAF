@@ -56,15 +56,52 @@ def weigh_pair(ctx, w_id: str) -> Optional[FrozenSet]:
 
 
 def preferred_node(ctx, w) -> Optional[str]:
-    """The pair member a weighing prefers = the one on the weighing's own side
-    (an AFF weigh of {AFF-link, NEG-turn} prefers the AFF link). None if the pair
-    is not exactly one own-side node (e.g. two same-side nodes -> no directional
-    preference is derivable from the model, so the weigh is treated as inert)."""
+    """The pair member a weighing prefers, CONSUMED by clash resolution (exclusion,
+    framework defeat, polarity). Returns None when the weigh yields no determinate
+    preference to consume.
+
+    SAME-SIDE weighs are DESCRIPTIVE-ONLY in V1 (Ruling 2): a debater weighing two of
+    their own nodes is prioritizing, not abandoning one, so a same-side weigh has ZERO
+    tally effect -- it is inert here (no ballot exclusion, no framework defeat, no
+    polarity flip). Its favored node is still recorded descriptively via
+    `favors_source` in the WEIGH trace; it is simply not consumed. (Parked question:
+    should same-side weighing have any verdict effect? Any real effect needs either
+    overriding the §1 presumption pin or changing the ballot from sum to selection --
+    both out of scope for V1.)
+
+    CROSS-SIDE weighs (§6.5 favors channel): the preferred member is the Weighing's
+    explicit `favors` pointer, read directly -- this is what makes an agent's stated
+    preference judge-visible. LEGACY DEFAULT (no explicit `favors`): the lone own-side
+    member, byte-identical to pre-favors behavior (an AFF weigh of {AFF-link, NEG-turn}
+    prefers the AFF link). None when the pair is not a well-formed pairwise weigh."""
     pair = ctx.weigh_pair.get(w.id)
     if not pair:
         return None
+    if len({ctx.nodes[m].side for m in pair}) == 1:
+        return None                         # same-side: descriptive-only, inert (Ruling 2)
+    favors = getattr(w, "favors", None)
+    if favors is not None and favors in pair:
+        return favors                       # explicit, agent-set preference (cross-side)
     same = [m for m in pair if ctx.nodes[m].side == w.side]
     return same[0] if len(same) == 1 else None
+
+
+def favors_source(ctx, w) -> Optional[str]:
+    """DESCRIPTIVE trace of how a weigh EXPRESSES its preference, INDEPENDENT of
+    whether that preference is consumed (Phase-2 debugging). A same-side weigh is
+    descriptive-only (its preference is not consumed, `preferred_node` returns None)
+    yet it still reports its source here -- that is the whole point of the field for
+    same-side prioritization. "explicit" if the Weighing carries a `favors` pointer at
+    a pair member; "legacy_default" if a structural own-side default exists; None if
+    neither (malformed pair, or a same-side pair with no favors)."""
+    pair = ctx.weigh_pair.get(w.id)
+    if not pair:
+        return None
+    favors = getattr(w, "favors", None)
+    if favors is not None and favors in pair:
+        return "explicit"
+    same = [m for m in pair if ctx.nodes[m].side == w.side]
+    return "legacy_default" if len(same) == 1 else None
 
 
 def _won_accrual(ctx, w) -> bool:

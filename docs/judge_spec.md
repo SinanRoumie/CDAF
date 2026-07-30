@@ -42,7 +42,7 @@ These are settled. They are named constants in `judge/config.py`.
 | Link vs impact | mechanically identical | distinction is positional (see §2); "impact" = terminal node, for weighing eligibility |
 | Polarity threshold | 0.5 | a contested link's surviving magnitude >= 0.5 keeps polarity, < 0.5 flips |
 | Extension | **binary, total over spine** | an argument counts only if its spine nodes are extended through every one of its side's speeches from introduction on (see §6) |
-| Weighing | ballot-stage preference | never edits delta; won weighing overrides raw delta, absent/tied weighing falls back to raw delta |
+| Weighing | ballot-stage preference | never edits delta; preference is the weigh's explicit `favors` pointer (legacy default: own-side member cross-side, inert same-side); won weighing overrides raw delta, absent/tied falls back to raw delta |
 | Presumption | hardcoded **NEG**, uncontestable | every indeterminate result drains here |
 | Near-zero net offense | abs(N) < epsilon -> presumption | configurable small epsilon; prevents float noise from manufacturing an AFF win |
 | Framework selection | **live-set cardinality** | exactly one live framework gates; zero or many is a **wash** (no gating, §5.2). Never order-dependent |
@@ -120,6 +120,8 @@ A node's **type** encodes role, not a distinct object. Strength accrues identica
   structurally a contention — violation (Link) → fairness (Impact) → reject the team (BD) — with no new
   node types. That the formalization forces this split is a result, not a gap.
 - **Weighing:** ranks a same-type pair through `Comparison` edges; the general clash-breaker (§6.5).
+  A Weighing declares **which** member of the pair it prefers via an explicit `favors` pointer;
+  absent one, preference defaults structurally (§6.5 legacy default).
 - **Advocacy:** the **shared premise** both sides litigate. Offense chains attach to it by a
   support-type dependency; an advantage (AFF) and a disad (NEG) both root in the advocacy and differ
   only by side + sign. Advocacy is **not** a valid `OffensiveAttack` target — you outweigh a proposal,
@@ -699,6 +701,29 @@ on the floor producing a winner.
 magnitude floor guarantees a base case — so `resolve` always terminates. Implement it as an actual
 recursion, not a fixed depth-2 check (a fixed check is wrong at depth ≥ 2).
 
+### The preference a weigh expresses (`favors`)
+
+A weigh does not merely name a pair; it names **which member it prefers**. That preference is an
+explicit **`favors`** pointer the Weighing node carries, aimed at one of the two nodes its
+`Comparison` edges connect. `resolve` reads `favors` directly: the preferred member of the pair *is*
+`favors`. This is what makes **own-side weighing** meaningful (Phase 0): a debater may weigh two of
+their own impacts and say which controls, and the judge honors it — the preference is the pointer,
+not the side.
+
+**Legacy default (no explicit `favors`).** A round authored before the `favors` channel carries no
+pointer; the judge derives the preference structurally, preserving prior verdicts byte-for-byte:
+- **Cross-side pair** (exactly one member on the weighing's own side): `favors` defaults to that
+  own-side member (an AFF weigh of {AFF-link, NEG-turn} prefers the AFF link). Identical to
+  pre-`favors` behavior.
+- **Same-side pair** (both members on the weighing's own side, or neither): no preference is
+  derivable from side alone, so the weigh is **inert** — it expresses no clash-break and falls
+  through to magnitude. Unchanged; a legacy same-side weigh does **not** become live.
+
+`favors` is consumed only to identify the preferred member; everything else in §6.5 — survival,
+meta-weighing, the determinate/indeterminate split, the magnitude floor — is unchanged. Pair identity
+is still the two `Comparison` targets (direction-of-`Comparison`, §6.5 `weigh_pair`), orthogonal to
+`favors`.
+
 ### The three indeterminate cases are one case at different depths (illustrations)
 
 - **(a) no weigh** — the weighing layer is empty → fall to magnitude.
@@ -886,7 +911,7 @@ RFD/panel reads — judge-populated, consumed downstream, and never able to chan
 | `FRAMEWORK_SELECT` | winning_framework_id \| null, live[], defeated[], via | reason | 5 |
 | `FRAMEWORK_DEFEAT` | framework_id, weighing_id, preferred_id | — | 5 |
 | `FRAMEWORK_GATE` | chain_id, impact_id, framework_id \| null, in_scope | anchors[] | 5 |
-| `WEIGH` | weighing_id, outcome (resolved/symmetric), preferred_node, via | pair[], overrode | 5 |
+| `WEIGH` | weighing_id, outcome (resolved/symmetric), preferred_node, via | pair[], overrode, favors_source (explicit/legacy_default/null) | 5 |
 | `BD_VALIDATE` | bd_id, result, reason | side | 6 |
 | `BALLOT` | N, gates_passed[], winner | reason_class, aff_sum, neg_sum, decomposition[] | 6 |
 

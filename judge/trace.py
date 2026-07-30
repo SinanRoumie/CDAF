@@ -204,13 +204,18 @@ class FrameworkGate(TraceRecord):
 class Weigh(TraceRecord):
     """A weighing claim's outcome and the preference (if any) it established.
     `pair` is the compared node ids; `overrode` is True when the honored
-    preference favored a smaller-raw-delta impact (descriptive enrichment)."""
+    preference favored a smaller-raw-delta impact (descriptive enrichment).
+    `favors_source` records whether the preference came from the Weighing's explicit
+    `favors` pointer ("explicit") or the structural legacy default ("legacy_default"),
+    or is None when no preference resolved -- Phase-2 debugging aid to distinguish
+    agent-set preference from a derived default (§6.5)."""
     weighing_id: str
     outcome: str  # "resolved" | "symmetric"
     preferred_node: Optional[str]
     via: str
     pair: List[str] = field(default_factory=list)
     overrode: bool = False
+    favors_source: Optional[str] = None  # "explicit" | "legacy_default" | None
 
     kind: ClassVar[str] = "WEIGH"
     pass_no: ClassVar[str] = "5"
