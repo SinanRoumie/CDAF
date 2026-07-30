@@ -1118,3 +1118,28 @@ def test_G3_same_side_attack_inert():
     ch = _chains(trace)[0]
     assert abs(ch.mag - 1.0) < 1e-9                           # inert -> magnitude untouched
     assert any(r.kind == "INERT_ATTACK" and "same-side" in r.reason for r in trace)
+
+
+def test_r36_same_side_weigh_is_descriptive_only_aff():
+    """Ruling 2 regression: a SAME-SIDE weigh is descriptive-only in V1 -- zero tally
+    effect. AFF weighs its own two impacts {ima, imb} with an explicit favors=imb; the
+    weigh must NOT exclude ima. Both AFF advantages (separate components) contribute,
+    so aff_sum=2, neg_sum=1 (one NEG disad) -> N=+1 -> AFF.
+
+    A verdict-only assertion is INSUFFICIENT: under Ruling 2 an inert same-side weigh
+    and no weigh at all give the same N and verdict, so a verdict-only test would still
+    pass if same-side weighs were dropped from the trace entirely. So we also pin the
+    WEIGH record -- outcome=symmetric (nothing consumed), preferred_node=None (no
+    exclusion/defeat/flip), favors_source=explicit (the agent's preference is still
+    recorded descriptively, decoupled from consumption)."""
+    ballot, trace = judge(_load("r36.json"))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
+    weighs = [r for r in trace if r.kind == "WEIGH"]
+    assert len(weighs) == 1
+    w = weighs[0]
+    assert set(w.pair) == {"ima", "imb"}                     # AFF's own two impacts
+    assert w.outcome == "symmetric"                          # inert: nothing consumed
+    assert w.preferred_node is None                          # no exclusion/defeat/flip
+    assert w.favors_source == "explicit"                     # preference recorded, not consumed
