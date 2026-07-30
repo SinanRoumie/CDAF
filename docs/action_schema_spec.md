@@ -30,22 +30,34 @@ machinery is introduced.
 
 ### `introduce(content, role, target_id | NEW, edge_type)`
 
-Introduces a claim. This single action covers three cases that would
+Introduces a claim. This single action covers two cases that would
 otherwise be separate move types:
 
 - **New node**: `target_id = NEW`. Creates a fresh node with no existing
   identity.
 - **Attach to existing node (structural)**: `target_id` names an existing
-  node. `edge_type` determines the relationship (support, attack, including
-  turns — a turn is not flagged by the agent; the judge derives turn status
-  structurally from which side owns the link chain being attacked).
-- **Identity merge**: `target_id` names an existing node and the new content
-  is asserted as *the same claim*, not a new claim attacking or supporting
-  it. This is how two independently-introduced impacts (e.g. two separate
-  "econ decline causes war" claims) become one shared node rather than two
-  parallel ones. There is no separate action type for this — it is the same
-  `introduce` action, just with content that the debater chooses to attach as
-  identity rather than as a new relationship.
+  node and `edge_type` declares the relationship.
+
+**Shared nodes need no merge mode.** The shared-claim case (two chains routing
+through one node) is served by ordinary structural targeting: a `support` edge
+into an *existing* node — from either side — gives that node genuine cross-side
+in-degree, and the judge's per-node σ propagates an attack on it to every
+dependent chain (the shared-node mechanism, e.g. r32). An earlier draft carried a
+third "identity merge" case for *retroactively fusing two already-introduced
+separate nodes*; that case is both unreachable through the action space (an
+`introduce` creates one new node attached to one existing target; it never fuses
+two pre-existing nodes) and unneeded (sharing is expressed at creation by
+targeting), so it was removed. If Phase 2 wants retroactive fusion it returns
+designed, with its type/content gates specified up front.
+
+**Edge type vocabulary.** `edge_type ∈ {support, defensive_attack,
+offensive_attack}`. Turn status is *declared*, not derived: an agent electing
+`offensive_attack` is making a turn; electing `defensive_attack` is making a
+takeout. These are different arguments a debater chooses between, not one
+argument the judge classifies after the fact. This maps directly onto the
+model's existing `DefensiveAttack` / `OffensiveAttack` edge classes at
+materialization, with nothing left to infer and no placeholder subtype
+needed.
 
 **Role declaration.** `role` is declared by the agent at introduction —
 uniqueness, link, impact, advocacy, framework, or a non-spine role. It is not
@@ -56,6 +68,11 @@ interpreting what a claim is, and it means a misdeclared role carries
 whatever structural consequence the judge's existing rules impose rather than
 being corrected at action time. The judge's extension rule (§6, spine-node
 coverage) reads declared roles directly.
+
+The concrete role vocabulary is {uniqueness, link, impact, advocacy,
+framework, ballot_directive}. `ballot_directive` is the non-spine role — the
+discovery root the ballot needs. Weighing is *not* a role: a Weighing node is
+produced only by the `weigh` action, never by `introduce`.
 
 Any node on the graph is a legal `target_id`, regardless of which side
 introduced it or which side is introducing now. Own-side targeting is legal
@@ -72,6 +89,12 @@ unchanged by this schema.
 
 Marks an existing node as conceded. Standard mechanism, unchanged.
 
+**Structural note on `extend` vs `concede`.** Both actions have the same
+structural effect — a liveness stamp for the current speech. Because
+contested/conceded *status* is derived structurally from the graph (never from
+the verb the agent used), the two coincide in the materialized graph and differ
+only as agent-facing intent and logging.
+
 ### `weigh(node_a, node_b, favors, justification)`
 
 Introduces a comparison between two existing nodes.
@@ -82,7 +105,12 @@ Introduces a comparison between two existing nodes.
 - `favors`: a pointer at one of the two compared nodes (`node_a` or
   `node_b`) — not a side/ownership flag. This is required in both the
   cross-side and own-side case, since ownership alone cannot disambiguate a
-  same-side comparison.
+  same-side comparison. `favors` is now read by the judge as the weigh's
+  preference (judge_spec §6.5), closing the earlier gap where it had no
+  structural channel: a **cross-side** weigh consumes it (a legacy round
+  without it falls to the own-side default); a **same-side** weigh is
+  descriptive-only in V1 (recorded via `favors_source`, zero tally effect —
+  see judge_spec §6.5 and the parked question there).
 - `justification`: free text. The judge never reads or scores this text. It
   exists only as the agent's (or a human reviewer's) rationale.
 
@@ -148,6 +176,8 @@ All four open points from the Phase 0 discussion are ruled and reflected
 above: unified `introduce` action for new/attach/merge, per-speech budgets at
 the stated ratio, uniform per-action cost, and `favors` as a node pointer
 rather than a side flag. Amended subsequently: `introduce` carries an
-agent-declared `role` parameter, resolving the spine-role gap surfaced during
-Phase 1 design. This spec is ready to be treated as the committed
+agent-declared `role` parameter, and `edge_type` carries the three-way
+support / defensive_attack / offensive_attack vocabulary with turn status
+declared rather than derived. Both gaps were surfaced during Phase 1 design.
+This spec is ready to be treated as the committed
 Phase 0 artifact; Phase 1 (environment shell) should be built against it.
