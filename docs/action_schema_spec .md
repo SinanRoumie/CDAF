@@ -28,7 +28,7 @@ machinery is introduced.
 
 ## Action types
 
-### `introduce(content, target_id | NEW, edge_type)`
+### `introduce(content, role, target_id | NEW, edge_type)`
 
 Introduces a claim. This single action covers three cases that would
 otherwise be separate move types:
@@ -46,6 +46,16 @@ otherwise be separate move types:
   parallel ones. There is no separate action type for this — it is the same
   `introduce` action, just with content that the debater chooses to attach as
   identity rather than as a new relationship.
+
+**Role declaration.** `role` is declared by the agent at introduction —
+uniqueness, link, impact, advocacy, framework, or a non-spine role. It is not
+derived from graph position. A node's role is therefore a *strategic
+assertion* made by the introducing agent, not a structural fact computed by
+the environment. This keeps the environment out of the business of
+interpreting what a claim is, and it means a misdeclared role carries
+whatever structural consequence the judge's existing rules impose rather than
+being corrected at action time. The judge's extension rule (§6, spine-node
+coverage) reads declared roles directly.
 
 Any node on the graph is a legal `target_id`, regardless of which side
 introduced it or which side is introducing now. Own-side targeting is legal
@@ -137,5 +147,7 @@ hardcoded, consistent with the schema's overall design principle.
 All four open points from the Phase 0 discussion are ruled and reflected
 above: unified `introduce` action for new/attach/merge, per-speech budgets at
 the stated ratio, uniform per-action cost, and `favors` as a node pointer
-rather than a side flag. This spec is ready to be treated as the committed
+rather than a side flag. Amended subsequently: `introduce` carries an
+agent-declared `role` parameter, resolving the spine-role gap surfaced during
+Phase 1 design. This spec is ready to be treated as the committed
 Phase 0 artifact; Phase 1 (environment shell) should be built against it.
