@@ -69,7 +69,15 @@ decisions) and §2.1 (speech order/side).
 #       T2'/T3/T4). A turning link joins the chain it CAPTURED for BD anchoring only,
 #       via `anchor_members`, gated on live capture (eff_pol[target] == -1); union-
 #       find and aggregation still read `members` (passes._build_chains).
-JUDGE_VERSION = 8
+#   v9: CORRECTIVE STAMP of the already-landed uniform-uniqueness work (§12). Every
+#       post-world node carries its own satellite Uniqueness attack surface (the
+#       root-only uniqueness of prior versions is retired): wired_uniqueness index +
+#       multi_parent (4aa81b4), non-unique convergence poisoning + de-link kick-out
+#       (5bb9c15), satellite uniqueness as a chain MEMBER not a root (7cbbb6d), spine-
+#       rooted-uniqueness deletion (b57761c), and the v9 fixture migration (c6904df).
+#       These landed in judge/passes.py + oracle fixtures WITHOUT bumping this
+#       constant; v9 stamps them (no code change here -- the semantics already shipped).
+JUDGE_VERSION = 9
 
 # --- Ballot values (§0) --------------------------------------------------------
 # The ballot is binary. PRESUMPTION (below) resolves to one of these.
