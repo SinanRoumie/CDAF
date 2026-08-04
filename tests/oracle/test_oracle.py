@@ -1143,3 +1143,51 @@ def test_r36_same_side_weigh_is_descriptive_only_aff():
     assert w.outcome == "symmetric"                          # inert: nothing consumed
     assert w.preferred_node is None                          # no exclusion/defeat/flip
     assert w.favors_source == "explicit"                     # preference recorded, not consumed
+
+
+# --- Divergent chains (v11): multi-terminal Support components --------------------
+# A shared trunk (uniqueness + link) diverging to N terminal impacts yields N branch
+# chains whose per-path magnitudes SUM at the ballot. The trunk's sigma multiplies into
+# every branch -> efficient (one trunk buys N impacts) and fragile (one good attack on
+# the trunk degrades all N at once). Formerly refused by env Fence A; now first-class.
+
+def test_r37_divergence_clean_sums_aff():
+    """F-div-clean: adv + uniqueness u + trunk link L, L -> {im1, im2}, BD below the
+    divergence (on L). Two branch chains, each mag 1.0 delta +1 -> N SUMS to +2 -> AFF.
+    Pins that divergent branches sum (the pre-v11 flat fallback gave one chain, N=+1)."""
+    ballot, trace = judge(_load("r37.json"))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and abs(bl.N - 2.0) <= EPSILON
+    chains = _chains(trace)
+    assert len(chains) == 2                                   # one per terminal impact
+    assert all(abs(c.delta - 1.0) <= EPSILON for c in chains)
+
+
+def test_r38_divergence_trunk_attacked_collapses_both_neg():
+    """F-div-trunk-attacked: same as r37 plus an EXTENDED NEG defensive attack on the
+    trunk link L. L's sigma is driven to 0 and multiplies into BOTH branches, so both
+    collapse to mag 0 at once (the fragility the shared trunk buys). N washes to 0 ->
+    NEG, via reason_class "AFF structural failure": AFF built complete extended branches
+    that were then driven to zero, which is structural failure by §7 -- and the accurate
+    description of what this fixture demonstrates (not presumption, which is for a round
+    where AFF established no offense)."""
+    ballot, trace = judge(_load("r38.json"))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert abs(bl.N) <= EPSILON                               # both branches zeroed via the trunk
+    assert bl.reason_class == "AFF structural failure"
+    chains = _chains(trace)
+    assert len(chains) == 2 and all(c.mag <= EPSILON for c in chains)
+
+
+def test_r39_divergence_branch_independent_aff():
+    """F-div-branch-independent: same as r37 but the EXTENDED NEG defensive attack lands
+    on the im1 branch only. im1's branch collapses (mag 0) while im2's survives (mag 1),
+    so N = +1 -> AFF. Pins that branches resolve INDEPENDENTLY below the divergence."""
+    ballot, trace = judge(_load("r39.json"))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
+    mags = sorted(c.mag for c in _chains(trace))
+    assert len(mags) == 2 and mags[0] <= EPSILON and abs(mags[1] - 1.0) <= EPSILON

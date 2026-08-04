@@ -721,7 +721,6 @@ def _build_chains(ctx: Context) -> None:
         if not impacts:
             continue
         side = ctx.nodes[members[0]].side
-        chain_id = "chain:" + root
 
         # Under Model C there are no re-assertion duplicates: each spine node is a
         # single object contributing once. `spine_reps` stays the whole component
@@ -743,91 +742,77 @@ def _build_chains(ctx: Context) -> None:
         intro_idx = min((_sidx(ctx.nodes[m].speech) or 0) for m in members)
         intro_speech = SPEECH_ORDER[intro_idx]
 
-        if len(terminals) == 1:
-            # §3.3.1 per-path aggregation over the shared terminal impact. ONE chain
-            # object per component -- the ballot sees the impact once (r35 guard).
-            sign, mag, extended, ext_fail_node = _aggregate_impact(
-                ctx, spine_set, terminals[0], roots, side)
-        else:
-            # Fallback (malformed / genuinely multi-terminal): the flat series
-            # product (§3.3), with the component-level turned check.
-            mag = 1.0
-            for r in spine_reps:
-                mag *= ctx.mag_sigma.get(r, TAU)   # weigh may have dropped a defeated turn
-            sign = qpn.sign_product(
-                [ctx.eff_pol.get(r, 1) for r in spine_reps if isinstance(ctx.nodes[r], OFFENSE_BEARING)])
-            fav0 = None if sign == qpn.UNRESOLVED else (side if sign > 0 else _opposing(side))
-            turned0 = fav0 is not None and fav0 != side
-            extended, ext_fail_node = True, None
-            for r in spine_reps:
-                ok, _m = (node_live_by_any_side(ctx.nodes[r]) if turned0
-                          else node_extension_ok(ctx.nodes[r]))
-                if not ok:
-                    extended, ext_fail_node = False, r
-                    break
-
-        # The side the composed sign favors -- the side that OWNS this chain's
-        # offense. Equal to `side` reads normally; the opponent means TURNED (§3.5);
-        # UNRESOLVED (incl. a §3.3.1c wash) favors nobody.
-        favored = None
-        if sign != qpn.UNRESOLVED:
-            favored = side if sign > 0 else _opposing(side)
-        turned = favored is not None and favored != side
-
-        # "No new chains in rebuttals" (§6) stays a chain-level guard, over the
-        # component's earliest introduction.
-        if intro_speech in REBUTTAL_SPEECHES:
-            extended, ext_fail_node = False, (spine_reps[0] if spine_reps else root)
-        if not extended:
-            node = ctx.nodes.get(ext_fail_node) if ext_fail_node else None
-            if intro_speech in REBUTTAL_SPEECHES:
-                missing = intro_speech
-            else:
-                missing = node_extension_ok(node)[1] if node is not None else None
-            ctx.trace.append(T.ExtensionFail(
-                chain_id=chain_id, missing_speech=missing, spine_node_id=ext_fail_node))
-
-        delta = chainmod.delta(sign, mag)
-
-        impact_reps = impacts
-        unresolved = any(ctx.status.get(r) == "unresolved" for r in impact_reps)
-
-        collapse_reason, responsible = _collapse_reason(
-            ctx, extended, ext_fail_node, sign, mag, spine_reps, unresolved)
-
-        # Owning side (descriptive, non-load-bearing): the side the composed sign
-        # favors -- the introducing `side` for a normal chain, its opponent for a
-        # turned chain (§3.5), "" when the sign is unresolved. `side` stays the
-        # introducing side (load-bearing for the ballot's aff_sum/neg_sum routing).
-        owner = favored or ""
-        # Anchor-membership (§7): a turning link joins the chain it CAPTURED for BD
-        # anchoring only -- a BD may direct the ballot at any node on the chain it
-        # points to, and a turn that flipped one of the chain's links is on it. The
-        # link is joined to the captured chain solely by its OffensiveAttack edge, so
-        # union-find (same-side Support, §3.3) never made it a `members` element;
-        # `anchor_members` records it WITHOUT touching aggregation (side/sign/mag/
-        # owner read `members` only). Gated on LIVE CAPTURE -- `eff_pol[m] == -1`
-        # means the attack actually flipped m; a defeated/washed turn (m kept +1)
-        # stays in `offense_on` but earns NO anchor reach (offense_on is populated
-        # pre-resolution, so it alone is not evidence of capture).
+        # Anchor-membership (§7) is per-COMPONENT and shared by every branch chain: a
+        # BD anchored anywhere in the component directs the ballot at the terminal
+        # impacts reachable from it, so it validates the branches it reaches. A turning
+        # link joins the chain it CAPTURED for BD anchoring only -- a turn that flipped
+        # one of the chain's links is on it, joined solely by its OffensiveAttack edge,
+        # so union-find (same-side Support) never made it a `members` element;
+        # `anchor_members` records it WITHOUT touching aggregation (side/sign/mag/owner
+        # read `members` only). Gated on LIVE CAPTURE (`eff_pol[m] == -1`).
         anchor_members = set(members) | {
             a for m in members
             for a in ctx.offense_on.get(m, [])
             if ctx.eff_pol.get(m) == -1
         }
-        ctx.chains.append({
-            "id": chain_id, "side": side, "owner": owner, "members": set(members),
-            "anchor_members": anchor_members,
-            "spine_reps": spine_reps, "impacts": impact_reps,
-            "mag": mag, "sign": sign, "delta": delta,
-            "intro_speech": intro_speech, "extended": extended,
-            "in_scope": True, "unresolved": unresolved,
-            "collapse_reason": collapse_reason, "responsible": responsible,
-        })
-        ctx.trace.append(T.Chain(
-            chain_id=chain_id, sign=sign, mag=mag, delta=delta,
-            side=side, owner=owner, extended=extended, in_scope=True,
-            collapse_reason=collapse_reason, responsible=responsible))
+
+        # DIVERGENCE (v11): ONE chain PER terminal impact. Each branch's magnitude is
+        # the per-path sigma product from root to that impact (`_aggregate_impact`,
+        # §3.3.1), so the shared trunk's sigma multiplies into every branch -- efficient
+        # (one trunk buys N impacts) and fragile (a good attack on the trunk degrades
+        # all N at once) -- and the ballot SUMS the branch deltas. Single-terminal is
+        # the 1-iteration case, byte-identical to the prior per-impact aggregation. A
+        # component with NO terminal impact (a Support cycle among impacts) emits no
+        # chain -- unreachable via the generator (connect forbids Support cycles), inert
+        # if hand-authored.
+        for t in terminals:
+            chain_id = "chain:" + t
+            sign, mag, extended, ext_fail_node = _aggregate_impact(
+                ctx, spine_set, t, roots, side)
+            # This branch's impacts: the Impact nodes on t's root->impact paths (equals
+            # the whole component's impacts when single-terminal; per-branch otherwise).
+            branch_impacts = sorted({
+                n for p in _spine_paths(ctx, spine_set, t, roots)
+                for n in p if isinstance(ctx.nodes[n], Impact)})
+
+            # The side the composed sign favors -- the side that OWNS this branch's
+            # offense. `side` reads normally; the opponent means TURNED (§3.5);
+            # UNRESOLVED (incl. a §3.3.1c wash) favors nobody.
+            favored = None
+            if sign != qpn.UNRESOLVED:
+                favored = side if sign > 0 else _opposing(side)
+
+            # "No new chains in rebuttals" (§6): chain-level, over the component's
+            # earliest introduction (shared trunk, so per-branch == per-component).
+            if intro_speech in REBUTTAL_SPEECHES:
+                extended, ext_fail_node = False, (spine_reps[0] if spine_reps else root)
+            if not extended:
+                node = ctx.nodes.get(ext_fail_node) if ext_fail_node else None
+                if intro_speech in REBUTTAL_SPEECHES:
+                    missing = intro_speech
+                else:
+                    missing = node_extension_ok(node)[1] if node is not None else None
+                ctx.trace.append(T.ExtensionFail(
+                    chain_id=chain_id, missing_speech=missing, spine_node_id=ext_fail_node))
+
+            delta = chainmod.delta(sign, mag)
+            unresolved = any(ctx.status.get(r) == "unresolved" for r in branch_impacts)
+            collapse_reason, responsible = _collapse_reason(
+                ctx, extended, ext_fail_node, sign, mag, spine_reps, unresolved)
+            owner = favored or ""      # descriptive; `side` stays load-bearing for aff/neg_sum
+            ctx.chains.append({
+                "id": chain_id, "side": side, "owner": owner, "members": set(members),
+                "anchor_members": anchor_members,
+                "spine_reps": spine_reps, "impacts": branch_impacts,
+                "mag": mag, "sign": sign, "delta": delta,
+                "intro_speech": intro_speech, "extended": extended,
+                "in_scope": True, "unresolved": unresolved,
+                "collapse_reason": collapse_reason, "responsible": responsible,
+            })
+            ctx.trace.append(T.Chain(
+                chain_id=chain_id, sign=sign, mag=mag, delta=delta,
+                side=side, owner=owner, extended=extended, in_scope=True,
+                collapse_reason=collapse_reason, responsible=responsible))
 
 
 def _collapse_reason(ctx, extended, ext_fail_node, sign, mag, spine_reps, unresolved):

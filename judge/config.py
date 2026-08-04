@@ -84,7 +84,16 @@ decisions) and §2.1 (speech order/side).
 #       (resolve.preferred_node / favors_source). Model: Weighing carries `favors`,
 #       round-tripped by serialize. No pre-existing fixture verdict moves (all 20
 #       corpus weighs are cross-side).
-JUDGE_VERSION = 10
+#   v11: divergent chains (multi-terminal Support components). `_build_chains` emits
+#       ONE chain PER terminal impact via `_aggregate_impact` (single-terminal is the
+#       1-iteration case, byte-identical), so a shared trunk diverging to N impacts
+#       yields N branch chains whose per-path magnitudes SUM at the ballot -- the trunk
+#       sigma multiplies into each (efficient + fragile). The prior flat multi-terminal
+#       fallback (union sigma product, one chain) is removed. Env-side companions (not
+#       judged): Fence A deleted (multi-terminal now legal), new `connect` action, and
+#       the C7 weigh/Fence-A guard reverted. No pre-existing scored fixture is
+#       multi-terminal, so all prior verdicts are byte-identical.
+JUDGE_VERSION = 11
 
 # --- Ballot values (§0) --------------------------------------------------------
 # The ballot is binary. PRESUMPTION (below) resolves to one of these.
