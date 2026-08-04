@@ -22,8 +22,8 @@ ORACLE_DIR = os.path.join(os.path.dirname(__file__), "oracle")
 
 # Fixtures the oracle SUITE actually loads -- these must all validate clean (the
 # fence must never refuse a round the judge is scored on). NSDA24Finals.json is a
-# real full round NOT used by the suite; it is genuinely multi-terminal and is
-# expected to be fenced (asserted separately below).
+# real full round NOT used by the suite; it is genuinely multi-terminal and, since
+# Fence A retired (v11), is now admitted (asserted separately below).
 SUITE_FIXTURES = [
     "r29.json", "r31.json", "r32.json", "r33.json", "r34.json", "r35.json",
     "AFFLinkturnsNeg.json", "AFFLinkturnsNeg_impactanchor.json",
@@ -64,12 +64,12 @@ def test_all_suite_fixtures_validate_clean():
         assert v.ok, f"{name} should validate clean, got {v.reasons}"
 
 
-# --- FENCE A: multi-terminal / malformed component ---------------------------
+# --- Fence A RETIRED (judge v11): multi-terminal components are now LEGAL ----
 
-def test_fence_A_multiterminal_component_rejected():
-    """A single same-side Support component with TWO terminal impacts (a link
-    supporting two independent impacts) reaches the judge's flat multi-terminal
-    fallback -- unaudited. The fence rejects it at ingest."""
+def test_multiterminal_component_admitted():
+    """As of judge v11 a same-side Support component with two terminal impacts (a link
+    diverging to two independent impacts) is FIRST-CLASS -- scored per branch, summed
+    at the ballot. Structural admission (Fence G only) no longer refuses it."""
     adv = _n(Advocacy, "n1", "AFF", "1AC"); lk = _n(Link, "n2", "AFF", "1AC")
     im1 = _n(Impact, "n3", "AFF", "1AC"); im2 = _n(Impact, "n4", "AFF", "1AC")
     bd = _n(BallotDirective, "n5", "AFF", "2AR")
@@ -77,16 +77,14 @@ def test_fence_A_multiterminal_component_rejected():
                           _sup("e1", adv, lk), _sup("e2", lk, im1), _sup("e3", lk, im2),
                           _sup("e4", im1, bd), _sup("e5", im2, bd)], version=2)
     v = validate_round(rnd)
-    assert not v.ok
-    assert any(r.startswith("A/multi-terminal") for r in v.reasons)
+    assert v.ok and v.reasons == []
 
 
-def test_fence_A_flags_real_multiterminal_round():
-    """The real NSDA24Finals round is genuinely multi-terminal; the fence flags it
-    (it is not part of the scored oracle suite)."""
+def test_real_multiterminal_round_admitted():
+    """NSDA24Finals is genuinely multi-terminal; with Fence A retired it is admitted
+    (structural admission is Fence G only). Its judge verdict is not pinned here."""
     rnd = serialize.load(os.path.join(ORACLE_DIR, "NSDA24Finals.json"))
-    v = validate_round(rnd)
-    assert not v.ok and any(r.startswith("A/multi-terminal") for r in v.reasons)
+    assert validate_round(rnd).ok
 
 
 # --- FENCE G: off-vocab speech ----------------------------------------------

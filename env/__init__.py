@@ -20,7 +20,7 @@ from .validator import (
     trace_has_convergence_marker, assert_scope_ruled, CONVERGENCE_MARKER,
 )
 from .actions import (
-    Introduce, Extend, Concede, Weigh, EndSpeech,
+    Introduce, Extend, Concede, Weigh, Connect, EndSpeech,
     ROLES, RELATIONSHIP_EDGE_TYPES, ATTACH_EDGE_TYPES, NEW,
     ROLE_TO_NODE_CLASS, EDGE_TYPE_TO_CLASS, SPEECH_BUDGET, TOTAL_BUDGET,
 )

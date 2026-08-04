@@ -124,9 +124,24 @@ class Weigh:
 
 
 @dataclass(frozen=True)
+class Connect:
+    """Add a relationship edge between two nodes that ALREADY exist. Creates no node;
+    costs one move like every other action (a cross-application costs speech time --
+    free edges would break the budget economy). This is the only action that can add an
+    edge between two pre-existing nodes, so it is what makes convergence (two paths onto
+    a shared impact -- r32's shared uniqueness, the cross-side shared impact of Phase-0
+    Option B) and other non-forest structure buildable at all; `introduce`, creating a
+    node and its single edge, can only ever grow a forest. `edge_type` ∈
+    RELATIONSHIP_EDGE_TYPES. Legality forbids self-loops and Support cycles."""
+    source_id: str
+    target_id: str
+    edge_type: str
+
+
+@dataclass(frozen=True)
 class EndSpeech:
     """Terminate the current speech before exhausting its budget (§end_speech)."""
     pass
 
 
-Action = (Introduce, Extend, Concede, Weigh, EndSpeech)
+Action = (Introduce, Extend, Concede, Weigh, Connect, EndSpeech)

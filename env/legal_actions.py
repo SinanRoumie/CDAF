@@ -1,18 +1,14 @@
 """Legal-action generation for the CDAF environment -- STRUCTURAL legality only.
 
 Governing principle (environment_shell_spec §Governing principle): this layer
-enforces exactly four things and NOTHING else:
+enforces exactly these and NOTHING else:
 
   1. it is the acting side's turn (the round has not terminated),
   2. the speech's move budget is not exhausted,
   3. action parameters are well-formed (role/edge_type in vocab, favors points at a
-     compared node, target distinct where required),
-  4. the target node exists (or target = NEW),
-
-plus the ONE ruled generator-enforced structural invariant (Ruling 2):
-
-  5. Fence A (local, monotonic): no action may leave a REACHABLE same-side Support
-     component with more than one terminal impact.
+     compared node, distinct endpoints where required),
+  4. the target/endpoint nodes exist (or target = NEW),
+  5. a `connect` may not create a self-loop or close a Support cycle.
 
 It does NOT enforce strategic legality -- response-window compliance, whether an
 extension will count, whether a rebuttal-introduced chain can establish offense,
@@ -20,25 +16,24 @@ whether a spike into a conceded-but-uncontested node is inert. Those remain judg
 OUTCOMES, scored as inert rather than blocked, so the agent gets the learning
 signal (spec §Governing principle, reasons 1-2). Do not add such checks here.
 
-Fence A is the sole exception, and only because deferred repair is FORBIDDEN, which
-makes it a local check computable from current state + the candidate action (Ruling
-2, confirmed free against the full fixture corpus: every scored fixture constructs
-without ever needing deferred repair). It reuses the validator's OWN predicate
-(`validator._multiterminal_components`) on the prospective round, so it cannot drift
-from the termination-time structural admission it mirrors.
+(There is no Fence A: as of judge v11 divergent chains are first-class, so a
+same-side Support component with more than one terminal impact is legal. The old
+per-action multi-terminal probe -- a deepcopy + full re-materialization on every
+introduce/weigh candidate, ~76ms/round -- is gone with it, so legality checks are
+now O(1) structural predicates. The one non-local check that remains is the Support
+cycle test for `connect`, which is a cheap reachability query, not a re-judge.)
 """
 
 from __future__ import annotations
 
-import copy
+from collections import defaultdict
 from typing import List, Tuple
 
 from .actions import (
-    Introduce, Extend, Concede, Weigh, EndSpeech,
+    Introduce, Extend, Concede, Weigh, Connect, EndSpeech,
     ROLES, RELATIONSHIP_EDGE_TYPES, ATTACH_EDGE_TYPES, NEW,
 )
 from .state import RoundState
-from .validator import _multiterminal_components
 
 
 def check_legality(state: RoundState, action) -> Tuple[bool, str]:
@@ -55,10 +50,7 @@ def check_legality(state: RoundState, action) -> Tuple[bool, str]:
         return False, "budget exhausted for this speech"
 
     if isinstance(action, Introduce):
-        ok, reason = _check_introduce(state, action)
-        if not ok:
-            return False, reason
-        return _check_fence_a(state, action)
+        return _check_introduce(state, action)
 
     if isinstance(action, (Extend, Concede)):
         if action.node_id not in state.nodes:
@@ -73,6 +65,20 @@ def check_legality(state: RoundState, action) -> Tuple[bool, str]:
             return False, "weigh compares a node with itself"
         if action.favors not in (action.node_a, action.node_b):
             return False, "favors must point at node_a or node_b"
+        return True, ""
+
+    if isinstance(action, Connect):
+        for nid in (action.source_id, action.target_id):
+            if nid not in state.nodes:
+                return False, f"connect endpoint {nid!r} does not exist"
+        if action.source_id == action.target_id:
+            return False, "connect would create a self-loop"
+        if action.edge_type not in RELATIONSHIP_EDGE_TYPES:
+            return False, (f"edge_type {action.edge_type!r} not in "
+                           f"{sorted(RELATIONSHIP_EDGE_TYPES)} for connect")
+        if action.edge_type == "support" and _closes_support_cycle(
+                state, action.source_id, action.target_id):
+            return False, "connect would close a Support cycle"
         return True, ""
 
     return False, f"unknown action type: {type(action).__name__}"
@@ -95,23 +101,32 @@ def _check_introduce(state: RoundState, action: Introduce) -> Tuple[bool, str]:
     return True, ""
 
 
-def _check_fence_a(state: RoundState, action: Introduce) -> Tuple[bool, str]:
-    """Ruling 2: reject any introduce that would leave a reachable same-side Support
-    component with >1 terminal impact. Only a Support attach or a NEW impact node can
-    change terminal structure (an attack edge adds no Support edge), but we apply the
-    candidate to a COPY and run the validator's own predicate unconditionally, so the
-    introduce-impact and Support-union routes are both covered by one faithful check.
-    The invariant is inductive: the current state already has zero reachable
-    multi-terminal components, so any candidate that creates one is the offending
-    action and is blocked (no transient, nothing to repair)."""
-    if action.edge_type in RELATIONSHIP_EDGE_TYPES or action.target == NEW:
-        probe = copy.deepcopy(state)
-        probe.apply(action)
-        bad = _multiterminal_components(probe.to_round())
-        if bad:
-            return False, (f"A/multi-terminal: would leave a same-side Support "
-                           f"component with >1 terminal impact: {bad}")
-    return True, ""
+def _closes_support_cycle(state: RoundState, source: str, target: str) -> bool:
+    """Would the authored Support edge source->target close a DIRECTED cycle? Follows
+    authored source->target Support edges and returns True iff `target` already reaches
+    `source` (so source->target would complete a loop). A directed-cycle test -- NOT an
+    undirected one -- deliberately: convergence/divergence DAGs (two paths oriented
+    toward a shared impact, e.g. r32's shared uniqueness, or a cross-side shared impact)
+    have no directed cycle and stay buildable, which is the whole point of `connect`;
+    only genuine circular support (a->b->...->a) is refused. Cheap O(edges) reachability,
+    not a re-judge. Note: because the judge is direction-agnostic, this bans authored
+    directed loops, not every undirected cycle -- undirected cycles that orient as DAGs
+    are exactly the audited convergence structures."""
+    out = defaultdict(list)
+    for e in state.edges:
+        if e.edge_type == "support":
+            out[e.source].append(e.target)
+    seen: set = set()
+    stack = list(out[target])
+    while stack:
+        cur = stack.pop()
+        if cur == source:
+            return True
+        if cur in seen:
+            continue
+        seen.add(cur)
+        stack.extend(out[cur])
+    return False
 
 
 def legal_targets(state: RoundState) -> List[str]:

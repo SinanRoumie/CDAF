@@ -38,17 +38,19 @@ otherwise be separate move types:
 - **Attach to existing node (structural)**: `target_id` names an existing
   node and `edge_type` declares the relationship.
 
-**Shared nodes need no merge mode.** The shared-claim case (two chains routing
-through one node) is served by ordinary structural targeting: a `support` edge
-into an *existing* node — from either side — gives that node genuine cross-side
-in-degree, and the judge's per-node σ propagates an attack on it to every
-dependent chain (the shared-node mechanism, e.g. r32). An earlier draft carried a
-third "identity merge" case for *retroactively fusing two already-introduced
-separate nodes*; that case is both unreachable through the action space (an
-`introduce` creates one new node attached to one existing target; it never fuses
-two pre-existing nodes) and unneeded (sharing is expressed at creation by
-targeting), so it was removed. If Phase 2 wants retroactive fusion it returns
-designed, with its type/content gates specified up front.
+**`introduce` builds shared leaves, not convergence — use `connect` for that.**
+A correction to an earlier claim: targeting an existing node when you introduce a
+new one gives that node in-degree (a **shared leaf** — several nodes pointing at
+it), but it can never build **convergence** — two root→impact paths meeting at a
+shared node (a diamond: r32's shared uniqueness, the cross-side shared impact of
+Phase-0 Option B). The closing edge of a diamond runs between two nodes that
+*already exist*, and `introduce` — creating exactly one node and its one edge —
+can only ever grow a **forest** (edges = nodes − roots, acyclic). Convergence,
+and any other non-forest structure, requires an edge between two pre-existing
+nodes, which is exactly what the `connect` action provides (below). An earlier
+draft also carried an "identity merge" case for *retroactively fusing two
+already-introduced nodes*; that is subsumed by `connect` (fusing is a special case
+of connecting) and was removed.
 
 **Edge type vocabulary.** `edge_type ∈ {support, defensive_attack,
 offensive_attack}`. Turn status is *declared*, not derived: an agent electing
@@ -76,9 +78,9 @@ produced only by the `weigh` action, never by `introduce`.
 
 Any node on the graph is a legal `target_id`, regardless of which side
 introduced it or which side is introducing now. Own-side targeting is legal
-(a debater may attach to, or merge into, their own prior nodes). All targeting
-is still subject to existing response-window and extension rules — legality
-of the target does not waive those constraints.
+(a debater may attach to their own prior nodes). All targeting is still subject
+to existing response-window and extension rules — legality of the target does
+not waive those constraints.
 
 ### `extend(node_id)`
 
@@ -123,6 +125,32 @@ tie-breaking logic is introduced by this schema.
 No mechanism-selection parameter (magnitude/probability/timeframe/etc.) is
 included. Weighing is a preference, expressed as a directional edge with
 unstructured justification.
+
+### `connect(source_id, target_id, edge_type)`
+
+Adds a relationship edge between two nodes that **already exist**. Creates no
+node. Costs one move, like every other action — a cross-application costs speech
+time, so free edges would break the budget economy that keeps the action space
+honest.
+
+This is the only action that can add an edge between two pre-existing nodes, so
+it is what makes **convergence** (two paths onto a shared node) and any other
+non-forest structure buildable at all — `introduce`, creating a node and its one
+edge, only ever grows a forest (see the `introduce` note above). It closes the
+expressiveness gap that left r32's shared-uniqueness diamond and Phase-0 Option
+B's cross-side shared impact unbuildable.
+
+- `edge_type` ∈ {support, defensive_attack, offensive_attack}.
+- Structural legality: both endpoints exist, `source_id ≠ target_id` (no
+  self-loops), and — for a `support` edge — the connect must not **close a
+  Support cycle**. Cycles don't crash the judge but their semantics are
+  unaudited, and unaudited territory a trained policy can reach is where
+  undiagnosable exploits live; forbidding them also makes the degenerate
+  no-terminal-impact component unreachable. The cycle test is on the *directed*
+  Support graph (authored source→target), so convergence/divergence DAGs — which
+  orient acyclically toward the shared impact — stay buildable; only genuine
+  circular support (`a → … → a`) is refused. If cycles turn out to be
+  strategically meaningful later, they return as a designed feature with fixtures.
 
 ### `end_speech()`
 

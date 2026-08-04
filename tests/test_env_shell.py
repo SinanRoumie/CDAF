@@ -11,7 +11,7 @@ exactly once and maps its ballot to a binary reward.
 
 from env import (
     CDAFEnvironment, RoundState,
-    Introduce, Extend, Concede, Weigh, EndSpeech,
+    Introduce, Extend, Concede, Weigh, Connect, EndSpeech,
     check_legality, is_legal, NEW, SPEECH_BUDGET, TOTAL_BUDGET,
 )
 from judge.config import AFF, NEG
@@ -110,27 +110,43 @@ def test_strategic_illegal_but_structural_is_admitted():
     assert is_legal(env.state, Introduce("late link", "link", adv, "offensive_attack"))
 
 
-# --- Fence A: local, no deferred repair --------------------------------------
+# --- divergence is legal (Fence A retired, v11) ------------------------------
 
-def test_fence_A_blocks_second_terminal_impact_but_allows_chaining():
-    """A reachable same-side Support component may not gain a 2nd terminal impact.
-    Introducing a sibling impact onto the same link is rejected; chaining the new
-    impact FORWARD off the existing one (so the old impact is no longer terminal) is
-    admitted -- construction-order artifact, not a debate move (Ruling 2)."""
+def test_divergent_second_terminal_impact_admitted():
+    """As of v11 a link diverging to a second terminal impact is FIRST-CLASS (scored
+    per branch, summed) -- no longer refused. Both introduces are admitted."""
     env = CDAFEnvironment(); env.reset()
     env.step(Introduce("link", "link", NEW)); lk = _last(env.state)
-    env.step(Introduce("imp1", "impact", lk, "support")); im1 = _last(env.state)
-    env.step(Introduce("vote", "ballot_directive", im1, "support"))   # makes it reachable
-    # sibling terminal impact on the same link, same speech -> 2 terminals -> rejected
-    ok, why = check_legality(env.state, Introduce("imp2", "impact", lk, "support"))
-    assert not ok and "multi-terminal" in why
-    # chaining a new impact FORWARD off im1 in a LATER speech de-terminalizes im1
-    # (the judge's terminal rule needs a strictly-later-speech forward node) -> admitted
-    env.step(EndSpeech())                    # -> 1NC
-    env.step(EndSpeech())                    # -> 2AC (AFF again)
-    assert is_legal(env.state, Introduce("imp2", "impact", im1, "support"))
-    # a same-speech sibling is still blocked here too
-    assert not is_legal(env.state, Introduce("imp3", "impact", lk, "support"))
+    env.step(Introduce("imp1", "impact", lk, "support"))
+    env.step(Introduce("vote", "ballot_directive", lk, "support"))     # BD below the divergence
+    assert is_legal(env.state, Introduce("imp2", "impact", lk, "support"))
+
+
+# --- connect: edge between two existing nodes --------------------------------
+
+def test_connect_legality():
+    """connect(source, target, edge_type): both must exist, distinct, valid edge_type,
+    and no Support cycle. It is what makes convergence (a diamond onto a shared node)
+    buildable -- introduce alone can only grow a forest."""
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("L1", "link", adv, "support")); l1 = _last(env.state)
+    env.step(Introduce("L2", "link", adv, "support")); l2 = _last(env.state)
+    env.step(Introduce("im", "impact", l1, "support")); im = _last(env.state)
+    # missing endpoint / self-loop / bad edge_type
+    assert not is_legal(env.state, Connect(im, "n999", "support"))
+    assert not is_legal(env.state, Connect(im, im, "support"))
+    assert not is_legal(env.state, Connect(im, l2, "bogus"))
+    # DIAMOND (convergence): connect L2 -> im. Authored support runs child->parent
+    # (im->L1->adv), so im does not reach L2; adding L2->im creates no directed cycle
+    # -> ADMITTED (this is the whole point of connect -- a second path onto im).
+    assert is_legal(env.state, Connect(l2, im, "support"))
+    env.step(Connect(l2, im, "support"))
+    # a support connect that WOULD close a directed cycle is rejected: target im already
+    # reaches source adv (im->L1->adv), so adding adv->im closes the loop adv->im->L1->adv.
+    assert not is_legal(env.state, Connect(adv, im, "support"))
+    # a cross-type attack connect never closes a Support cycle -> fine
+    assert is_legal(env.state, Connect(adv, im, "offensive_attack"))
 
 
 # --- observation: monotonic settled facts only -------------------------------

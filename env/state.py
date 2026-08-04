@@ -29,7 +29,7 @@ from model.nodes import CONTESTED, CONCEDED
 
 from .actions import (
     ROLE_TO_NODE_CLASS, EDGE_TYPE_TO_CLASS, SPEECH_BUDGET, NEW,
-    Introduce, Extend, Concede, Weigh, EndSpeech,
+    Introduce, Extend, Concede, Weigh, Connect, EndSpeech,
 )
 
 _ATTACK_EDGE_TYPES = frozenset({"defensive_attack", "offensive_attack"})
@@ -167,6 +167,9 @@ class RoundState:
             self.moves_used += 1
         elif isinstance(action, Weigh):
             self.add_weigh(action.node_a, action.node_b, action.favors, side)
+            self.moves_used += 1
+        elif isinstance(action, Connect):
+            self.add_edge(action.source_id, action.target_id, action.edge_type)
             self.moves_used += 1
         elif isinstance(action, EndSpeech):
             self.advance_speech()
