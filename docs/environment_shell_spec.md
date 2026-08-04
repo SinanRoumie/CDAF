@@ -13,33 +13,37 @@ Depends on: `action_schema_spec.md` (Phase 0) for the action space,
 
 This spec introduces **no new evaluation logic**. The judge is called once,
 on a complete graph, at episode termination. Nothing in this document
-re-implements, approximates, or partially executes any judge pass.
+re-implements, approximates, or partially executes any whole-round judge pass.
+(Per-node accrual is a deliberate, bounded exception — see Observation
+contract.)
 
 ## Governing principle: structural legality only
 
 The legal-action generator enforces **structural** legality and nothing else:
 
-- the target node exists (or `target_id = NEW`)
+- the target node exists (or `target_id = NEW`); for `connect`, both endpoints
+  exist
 - it is the acting side's turn
 - the speech's move budget is not exhausted
 - action parameters are well-formed
-- (the one ruled structural invariant) no action leaves a **reachable**
-  same-side Support component with more than one terminal impact — Fence A
-
-**Fence A is reachability-scoped.** It applies only to BD-**reachable**
-subgraphs, matching the judge and termination-time admission, which both score
-only reachable components. An unreachable same-side multi-terminal blob is
-permitted to exist; the generator rejects only the action that would make such a
-blob reachable. The maintained invariant is therefore "no **reachable** same-side
-Support component has >1 terminal impact after any action." Forbidding deferred
-repair makes this a local, monotonic check computable from current state plus the
-candidate action (confirmed free against the full fixture corpus).
+- a `connect` may not create a self-loop or close a **Support cycle** (the
+  directed-cycle rule is detailed under State schema → `connect`)
 
 It does **not** enforce strategic legality. Response-window compliance,
 whether an extension will ultimately count, whether a new chain in a rebuttal
 can establish offense, whether a spike into a conceded-but-uncontested node is
 inert — all of these remain outcomes computed by the judge, not prohibitions
 enforced at action time.
+
+**There is no multi-terminal refusal.** Divergent chains are first-class as of
+judge v11 — a same-side Support component may have several terminal impacts,
+each scored as its own chain (State schema → Divergence) — so the former
+"Fence A" is retired from both the generator and `validate_round`. That also
+removed the generator's per-action deepcopy probe, so legality checks are now
+O(1) structural predicates; the only non-local check is the `connect`
+Support-cycle test, a cheap reachability query. `validate_round` at termination
+is now the off-vocab-speech check (Fence G) only — still an assertion, satisfied
+by construction because the env stamps every node's speech from the current slot.
 
 Two reasons this boundary is drawn here:
 
@@ -76,16 +80,37 @@ Round state is the argument graph plus speech-sequence position.
 **Weigh nodes** additionally carry the two compared node ids and the `favors`
 pointer, per Phase 0.
 
-**Shared nodes** are formed by ordinary targeting, not a merge mode. An
-`introduce` with a `support` edge into an existing node — from either side —
-gives that node genuine cross-side in-degree; downstream attack propagation to
-all dependent chains follows automatically from the judge's per-node σ (the
-shared-node mechanism, e.g. r32). There is no identity-merge action: the
-retroactive-fusion case it would have served is unreachable and unneeded in V1
-(see `action_schema_spec.md` §introduce), and it has been removed. (An earlier
-draft of this section described a merge that "raises in-degree"; no such behavior
-was ever implemented — the corrected statement is that sharing is expressed at
-creation by targeting.)
+**Shared nodes, convergence, and `connect`.** Targeting an existing node when
+you introduce a new one gives that node in-degree — a **shared leaf** (several
+nodes pointing at it). It does **not** build **convergence**: two root→impact
+paths meeting at a shared node (a diamond — r32's shared uniqueness, the
+cross-side shared impact of Phase-0 Option B). `introduce`, creating exactly one
+node and its one edge, can only ever grow a **forest** (edges = nodes − roots,
+acyclic). Convergence — and any edge between two nodes that already exist — is
+built by the **`connect`** action (one move; creates no node). There is no
+identity-merge action: the retroactive-fusion case it would have served is
+subsumed by `connect`. (An earlier draft of this section described a merge that
+"raises in-degree"; no such behavior was ever implemented — the corrected
+statement is that plain targeting expresses shared *leaves*, and `connect`
+expresses everything non-forest.)
+
+`connect` legality is structural: both endpoints exist, `source ≠ target` (no
+self-loops), a valid `edge_type`, and — for a `support` edge — it must not close
+a **Support cycle**. The cycle test is on the **directed** Support graph
+(authored `source→target`), *not* the undirected one: an undirected-cycle ban
+would forbid diamonds, which `connect` exists to enable — a diamond is an
+undirected cycle but a directed DAG (all edges orient acyclically toward the
+shared impact). So convergence/divergence structures stay buildable; only genuine
+circular support (`a → … → a`) is refused. Forbidding cycles also keeps the
+degenerate no-terminal-impact component unreachable.
+
+**Divergence.** A same-side Support component may have **more than one terminal
+impact** — a shared trunk fanning out to several impacts. Each terminal impact
+scores as its **own chain**: its magnitude is the per-path σ product from root to
+that impact, and the branch deltas **sum** at the ballot. The shared trunk's σ
+multiplies into every branch, so divergence is efficient (one trunk buys N
+impacts) and fragile (a good attack on the trunk degrades all N at once) at once
+(judge_spec, v11). This was formerly refused by Fence A; it is now first-class.
 
 **Sequence state**: current speech slot, moves consumed in the current
 speech, remaining budget.
@@ -103,16 +128,19 @@ Speech budgets (first-iteration defaults, tunable):
 | 2AR                | 5      |
 
 Total ceiling: 52 actions per round. There is no separate node-count cap;
-round size is bounded by the budget sum alone.
+round size is bounded by the budget sum alone. Note `connect` (like `weigh`)
+costs a move but adds no node, so round size is not the same as node count.
 
 ## Observation contract
 
-The observation is raw graph state plus **monotonic settled facts** — facts
-that, once determined, can never be reversed by a later speech. No judge pass
-is executed to produce these; they are derived from graph structure and
-speech order only.
+The observation is raw graph state, **monotonic settled facts**, and
+**node-level accrual output**.
 
-Included:
+### Monotonic settled facts
+
+Facts that, once determined, can never be reversed by a later speech. No
+whole-round judge pass is executed to produce these; they are derived from
+graph structure and speech order only.
 
 - **Full graph structure** — nodes, edges, ownership, introduction speech,
   in-degree on shared nodes.
@@ -128,19 +156,58 @@ Included:
   *orphaned* means a **non-impact** node with no undirected path to any impact.
 - **Sequence state** — current slot, remaining budget.
 
-Excluded (provisional, must not appear in the observation):
+### Node-level accrual (σ and propagated sign)
+
+Per-node DF-QuAD strength and propagated QPN sign **are** exposed, computed
+over the partial graph as it stands.
+
+This is a deliberate exception to the "no judge passes" posture, and the
+distinction it rests on is load-bearing enough to state explicitly, because
+it will otherwise read as an inconsistency:
+
+> **Node-level accrual is well-defined on a partial graph. Whole-round
+> evaluation is not.** DF-QuAD accrual asks "given this node's incoming
+> attacks, what is its strength" — a question with a sensible answer at any
+> point in the round, over whatever attacks currently exist. Extension and
+> the ballot tally ask about coverage across the round's *remaining*
+> speeches, which have not happened. Those are different questions, and only
+> the second is ill-posed mid-round.
+
+Practically, node strength is also what an agent needs in order to decide
+whether a position requires frontlining and how — a decision real debaters
+make mid-round from exactly this information.
+
+**Single implementation requirement.** Node-level accrual must be factored
+into one pure function over nodes and edges, called by both the judge's
+accrual pass and the observation layer. The encoder must not carry its own
+copy. A drifted second implementation would train a policy against a
+slightly different world model than the judge scores it in — a silent
+failure mode considerably worse than ordinary spec drift.
+
+**Status: NOT yet satisfied.** Accrual has not been extracted into a shared
+pure function — the judge computes it inside its own accrual pass, and the
+observation layer does not yet expose σ or propagated sign at all (the current
+observation is monotonic settled facts only). This section is a specification
+of what must be built, not a description of what exists. The extraction is a
+hard dependency for the Phase-4 encoder and must be done before it; it is not
+closed.
+
+The function must operate on the environment's own state representation
+**without materializing a `model.Round`**. It runs once per `step()` — tens of
+millions of times across a training run — so per-call round construction would
+dominate rollout wall-clock and is not acceptable on this path.
+
+### Excluded (provisional, must not appear in the observation)
 
 - extension *eligibility* for chains still alive as candidates
-- DF-QuAD magnitudes or any accrual output
-- any running or projected verdict
-- any lookahead or predicted continuation — the environment does not predict.
-  Agent-side planning is permitted and lives entirely on the agent.
+- **chain** magnitudes, the running tally, or any projected verdict (only
+  *node-level* accrual is exposed, never chain-level or whole-round output)
+- any lookahead or predicted continuation — the environment does not
+  predict. Agent-side planning is permitted and lives entirely on the agent.
 
-Rationale for including settled facts at all: under PPO the critic learns
-state value from terminal rewards, so a Phase 5 policy could in principle
-infer much of this. A Phase 2 LLM agent has no critic and knows only what the
-observation shows it. The settled-facts layer is therefore load-bearing for
-Phase 2 and merely convenient for Phase 5.
+Rationale for the settled-facts layer: under PPO the critic learns state
+value from terminal rewards, so a policy could in principle infer much of it.
+Any non-learning agent knows only what the observation shows it.
 
 ## Liveness stamping
 
@@ -177,9 +244,12 @@ divergence risk the "do not partially execute any judge pass" constraint
 exists to prevent.
 
 The constraint's purpose is to stop the env from (1) producing
-provisional verdict-like signal and (2) carrying a second implementation of
-judge semantics. Accordingly: call nothing that produces accrual, magnitude,
-liveness-scoring, or verdict state. Structural primitives only.
+provisional *whole-round* verdict-like signal and (2) carrying a second
+implementation of judge semantics. Accordingly: call nothing that produces
+chain magnitude, extension/liveness-scoring, or verdict state. **Per-node
+accrual is the single sanctioned exception** — and precisely because it is
+shared judge semantics, it must be the *same* pure function the judge's accrual
+pass calls, not a second copy (Observation contract → Node-level accrual).
 
 ## `reset()` / `step()` contract
 
@@ -200,11 +270,12 @@ Initializes an empty graph at slot 1AC with that slot's budget.
 - **Turn advance**: on `end_speech()` or budget exhaustion, the acting side
   and slot advance per `SPEECH_ORDER`.
 - **Termination**: after the final slot (2AR) completes, the environment
-  hands the completed graph to the judge, which runs its six passes exactly
-  as it does for oracle fixtures. The verdict maps to binary terminal reward.
-  `done = True`. `reward` is reported from **AFF's perspective** (+1 on an AFF
-  ballot, 0 on NEG); `info['rewards']` carries the per-side split `{AFF, NEG}`
-  so a self-play harness assigns each policy its own return.
+  materializes the completed graph, asserts structural admission
+  (`validate_round`, Fence G), hands it to the judge — which runs its passes
+  exactly as for oracle fixtures — and maps the verdict to the binary terminal
+  reward. `done = True`. `reward` is reported from **AFF's perspective** (+1 on
+  an AFF ballot, 0 on NEG); `info['rewards']` carries the per-side split
+  `{AFF, NEG}` so a self-play harness assigns each policy its own return.
 - **`info`**: judge diagnostics on terminal steps (`DROP`,
   `EXTENSION_FAIL`, verdict rationale) for logging and debugging. Not part of
   the observation; not visible to the agent as training signal.
@@ -240,26 +311,22 @@ debate has, and that is a diagnostic worth acting on.
    value. No number is safer than raising, because any number is something a
    policy can learn to chase.
 
-   Implementation dependency — enumerate what `validate_round()` /
-   `is_valid()` check and classify each:
-
-   - **Local structural checks** (well-formedness of a single action or its
-     immediate target) — enforceable directly in the generator, no tension
-     with the structural-legality-only principle.
-   - **Global round-level checks** (conditions on the completed round as a
-     whole, e.g. a required role existing somewhere) — not enforceable by
-     per-action filtering, since no single action violates them. Requires an
-     explicit mechanism (gating `end_speech()` or reserving a final budget
-     slot), which is coercion on the action space and needs its own ruling.
-     Note the emergence cost: forcing an agent to satisfy a requirement means
-     it never learns that failing to satisfy it loses.
-   - **Strategic checks**, if any exist — must NOT move into the generator.
-     Their presence would mean this ruling needs revisiting.
+   With Fence A retired (v11, multi-terminal components now legal),
+   `validate_round()` is the off-vocab-speech check (**Fence G**) only — a
+   local structural check satisfied by construction, so the assertion never
+   fires in practice. The earlier "classify every `validate_round` check as
+   local / global / strategic" exercise is closed: the only non-local candidate
+   was the multi-terminal refusal, and it was removed rather than enforced.
 
 ## Status
 
-All three items are ruled. Item 3 carries an implementation dependency: the
-`validate_round()` check classification must be produced before the
-legal-action generator's validity fences and the terminal assertion are
-written. A follow-on ruling is required only if any check falls into the
-global round-level bucket. The rest of the shell is unblocked.
+Phase 1 shell built against this spec: agent-agnostic state graph, structural
+legal-action generator, a **monotonic-settled-facts** observation, and the Gym
+`reset()`/`step()` contract with a single judge call at termination. Divergence
+(v11) and the `connect` action are landed; Fence A is retired.
+
+**Not yet built:** the node-level-accrual observation (σ + propagated sign) and
+its single-shared-pure-function requirement. The current observation exposes
+monotonic settled facts only; accrual has not been extracted from the judge's
+accrual pass into a function the observation shares. That extraction is a hard,
+open dependency for the **Phase-4 encoder** and must be done before it.
