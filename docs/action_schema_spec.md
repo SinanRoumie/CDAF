@@ -84,18 +84,54 @@ not waive those constraints.
 
 ### `extend(node_id)`
 
-Marks an existing node as extended for liveness purposes. Standard mechanism,
-unchanged by this schema.
+Marks a node **and its entire root-to-impact spine path** as extended for the
+current speech, in one action. Selecting any node on a chain stamps the liveness
+of every node on that node's root→impact walk — the advocacy, links, and impact
+of the spine plus the satellite Uniqueness attached to them (the set the judge's
+§6 extension gate reads; the gated spine is Advocacy/Link/Impact). The pointer
+selects one node; the environment walks the path.
+
+**Cost scales with path length.** An `extend`/`concede` costs
+`ceil(path_length / K)` action-slots against the speech budget, where
+`path_length` is the number of nodes the walk stamps and `K` is a named tunable
+constant (§Turn structure and speech budgets), default **4**. A single action
+still carries a whole path, but a longer spine costs proportionally more, so
+keeping everything alive in the back half is no longer free — the agent must
+choose what to carry and what to concede.
+
+  Worked examples (K = 4): a 2-node path costs 1 slot; a 6-node path costs 2; an
+  8-node path costs 2; a 9-node path costs 3 (`ceil(9/4)`).
+
+**Divergent chains (v11) — priced independently, no pooling.** Each branch off a
+shared trunk is a separate `extend`, priced by **its own** `ceil(path_length / K)`
+from its own root→impact walk. Naming a node on one branch stamps only that
+branch's path (the shared trunk included, other branches excluded); the trunk is
+neither banked nor discounted, so a later branch re-walking it pays for the trunk
+nodes again. N terminal impacts off one trunk therefore cost the **sum** of N
+independently-computed path costs. This matters because it forces the back-half
+concede/carry choice: keeping N impacts alive genuinely costs N extends. No action
+covers more than one terminal impact — naming *any* node stamps exactly the single
+root→impact path that node's walk lies on (naming a shared trunk/root node picks
+one branch deterministically, never all of them), so there is no bulk-extend
+discount that would let one action carry multiple impacts for the price of one.
+This matches the judge's per-path liveness (judge_spec §3.3.1a): each terminal
+impact is its own chain.
+
+An off-spine / orphan / impact-less target is still structurally legal; its walk
+stamps whatever spine is reachable (at least the node itself), priced by the same
+`ceil(path_length / K)`.
 
 ### `concede(node_id)`
 
-Marks an existing node as conceded. Standard mechanism, unchanged.
+Identical chain-level effect and identical `ceil(path_length / K)` cost as
+`extend`, over the selected node's walk. Retained as a distinct verb only as
+agent-facing intent / logging.
 
 **Structural note on `extend` vs `concede`.** Both actions have the same
-structural effect — a liveness stamp for the current speech. Because
-contested/conceded *status* is derived structurally from the graph (never from
-the verb the agent used), the two coincide in the materialized graph and differ
-only as agent-facing intent and logging.
+structural effect — a per-speech liveness stamp across the selected path, at the
+same cost. Because contested/conceded *status* is derived structurally from the
+graph (never from the verb the agent used), the two coincide in the materialized
+graph and differ only as agent-facing intent and logging.
 
 ### `weigh(node_a, node_b, favors, justification)`
 
@@ -178,14 +214,16 @@ speech times, with 2NC and 1NR merged into a single budget-bearing turn:
 These ratios are a first-iteration default, not a fixed rule — they are
 expected to be tuned empirically once the environment is running.
 
-No action type costs more or less than another against this budget.
-`introduce`, `extend`, `concede`, and `weigh` all consume one move. The
-economy that discourages disconnected or low-value new-node spam is not an
-explicit cost — it is the interaction between a finite per-speech budget and
-the existing reachability/extension rules: moves spent on a node that never
-becomes reachable, or is never extended when required, do not pay off. This
-is a deliberate choice to keep the cost structure emergent rather than
-hardcoded, consistent with the schema's overall design principle.
+Actions do not all cost one move. `introduce`, `weigh`, and `connect` cost one
+slot; `end_speech` costs none (it ends the turn). `extend`/`concede` cost
+`ceil(path_length / K)` slots over the root-to-impact walk they stamp (§extend).
+**`K` is a named constant defined beside the speech-budget constants** (in code:
+`env/actions.py`, `EXTEND_COST_K`, alongside `SPEECH_BUDGET`), first-iteration
+default **4**, tunable on the same footing as the speech budgets. The economy
+that discourages disconnected or low-value spam is still emergent — moves spent
+on a node that never becomes reachable, or is never extended when required, do
+not pay off — now with an explicit size cost on extension so the back-half
+concede/carry decision carries real budget pressure rather than being free.
 
 ## Explicitly out of scope for this spec
 

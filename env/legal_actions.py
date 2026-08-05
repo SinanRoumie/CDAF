@@ -33,22 +33,41 @@ from .actions import (
     Introduce, Extend, Concede, Weigh, Connect, EndSpeech,
     ROLES, RELATIONSHIP_EDGE_TYPES, ATTACH_EDGE_TYPES, NEW,
 )
-from .state import RoundState
+from .state import RoundState, action_cost
 
 
 def check_legality(state: RoundState, action) -> Tuple[bool, str]:
     """Return (ok, reason). `ok` iff the action is STRUCTURALLY legal in `state`.
-    `reason` is "" when legal, else a short tag explaining the rejection."""
+    `reason` is "" when legal, else a short tag explaining the rejection.
+
+    Two gates: (1) structural validity (existence, well-formedness, the connect cycle
+    rule), then (2) AFFORDABILITY -- the action's cost must not exceed the speech's
+    remaining budget. Cost is variable: `extend`/`concede` cost ceil(path_length / K)
+    over the walk they stamp, so a long-path extend late in a speech is unaffordable
+    (masked) while a short-path one or a cost-1 `introduce` stays legal. This replaces
+    the old flat `remaining_budget <= 0` guard, which assumed every move cost 1."""
     if state.terminated:
         return False, "terminated: no side's turn (round is over)"
 
-    # EndSpeech is always structurally legal while the round is live.
+    # EndSpeech is always legal while the round is live (it costs 0 and ends the turn).
     if isinstance(action, EndSpeech):
         return True, ""
 
-    if state.remaining_budget <= 0:
-        return False, "budget exhausted for this speech"
+    ok, reason = _structural_legal(state, action)
+    if not ok:
+        return False, reason
 
+    cost = action_cost(state, action)
+    if cost > state.remaining_budget:
+        return False, (f"unaffordable: {type(action).__name__} costs {cost} slot(s), "
+                       f"{state.remaining_budget} left this speech")
+    return True, ""
+
+
+def _structural_legal(state: RoundState, action) -> Tuple[bool, str]:
+    """Structural validity only (existence, parameter well-formedness, the connect
+    Support-cycle rule) -- NO budget. Affordability is a separate gate in
+    `check_legality`, since an action's cost is now variable."""
     if isinstance(action, Introduce):
         return _check_introduce(state, action)
 
