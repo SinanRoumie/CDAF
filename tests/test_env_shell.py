@@ -149,18 +149,20 @@ def test_connect_legality():
     assert is_legal(env.state, Connect(adv, im, "offensive_attack"))
 
 
-# --- observation: monotonic settled facts only -------------------------------
+# --- observation: settled facts + node-level accrual only --------------------
 
 def test_observation_excludes_provisional_signal():
     env = CDAFEnvironment(); env.reset()
     env.step(Introduce("adv", "advocacy", NEW))
     obs = env.step(Introduce("imp", "impact", NEW))[0]
     keys = set(obs)
-    assert keys == {"graph", "closed_window_drops",
-                    "permanent_extension_failures", "reachability", "sequence"}
-    # no magnitude / verdict / eligibility leakage anywhere in the observation
-    flat = repr(obs).lower()
-    for banned in ("magnitude", "sigma", "verdict", "winner", "reward", "delta", "eligib"):
+    assert keys == {"graph", "closed_window_drops", "permanent_extension_failures",
+                    "reachability", "accrual", "sequence"}
+    # node-level accrual (sigma + propagated sign) IS exposed; but NO chain-level or
+    # whole-round leakage -- no chain magnitude, running tally, verdict, or eligibility.
+    assert set(obs["accrual"]) == {"sigma", "eff_pol"}
+    flat = repr({k: v for k, v in obs.items() if k != "accrual"}).lower()
+    for banned in ("magnitude", "verdict", "winner", "reward", "delta", "tally", "eligib"):
         assert banned not in flat, f"observation leaked provisional field: {banned}"
 
 

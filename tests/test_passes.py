@@ -126,7 +126,7 @@ def test_clean_extended_chain_delta_is_plus_one():
     els, k = aff_chain_extended()
     rnd = Round(elements=els)
     ctx = passes.build_context(rnd)
-    passes.pass2_drops(ctx); passes.pass3_accrual(ctx); passes.pass4_weighing_towers(ctx); passes.pass5_clashes(ctx)
+    passes.pass2_drops(ctx); passes.pass_accrual(ctx); passes.pass5_chains(ctx)
     chains = [c for c in ctx.chains if c["side"] == AFF]
     assert len(chains) == 1
     ch = chains[0]
@@ -142,7 +142,7 @@ def test_conceded_defense_collapses_chain_magnitude():
     defender = node(Link, NEG, "1NC")           # attacks AFF link in its window, AFF drops it
     els += [defender, datk(defender, k["link"])]
     ctx = passes.build_context(Round(elements=els))
-    passes.pass2_drops(ctx); passes.pass3_accrual(ctx); passes.pass4_weighing_towers(ctx); passes.pass5_clashes(ctx)
+    passes.pass2_drops(ctx); passes.pass_accrual(ctx); passes.pass5_chains(ctx)
     ch = [c for c in ctx.chains if c["side"] == AFF][0]
     assert ch["mag"] < EPSILON                  # link sigma -> 0 collapses the product
     assert ctx.sigma[k["link"].id] == 0.0
@@ -157,7 +157,7 @@ def test_extension_failure_when_spine_not_carried():
     els = [adv, uni, link, imp, bd,
            support(adv, link), support(uni, link), support(link, imp), support(imp, bd)]
     ctx = passes.build_context(Round(elements=els))
-    passes.pass2_drops(ctx); passes.pass3_accrual(ctx); passes.pass4_weighing_towers(ctx); passes.pass5_clashes(ctx)
+    passes.pass2_drops(ctx); passes.pass_accrual(ctx); passes.pass5_chains(ctx)
     ch = [c for c in ctx.chains if c["side"] == AFF][0]
     assert ch["extended"] is False
     assert any(r.kind == "EXTENSION_FAIL" and r.missing_speech == "1AR" for r in ctx.trace)
@@ -179,7 +179,7 @@ def test_framework_gate_excludes_unsupported_impact():
            support(impA, bdA), support(impB, bdB),
            support(fw, impA)]                   # only chain A is anchored to the framework
     ctx = passes.build_context(Round(elements=els))
-    passes.pass2_drops(ctx); passes.pass3_accrual(ctx); passes.pass4_weighing_towers(ctx); passes.pass5_clashes(ctx); passes.pass6_framework(ctx)
+    passes.pass2_drops(ctx); passes.pass_accrual(ctx); passes.pass5_chains(ctx); passes.pass6_framework(ctx)
     assert ctx.winning_framework is not None
     gates = {(r.impact_id, r.in_scope) for r in ctx.trace if r.kind == "FRAMEWORK_GATE"}
     assert (impA.id, True) in gates          # anchored to the winning framework
@@ -272,7 +272,7 @@ def test_defensive_only_link_keeps_polarity_when_driven_to_zero():
     bd = node(BallotDirective, AFF, "2AR")
     rnd = Round(elements=[link, defender, bd, support(link, bd), datk(defender, link)])
     ctx = passes.build_context(rnd)
-    passes.pass2_drops(ctx); passes.pass3_accrual(ctx); passes.pass4_weighing_towers(ctx); passes.pass5_clashes(ctx)
+    passes.pass2_drops(ctx); passes.pass_accrual(ctx); passes.pass5_chains(ctx)
     assert link.id not in ctx.offense_on         # only defensively attacked
     assert ctx.sigma[link.id] == 0.0
     assert ctx.eff_pol[link.id] == 1             # keeps +1 (dead, not turned)
@@ -287,7 +287,7 @@ def test_defensive_only_link_at_0_3_keeps_polarity_no_flip():
     bd = node(BallotDirective, AFF, "2AR")
     rnd = Round(elements=[link, defender, bd, support(link, bd), datk(defender, link)])
     ctx = passes.build_context(rnd)
-    passes.pass2_drops(ctx); passes._resolve_strengths(ctx)
+    passes.pass2_drops(ctx); passes._classify_attacks(ctx); passes._resolve_strengths(ctx)
     assert link.id not in ctx.offense_on
     ctx.sigma[link.id] = 0.3                      # simulate defensive mitigation to 0.3
     ctx.trace.clear(); ctx.eff_pol = {}
@@ -303,7 +303,7 @@ def test_offensively_attacked_link_below_threshold_flips():
     bd = node(BallotDirective, AFF, "2AR")
     rnd = Round(elements=[link, offender, bd, support(link, bd), oatk(offender, link)])
     ctx = passes.build_context(rnd)
-    passes.pass2_drops(ctx); passes.pass3_accrual(ctx); passes.pass4_weighing_towers(ctx); passes.pass5_clashes(ctx)
+    passes.pass2_drops(ctx); passes.pass_accrual(ctx); passes.pass5_chains(ctx)
     assert link.id in ctx.offense_on             # target of an offensive attack
     assert ctx.sigma[link.id] == 0.0
     assert ctx.eff_pol[link.id] == -1            # below 0.5 -> flips
@@ -317,7 +317,7 @@ def test_offensively_attacked_link_at_0_3_flips_at_fractional_sigma():
     bd = node(BallotDirective, AFF, "2AR")
     rnd = Round(elements=[link, offender, bd, support(link, bd), oatk(offender, link)])
     ctx = passes.build_context(rnd)
-    passes.pass2_drops(ctx); passes._resolve_strengths(ctx)
+    passes.pass2_drops(ctx); passes._classify_attacks(ctx); passes._resolve_strengths(ctx)
     assert link.id in ctx.offense_on
     ctx.sigma[link.id] = 0.3
     ctx.trace.clear(); ctx.eff_pol = {}

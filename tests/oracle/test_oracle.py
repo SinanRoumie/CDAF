@@ -318,8 +318,7 @@ def _uni_attackers(els, uni_id):
     attacker is removed from the winner's accrual (§6.5, v5)."""
     ctx = passes.build_context(Round(elements=els, version=2))
     passes.pass2_drops(ctx)
-    passes.pass3_accrual(ctx)
-    passes.pass4_weighing_towers(ctx)
+    passes.pass_accrual(ctx)
     return {a for a, _e in ctx.attackers_by_target.get(uni_id, [])}
 
 
@@ -492,8 +491,8 @@ def _select(trace):
 def _run_ctx(els):
     """Run all passes and return the ctx, for σ / extension / attacker inspection."""
     ctx = passes.build_context(Round(elements=els, version=2))
-    passes.pass2_drops(ctx); passes.pass3_accrual(ctx)
-    passes.pass4_weighing_towers(ctx); passes.pass5_clashes(ctx)
+    passes.pass2_drops(ctx); passes.pass_accrual(ctx)
+    passes.pass5_chains(ctx)
     passes.pass6_framework(ctx)
     return ctx
 

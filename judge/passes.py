@@ -54,6 +54,12 @@ from .config import (
 ATTACK_TYPES = (DefensiveAttack, OffensiveAttack)
 SPINE_TYPES = (Link, Impact, Advocacy)
 OFFENSE_BEARING = (Link, Impact)
+# Canonical `kind` string sets -- the accrual path (node_accrual and everything it
+# calls) keys off node.kind / edge.kind, NOT isinstance, so the SAME functions run on
+# model.Node/Edge (judge) and env NodeView/EdgeView (observation). Mirror the tuples
+# above; model classes carry a matching `kind` ClassVar and the env its role/edge_type.
+OFFENSE_BEARING_KINDS = frozenset({"link", "impact"})
+ATTACK_KINDS = frozenset({"defensive_attack", "offensive_attack"})
 # v9 uniform-uniqueness schema (§12): a post-world node is Link/Impact -- the node
 # type that carries a wired uniqueness (§12.4.3 poisoning gate reads this set).
 POSTWORLD_TYPES = (Link, Impact)
@@ -106,6 +112,9 @@ class Context:
     adj: Dict[str, List[Tuple[str, Edge]]] = field(default_factory=lambda: defaultdict(list))
 
     reachable: set = field(default_factory=set)
+    # Liveness HORIZON for accrual (node_accrual): coverage is required only through
+    # speeches up to and including `as_of`. None = full schedule (judge / termination).
+    as_of: Optional[str] = None
 
     attackers_by_target: Dict[str, List[Tuple[str, Edge]]] = field(default_factory=lambda: defaultdict(list))
     offense_on: Dict[str, List[str]] = field(default_factory=lambda: defaultdict(list))
@@ -145,8 +154,9 @@ def build_context(rnd) -> Context:
     ctx.adj = adj
 
     _discover(ctx)
-    _classify_attacks(ctx)
-    _index_weighings(ctx)
+    # NOTE: attack classification and weighing indexing moved into `node_accrual`
+    # (the single shared accrual function), which the judge routes through in
+    # `pass_accrual`. build_context keeps only discovery + the v9 uniqueness index.
     _index_uniqueness(ctx)
     return ctx
 
@@ -182,7 +192,7 @@ def _index_weighings(ctx: Context) -> None:
     ranks (from its Comparison edges). Structural only -- no strengths yet."""
     from .resolve import weigh_pair
     ctx.weighings = [n for n in ctx.nodes.values()
-                     if isinstance(n, Weighing) and n.id in ctx.reachable]
+                     if n.kind == "weighing" and n.id in ctx.reachable]
     ctx.weigh_pair = {w.id: weigh_pair(ctx, w.id) for w in ctx.weighings}
 
 
@@ -237,7 +247,7 @@ def _classify_attacks(ctx: Context) -> None:
     recorded. Direction of the drawn edge is ignored."""
     attackers_by_target: Dict[str, List[Tuple[str, Edge]]] = defaultdict(list)
     for e in ctx.edges:
-        if not isinstance(e, ATTACK_TYPES):
+        if e.kind not in ATTACK_KINDS:
             continue
         a = ctx.nodes.get(e.source)
         b = ctx.nodes.get(e.target)
@@ -258,8 +268,8 @@ def _classify_attacks(ctx: Context) -> None:
         reason = None
         if attacker.side == target.side:
             reason = "same-side attack (incoherent)"
-        elif isinstance(e, OffensiveAttack) and not (
-                isinstance(attacker, OFFENSE_BEARING) and isinstance(target, OFFENSE_BEARING)):
+        elif e.kind == "offensive_attack" and not (
+                attacker.kind in OFFENSE_BEARING_KINDS and target.kind in OFFENSE_BEARING_KINDS):
             # Turn-eligibility (§3.4): an OffensiveAttack is a competing-polarity
             # claim; it can only flip a node that carries polarity -- a Link or an
             # Impact. If EITHER endpoint is a Uniqueness/Advocacy/Framework/Weighing/
@@ -270,7 +280,7 @@ def _classify_attacks(ctx: Context) -> None:
             # is NOT governed by this -- it lowers magnitude and never flips, so it
             # stays coherent against a Framework's sigma or a link's (the non-unique);
             # only OffensiveAttack is guarded here.
-            bad = attacker if not isinstance(attacker, OFFENSE_BEARING) else target
+            bad = attacker if attacker.kind not in OFFENSE_BEARING_KINDS else target
             reason = f"offense requires offense-bearing endpoints; {bad.ntype} bears no polarity (§3.4)"
         if reason:
             ctx.trace.append(T.InertAttack(edge_id=e.id, reason=reason))
@@ -286,16 +296,16 @@ def _classify_attacks(ctx: Context) -> None:
         # This does not touch the mitigation path: an attack the TARGET answered is
         # still live (the maker extended it) and is reduced by its own attacker via
         # the leaves-first DF-QuAD recursion below, exactly as before.
-        live, _ = node_live_by_any_side(attacker)
+        live, _ = node_live_by_any_side(attacker, as_of=ctx.as_of)
         if not live:
-            _, maker_missing = node_extension_ok(attacker)   # maker-side gap, for the message
+            _, maker_missing = node_extension_ok(attacker, as_of=ctx.as_of)   # maker gap, for the message
             ctx.trace.append(T.InertAttack(
                 edge_id=e.id,
                 reason=f"lapsed: attack not extended by its maker (missing {maker_missing})"))
             continue
 
         attackers_by_target[target.id].append((attacker.id, e))
-        if isinstance(e, OffensiveAttack) and isinstance(target, OFFENSE_BEARING):
+        if e.kind == "offensive_attack" and target.kind in OFFENSE_BEARING_KINDS:
             ctx.offense_on[target.id].append(attacker.id)
     ctx.attackers_by_target = attackers_by_target
 
@@ -345,7 +355,8 @@ def pass2_drops(ctx: Context) -> None:
             ctx.trace.append(T.Drop(node_id=nid, owner=n.side, intro_speech=n.speech, window_speech=win))
 
 
-def node_extension_ok(node: Node, carrying_side: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+def node_extension_ok(node: Node, carrying_side: Optional[str] = None,
+                      *, as_of: Optional[str] = None) -> Tuple[bool, Optional[str]]:
     """§6, read from the LIVENESS record: a spine node is extended iff its
     liveness covers every one of the CARRYING side's speeches from its
     introduction onward. Returns (ok, missing_speech).
@@ -357,18 +368,31 @@ def node_extension_ok(node: Node, carrying_side: Optional[str] = None) -> Tuple[
     (the ordinary, non-turned case). For a TURNED chain a node need only be live by
     *someone* -- that union check is `node_live_by_any_side`, which calls this with
     each side in turn. The "no new chains in rebuttals" rule is applied at the chain
-    level, so a weighing/framework introduced in a rebuttal is not penalized here."""
+    level, so a weighing/framework introduced in a rebuttal is not penalized here.
+
+    `as_of` is the HORIZON: coverage is required only through speeches that have
+    OCCURRED (index <= `as_of`); speeches after it are not yet required. `as_of=None`
+    (the default, and what the judge passes) checks the FULL schedule -- correct at
+    termination and byte-identical to prior behavior. Mid-round the observation passes
+    the current slot, so an attack/weigh registers the moment it exists and only lapses
+    if its maker later fails to extend it, instead of being deemed "not yet extended"
+    because of speeches that have not happened (the mid-round ill-posedness must not
+    reach node accrual through an attacker's liveness)."""
     liveness = node.liveness or {}
     intro_idx = _sidx(node.speech)
     if intro_idx is None:
         return True, None
+    horizon = _sidx(as_of) if as_of is not None else None
     for s in side_speeches(carrying_side or node.side):
-        if _sidx(s) >= intro_idx and s not in liveness:
+        si = _sidx(s)
+        if si >= intro_idx and s not in liveness:
+            if horizon is not None and si > horizon:
+                continue                 # not yet occurred -- outside the horizon
             return False, s
     return True, None
 
 
-def node_live_by_any_side(node: Node) -> Tuple[bool, Optional[str]]:
+def node_live_by_any_side(node: Node, *, as_of: Optional[str] = None) -> Tuple[bool, Optional[str]]:
     """§6 side-agnostic union: is this node live -- carried by ANY side? A turned
     chain's nodes count iff their (union) liveness record is sustained by someone,
     NOT specifically by the turning side (spec §6). This yields both turn win-paths
@@ -378,26 +402,73 @@ def node_live_by_any_side(node: Node) -> Tuple[bool, Optional[str]]:
     kept alive (a dead impact) fails. Returns (ok, missing_speech); the reported
     gap is the opponent-side gap (the carrying side one would expect for a turn),
     falling back to the own-side gap."""
-    ok_own, miss_own = node_extension_ok(node, carrying_side=node.side)
+    ok_own, miss_own = node_extension_ok(node, carrying_side=node.side, as_of=as_of)
     if ok_own:
         return True, None
-    ok_opp, miss_opp = node_extension_ok(node, carrying_side=_opposing(node.side))
+    ok_opp, miss_opp = node_extension_ok(node, carrying_side=_opposing(node.side), as_of=as_of)
     if ok_opp:
         return True, None
     return False, miss_opp or miss_own
 
 
-# --- Pass 3: node accrual (sigma only -- NO polarity yet, §9) -----------------
+# --- Node-level accrual: the SINGLE shared function (§3.1-3.2) ----------------
 
-def pass3_accrual(ctx: Context) -> None:
-    """Pass 3 (§9): DF-QuAD surviving strength per node. No polarity here -- that
-    is set in clash resolution (pass 5), after the weighing towers settle."""
-    _resolve_strengths(ctx)
+def node_accrual(nodes, edges, *, trace=None, as_of=None) -> Context:
+    """THE one implementation of per-node DF-QuAD strength (σ) + effective polarity,
+    called by BOTH the judge's accrual (via `pass_accrual`) and the env observation.
+    No second copy anywhere.
+
+    Operates on any node/edge objects exposing `.kind`/`.side`/`.speech`/`.liveness`
+    (nodes) and `.kind`/`.source`/`.target` (edges) -- so it runs on `model.Node`/
+    `Edge` (judge) OR the env's lightweight views, WITHOUT materializing a
+    `model.Round` (no to_round / build_context round-trip on the per-step path).
+
+    Well-defined on a PARTIAL graph: it computes over EXACTLY the nodes/edges handed
+    to it (there is no BD-reachability gate inside -- callers choose the scope; the
+    judge passes its reachable subset, the observation passes the whole graph). Trace
+    records (INERT_ATTACK / MAGNITUDE / WEIGH / POLARITY_FLIP) go to `trace` if given.
+
+    Returns a `Context` carrying `.sigma`, `.eff_pol`, `.mag_sigma`,
+    `.attackers_by_target`, `.offense_on`, `.weighings`, `.weigh_pair`."""
+    ctx = Context(round=None)
+    ctx.nodes = {n.id: n for n in nodes}
+    ctx.edges = list(edges)
+    ctx.reachable = set(ctx.nodes)                 # "scope" = exactly the given nodes
+    ctx.as_of = as_of                              # liveness horizon (None = full schedule)
+    ctx.trace = trace if trace is not None else []
+    adj: Dict[str, List[Tuple[str, object]]] = defaultdict(list)
+    for e in ctx.edges:
+        if e.source in ctx.nodes and e.target in ctx.nodes:
+            adj[e.source].append((e.target, e))
+            adj[e.target].append((e.source, e))
+    ctx.adj = adj
+    _classify_attacks(ctx)          # surviving attacks (inert §3.4 + attacker-liveness)
+    _resolve_strengths(ctx)         # DF-QuAD σ (+ MAGNITUDE)
+    _index_weighings(ctx)           # weighing index (Comparison pairs)
+    _resolve_weighing_towers(ctx)   # §6.5 towers + weigh-defeat + re-accrue
+    _resolve_polarity(ctx)          # effective polarity (+ POLARITY_FLIP)
+    return ctx
 
 
-# --- Pass 4: weighing towers resolve first (§6.5 / §9 anti-cycle) -------------
+def pass_accrual(ctx: Context) -> None:
+    """The judge's accrual pass (replaces the former pass3+pass4+pass5-polarity):
+    route through `node_accrual` over the BD-reachable subgraph, then copy the results
+    into `ctx` so the downstream chain/framework/ballot passes read them exactly as
+    before. Byte-identical to the prior in-place passes."""
+    view_nodes = [ctx.nodes[i] for i in ctx.reachable]
+    view_edges = [e for e in ctx.edges
+                  if e.source in ctx.reachable and e.target in ctx.reachable]
+    acc = node_accrual(view_nodes, view_edges, trace=ctx.trace)
+    ctx.sigma = acc.sigma
+    ctx.mag_sigma = acc.mag_sigma
+    ctx.eff_pol = acc.eff_pol
+    ctx.attackers_by_target = acc.attackers_by_target
+    ctx.offense_on = acc.offense_on
+    ctx.weighings = acc.weighings
+    ctx.weigh_pair = acc.weigh_pair
 
-def pass4_weighing_towers(ctx: Context) -> None:
+
+def _resolve_weighing_towers(ctx: Context) -> None:
     """Resolve each weighing sub-debate via the recursive clash-breaker (§6.5) and
     emit a WEIGH record. These read ONLY the weighing nodes' own accrual
     (sigma/extension) and Comparison pairs -- never main-chain polarity -- so they
@@ -464,11 +535,9 @@ def _apply_weigh_defeat(ctx: Context) -> bool:
 
 # --- Pass 5: clash resolution (polarity via resolve) + chain products ---------
 
-def pass5_clashes(ctx: Context) -> None:
-    """Pass 5 (§9): set effective polarity by resolving each link/turn clash
-    (§3.2, consuming a determinate weigh; else the 0.5 sigma threshold), then
-    build chain sign/magnitude/delta (§3.3)."""
-    _resolve_polarity(ctx)
+def pass5_chains(ctx: Context) -> None:
+    """Pass 5 (§9): build chain sign/magnitude/delta (§3.3) from the per-node σ and
+    effective polarity already resolved by `pass_accrual` (§3.1-3.2)."""
     _build_chains(ctx)
 
 
@@ -531,7 +600,7 @@ def _resolve_polarity(ctx: Context) -> None:
     eff: Dict[str, object] = {}
     for nid in ctx.reachable:
         n = ctx.nodes[nid]
-        if not isinstance(n, OFFENSE_BEARING):
+        if n.kind not in OFFENSE_BEARING_KINDS:
             continue
         if nid not in ctx.offense_on:
             eff[nid] = 1            # defensive-only or unattacked: keeps +1, skip flip path

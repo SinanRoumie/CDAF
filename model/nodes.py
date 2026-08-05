@@ -71,26 +71,31 @@ class Node(Element):
 @dataclass
 class Uniqueness(Node):
     ntype: ClassVar[str] = "Uniqueness"
+    kind: ClassVar[str] = "uniqueness"
 
 
 @dataclass
 class Link(Node):
     ntype: ClassVar[str] = "Link"
+    kind: ClassVar[str] = "link"
 
 
 @dataclass
 class Impact(Node):
     ntype: ClassVar[str] = "Impact"
+    kind: ClassVar[str] = "impact"
 
 
 @dataclass
 class Advocacy(Node):
     ntype: ClassVar[str] = "Advocacy"
+    kind: ClassVar[str] = "advocacy"
 
 
 @dataclass
 class Framework(Node):
     ntype: ClassVar[str] = "Framework"
+    kind: ClassVar[str] = "framework"
 
 
 @dataclass
@@ -102,11 +107,13 @@ class Weighing(Node):
     favors: Optional[str] = None
 
     ntype: ClassVar[str] = "Weighing"
+    kind: ClassVar[str] = "weighing"
 
 
 @dataclass
 class BallotDirective(Node):
     ntype: ClassVar[str] = "BallotDirective"
+    kind: ClassVar[str] = "ballot_directive"
 
 
 # Registry: on-disk ntype string -> class. Order is the canonical type order.

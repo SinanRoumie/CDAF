@@ -23,11 +23,10 @@ def judge(rnd) -> Tuple[str, List]:
     """Evaluate a finished argument graph. Returns (ballot, trace). Passes run in
     §9 order: weighing towers resolve BEFORE clash resolution, so a determinate
     weigh can decide a link/turn polarity clash without a dependency cycle."""
-    ctx = passes.build_context(rnd)        # Pass 1: discovery + weighing index
+    ctx = passes.build_context(rnd)        # Pass 1: discovery + uniqueness index
     passes.pass2_drops(ctx)                # Pass 2: drop + extension
-    passes.pass3_accrual(ctx)              # Pass 3: DF-QuAD sigma (no polarity yet)
-    passes.pass4_weighing_towers(ctx)      # Pass 4: resolve weighing towers (§6.5)
-    passes.pass5_clashes(ctx)              # Pass 5: polarity (via resolve) + chains
+    passes.pass_accrual(ctx)               # Pass 3-5a: node_accrual -> sigma + polarity
+    passes.pass5_chains(ctx)               # Pass 5b: chain sign/magnitude/delta
     passes.pass6_framework(ctx)            # Pass 6: framework gate
     winner = _ballot(ctx)                  # Pass 7: BD validation + net offense
     return winner, ctx.trace

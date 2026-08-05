@@ -50,7 +50,7 @@ def weigh_pair(ctx, w_id: str) -> Optional[FrozenSet]:
     from 'a meta-weigh ranks this weigh': the meta's edge has the meta as source,
     so it does not pollute this weigh's pair."""
     members = [nbr for nbr, e in ctx.adj.get(w_id, [])
-               if isinstance(e, Comparison) and e.source == w_id and nbr in ctx.nodes]
+               if e.kind == "comparison" and e.source == w_id and nbr in ctx.nodes]
     members = sorted(set(members))
     return frozenset(members) if len(members) == 2 else None
 
@@ -108,7 +108,8 @@ def _won_accrual(ctx, w) -> bool:
     """The weighing survived its OWN sub-debate: extended (§6) and not attacked
     down (sigma >= threshold). A conceded (unanswered) weigh stands at sigma 1."""
     from .passes import node_extension_ok
-    return ctx.sigma.get(w.id, TAU) >= POLARITY_THRESHOLD and node_extension_ok(w)[0]
+    return (ctx.sigma.get(w.id, TAU) >= POLARITY_THRESHOLD
+            and node_extension_ok(w, as_of=getattr(ctx, "as_of", None))[0])
 
 
 def _weighs_over(ctx, pair: FrozenSet):

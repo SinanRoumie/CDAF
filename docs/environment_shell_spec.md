@@ -177,6 +177,50 @@ Practically, node strength is also what an agent needs in order to decide
 whether a position requires frontlining and how — a decision real debaters
 make mid-round from exactly this information.
 
+**Inputs differ by caller, deliberately.** The shared function computes over
+*exactly the nodes and edges it is handed* — it applies no BD-reachability gate
+of its own. The two callers hand it different scopes on purpose:
+
+- the **judge** passes its **BD-reachable subgraph**, so its σ/eff_pol are
+  byte-identical to the prior in-place passes (which only ever accrued over
+  reachable nodes);
+- the **observation** passes the **whole graph**, because until a
+  `BallotDirective` exists — usually not until late in the round — nothing is
+  BD-reachable, and a reachability gate would report σ for *nothing* through
+  most of the round, handing the policy no signal exactly when it needs it.
+
+A reader who notices the observation reporting σ on nodes the judge would ignore
+should read it here: it is the caller-scope choice, not a divergence in the
+function. The differential test (`tests/test_accrual_shared.py`) compares judge
+vs. shared function on *identical* inputs, so it verifies the function; it does
+**not** — and cannot — check the caller-scope split. That legibility is this
+spec's job.
+
+**The liveness horizon (`as_of`) — same category as the caller-scope split.**
+Node accrual is well-defined mid-round only if its *inputs* are, and one input —
+which attacks/weighs are LIVE — runs through the extension gate (`node_extension_ok`
+/ `node_live_by_any_side`), which asks whether a node is carried through its maker's
+speech schedule. Checked against the *full* schedule that gate reaches into speeches
+that have not happened: a 1NC attack would need coverage through 2NC/1NR and 2NR to
+count, so mid-round it is deemed "not yet extended" and σ ignores it — the ill-posed
+"remaining speeches" question arriving indirectly through the *attacker's* liveness.
+That would make mid-round σ a constant (measured: σ stayed 1.0 for the whole round,
+dropping only at 2NR) and the feature dead weight.
+
+So the gate takes a horizon `as_of` and requires coverage only through speeches at or
+before it. The two callers set it exactly like the scope:
+
+- the **judge** passes `as_of = None` (full schedule) — correct at termination and
+  byte-identical to prior behavior;
+- the **observation** passes `as_of = the current slot`, so an attack registers the
+  moment it exists and lapses only if its maker later fails to extend it.
+
+Measured with a 1NC defensive attack on an AFF link: σ = 0.0 from 1NC onward when NEG
+sustains it; σ = 0.0 at 1NC/2AC then 1.0 from 2NC/1NR when NEG drops it. At
+termination the two horizons coincide (every speech has occurred), so the judge's
+accrual and the differential test are unchanged. `as_of` is a parameter of the one
+shared function, not a second implementation.
+
 **Single implementation requirement.** Node-level accrual must be factored
 into one pure function over nodes and edges, called by both the judge's
 accrual pass and the observation layer. The encoder must not carry its own
@@ -184,18 +228,19 @@ copy. A drifted second implementation would train a policy against a
 slightly different world model than the judge scores it in — a silent
 failure mode considerably worse than ordinary spec drift.
 
-**Status: NOT yet satisfied.** Accrual has not been extracted into a shared
-pure function — the judge computes it inside its own accrual pass, and the
-observation layer does not yet expose σ or propagated sign at all (the current
-observation is monotonic settled facts only). This section is a specification
-of what must be built, not a description of what exists. The extraction is a
-hard dependency for the Phase-4 encoder and must be done before it; it is not
-closed.
+**Status: satisfied.** Accrual is factored into `judge.passes.node_accrual` —
+the single implementation. The judge routes through it (`pass_accrual`, over its
+reachable subgraph) and the observation calls it (over the whole graph); there is
+no second copy. Byte-identical oracle verdicts are preserved and pinned by the
+per-fixture, node-for-node differential test.
 
-The function must operate on the environment's own state representation
-**without materializing a `model.Round`**. It runs once per `step()` — tens of
-millions of times across a training run — so per-call round construction would
-dominate rollout wall-clock and is not acceptable on this path.
+The function operates on the environment's own state representation
+**without materializing a `model.Round`** (the observation builds lightweight
+`NodeView`/`EdgeView`s that duck-type `model.Node`/`Edge`; the shared function
+keys off `.kind`/`.side`/`.speech`/`.liveness` strings, not `isinstance`). It runs
+once per `step()` — tens of millions of times across a training run — so it must
+not regress to the round-construction pattern; the Phase-4 encoder must reuse this
+same function, never its own copy.
 
 ### Excluded (provisional, must not appear in the observation)
 
@@ -321,12 +366,13 @@ debate has, and that is a diagnostic worth acting on.
 ## Status
 
 Phase 1 shell built against this spec: agent-agnostic state graph, structural
-legal-action generator, a **monotonic-settled-facts** observation, and the Gym
-`reset()`/`step()` contract with a single judge call at termination. Divergence
-(v11) and the `connect` action are landed; Fence A is retired.
+legal-action generator, an observation carrying **monotonic settled facts +
+node-level accrual** (σ + propagated sign), and the Gym `reset()`/`step()`
+contract with a single judge call at termination. Divergence (v11) and the
+`connect` action are landed; Fence A is retired. Node-level accrual is factored
+into the single shared `judge.passes.node_accrual`, called by both the judge and
+the observation (no second copy), with a per-fixture differential test pinning
+byte-identity.
 
-**Not yet built:** the node-level-accrual observation (σ + propagated sign) and
-its single-shared-pure-function requirement. The current observation exposes
-monotonic settled facts only; accrual has not been extracted from the judge's
-accrual pass into a function the observation shares. That extraction is a hard,
-open dependency for the **Phase-4 encoder** and must be done before it.
+The **Phase-4 encoder** is not yet built; when it is, it must consume the same
+`node_accrual` — never its own copy.

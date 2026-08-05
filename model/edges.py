@@ -30,6 +30,7 @@ class Edge(Element):
 @dataclass
 class Support(Edge):
     etype: ClassVar[str] = "SupportEdge"
+    kind: ClassVar[str] = "support"
 
 
 # NOTE: there is no `Extension` edge type. Extension migrated to per-node
@@ -41,16 +42,19 @@ class Support(Edge):
 @dataclass
 class DefensiveAttack(Edge):
     etype: ClassVar[str] = "DefensiveAttackEdge"
+    kind: ClassVar[str] = "defensive_attack"
 
 
 @dataclass
 class OffensiveAttack(Edge):
     etype: ClassVar[str] = "OffensiveAttackEdge"
+    kind: ClassVar[str] = "offensive_attack"
 
 
 @dataclass
 class Comparison(Edge):
     etype: ClassVar[str] = "ComparisonEdge"
+    kind: ClassVar[str] = "comparison"
 
 
 # Registry: on-disk etype string -> class. Order is the canonical type order.
