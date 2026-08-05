@@ -308,10 +308,26 @@ Initializes an empty graph at slot 1AC with that slot's budget.
 - **Illegal actions raise.** An action that fails the legal-action generator's
   structural check raises `ValueError`; the environment does not silently no-op
   an illegal move. Callers consult the generator before stepping.
-- **Non-terminal steps**: `reward = 0`, `done = False`. Binary terminal
-  reward only; no per-move shaping in V1. (Phase 1 reward shaping that
-  disables presumption for early iterations applies to the *judge
-  configuration* at termination, not to intermediate steps.)
+- **Non-terminal steps**: `reward = 0`, `done = False`. No per-move shaping;
+  every shaping term is applied at termination, in the reward, never in the
+  observation. (Phase 1 reward shaping that disables presumption for early
+  iterations applies to the *judge configuration* at termination, not to
+  intermediate steps.)
+- **Chain-extension shaping bonus** (`chain_extension_bonus`, default `0.0`):
+  on top of the ballot reward, AFF earns a small bonus at termination iff it
+  carried **at least one** chain that is *extended, in-scope, and sign +1* —
+  regardless of who won. **Binary**: one such chain is worth exactly as much as
+  three; magnitude does not scale it. The coefficient is configurable and
+  **annealable to zero** — the final policy trains on the terminal reward alone,
+  so the default is off (byte-identical to an unshaped env). Rationale: random
+  play builds an AFF offense chain ~75% of rounds but *carries* one only ~1.6%
+  and passes zero ballot gates, so the terminal reward is constant-zero and
+  nothing bootstraps; rewarding chain **existence** teaches "carry a spine" (a
+  rule of the game), whereas rewarding chain count/magnitude would teach "extend
+  everything" (bad debate — kept emergent). The bonus is an AFF-only auxiliary
+  reward: with it enabled the two sides no longer sum to 1. `info['rewards']`
+  carries the shaped per-side returns; `info['reward_breakdown']` splits each
+  side into `ballot` and `chain_extension_bonus`.
 - **Turn advance**: on `end_speech()` or budget exhaustion, the acting side
   and slot advance per `SPEECH_ORDER`.
 - **Termination**: after the final slot (2AR) completes, the environment

@@ -5,12 +5,31 @@ agent (Phase 2) or a trained policy under self-play (Phase 5); the environment d
 not know or care which. It introduces NO evaluation logic -- the judge is called
 exactly ONCE, on the complete graph, at termination.
 
-Reward is BINARY and terminal only (no per-move shaping in V1). Non-terminal steps
-return reward 0. At termination the completed graph is materialized and handed to
-the judge; the verdict maps to the reward. Because the game is two-sided and
-zero-sum, `reward` is reported from AFF's perspective (+1 AFF win / 0 NEG win) and
+The terminal reward is BINARY (no per-move shaping). Non-terminal steps return
+reward 0. At termination the completed graph is materialized and handed to the
+judge; the verdict maps to the reward. Because the game is two-sided and zero-sum,
+the ballot reward is reported from AFF's perspective (+1 AFF win / 0 NEG win) and
 `info["rewards"]` gives the per-side split so a self-play harness can assign each
 policy its own return.
+
+CHAIN-EXTENSION REWARD SHAPING (optional, off by default). On top of the ballot
+reward, AFF earns a small bonus at termination iff it carried AT LEAST ONE chain
+that is extended, in-scope, and sign +1 -- a genuine, spine-carried AFF offense
+chain -- regardless of who won the ballot. The bonus is BINARY: one such chain is
+worth exactly as much as three; magnitude does not scale it.
+
+  Rationale (recorded): in uniform-random play AFF builds an offense chain ~75% of
+  rounds but CARRIES one (extends its spine through every own-side speech) only
+  ~1.6%, and passes zero ballot gates in 500 rounds -- so the terminal reward is
+  constant-zero and nothing bootstraps. Rewarding chain EXISTENCE teaches "carry a
+  spine," which is closer to a RULE of the game than a strategic opinion. Rewarding
+  chain COUNT or MAGNITUDE would teach "extend everything," which is bad debate and
+  is exactly the genuine strategy we want to stay EMERGENT -- hence the binary gate.
+
+The coefficient (`chain_extension_bonus`) is configurable and ANNEALABLE to zero;
+the final policy should train on the terminal reward alone, so the default is 0.0
+(terminal-only, byte-identical to an unshaped env). It lives in the REWARD, never
+in the observation -- the agent sees no signal that its chain was credited.
 
 Termination sequence (order is load-bearing):
   1. materialize state -> model.Round (`state.to_round`)
@@ -46,8 +65,14 @@ class CDAFEnvironment:
     """One debate round as an episode. Construct, `reset()`, then `step(action)`
     until `done`. Not thread-safe; one round per instance."""
 
-    def __init__(self):
+    def __init__(self, chain_extension_bonus: float = 0.0):
         self.state: RoundState = RoundState()
+        # Coefficient for the AFF chain-extension shaping bonus (see module docstring).
+        # Public and mutable so a training loop can ANNEAL it between episodes
+        # (construct-per-episode or set on a reused instance). 0.0 == terminal reward
+        # alone, byte-identical to an unshaped env; this is the default the final
+        # policy trains under.
+        self.chain_extension_bonus: float = chain_extension_bonus
 
     # --- gym contract ---------------------------------------------------------
     def reset(self) -> Dict:
@@ -92,14 +117,41 @@ class CDAFEnvironment:
         # (4) SCOPE GUARD (Fence B) -- unreachable in V1; raises if ever hit.
         assert_scope_ruled(trace)
 
-        # (5) binary terminal reward, reported from AFF's perspective.
-        aff_reward = 1.0 if ballot == AFF else 0.0
+        # (5) binary terminal ballot reward, reported from AFF's perspective, PLUS the
+        # optional chain-extension shaping bonus (AFF-only, binary, off by default).
+        aff_ballot = 1.0 if ballot == AFF else 0.0
+        neg_ballot = 1.0 - aff_ballot
+        bonus = (self.chain_extension_bonus
+                 if self.chain_extension_bonus and _aff_carried_offense_chain(trace)
+                 else 0.0)
+        aff_reward = aff_ballot + bonus     # NOTE: with bonus>0 the two sides no longer
+                                            # sum to 1 -- the bonus is an AFF auxiliary
+                                            # reward, deliberately NOT zero-sum.
         info = {
             "winner": ballot,
-            "rewards": {AFF: aff_reward, NEG: 1.0 - aff_reward},
+            "rewards": {AFF: aff_reward, NEG: neg_ballot},
+            "reward_breakdown": {
+                AFF: {"ballot": aff_ballot, "chain_extension_bonus": bonus},
+                NEG: {"ballot": neg_ballot},
+            },
             "diagnostics": _diagnostics(trace),
         }
         return observe(self.state), aff_reward, True, info
+
+
+def _aff_carried_offense_chain(trace) -> bool:
+    """True iff AFF carried at least one chain that is EXTENDED, IN-SCOPE, and sign
+    +1 -- a genuine spine-carried AFF offense chain. Reads the judge's CHAIN records
+    off the terminal trace (the same records the fuzz diagnostic ranks on); presence,
+    not count or magnitude (§ shaping rationale in the module docstring). `sign` is the
+    QPN sign: +1 real AFF offense, -1 turned (favors NEG), "?" unresolved -- only +1
+    counts. This never touches the ballot tally, so it credits a carried chain even in
+    a round AFF lost."""
+    for r in trace:
+        if (getattr(r, "kind", None) == "CHAIN"
+                and r.side == AFF and r.extended and r.in_scope and r.sign == 1):
+            return True
+    return False
 
 
 def _diagnostics(trace) -> list:

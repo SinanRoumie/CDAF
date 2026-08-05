@@ -16,7 +16,7 @@ from .edges import (
     EDGE_CLASSES, EDGE_TYPE_NAMES,
 )
 from .round import Round, SCHEMA_VERSION
-from .speeches import SPEECH_ORDER, SPEECH_SIDE, speech_index
+from .speeches import SPEECH_ORDER, SPEECH_SIDE, CONSTRUCTIVE_SPEECHES, speech_index
 from .convert import convert
 from . import serialize
 
@@ -28,6 +28,6 @@ __all__ = [
     "Edge", "Support", "DefensiveAttack", "OffensiveAttack", "Comparison",
     "EDGE_CLASSES", "EDGE_TYPE_NAMES",
     "Round", "SCHEMA_VERSION",
-    "SPEECH_ORDER", "SPEECH_SIDE", "speech_index",
+    "SPEECH_ORDER", "SPEECH_SIDE", "CONSTRUCTIVE_SPEECHES", "speech_index",
     "convert", "serialize",
 ]

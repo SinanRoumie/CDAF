@@ -241,3 +241,92 @@ def test_full_conceded_aff_chain_wins_aff():
     for n in spine: env.step(Extend(n))      # 2AR
     obs, r, done, info = env.step(EndSpeech())
     assert done and info["winner"] == AFF and r == 1.0
+
+
+# --- chain-extension reward shaping (optional, off by default) ----------------
+
+def _full_aff_chain(env):
+    """Drive `env` to termination with a fully-extended, conceded AFF offense chain
+    (adv->uni->link->impact + BD, extended every AFF speech). AFF wins on the ballot."""
+    env.step(Introduce("plan", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("uq", "uniqueness", adv, "support")); uni = _last(env.state)
+    env.step(Introduce("link", "link", uni, "support")); lk = _last(env.state)
+    env.step(Introduce("impact", "impact", lk, "support")); im = _last(env.state)
+    env.step(Introduce("vote aff", "ballot_directive", im, "support"))
+    spine = (adv, uni, lk, im)
+    env.step(EndSpeech()); env.step(EndSpeech())          # 1AC, 1NC (concede)
+    for n in spine: env.step(Extend(n))                   # 2AC
+    env.step(EndSpeech()); env.step(EndSpeech())          # -> 2NC/1NR (concede)
+    for n in spine: env.step(Extend(n))                   # 1AR
+    env.step(EndSpeech()); env.step(EndSpeech())          # -> 2NR (concede)
+    for n in spine: env.step(Extend(n))                   # 2AR
+    return env.step(EndSpeech())
+
+
+def test_chain_bonus_off_by_default_is_byte_identical():
+    """Default coefficient 0.0: a carried AFF chain yields the plain ballot reward and
+    a zero bonus in the breakdown -- no drift from the unshaped env."""
+    env = CDAFEnvironment(); env.reset()
+    obs, r, done, info = _full_aff_chain(env)
+    assert info["winner"] == AFF and r == 1.0
+    assert info["rewards"] == {AFF: 1.0, NEG: 0.0}
+    assert info["reward_breakdown"][AFF]["chain_extension_bonus"] == 0.0
+
+
+def test_chain_bonus_added_for_carried_aff_offense_chain():
+    """With the coefficient set, a carried (extended, in-scope, sign +1) AFF chain adds
+    the bonus on top of the ballot reward, split out in the breakdown."""
+    env = CDAFEnvironment(chain_extension_bonus=0.25); env.reset()
+    obs, r, done, info = _full_aff_chain(env)
+    assert r == 1.25
+    assert info["rewards"] == {AFF: 1.25, NEG: 0.0}
+    assert info["reward_breakdown"] == {
+        AFF: {"ballot": 1.0, "chain_extension_bonus": 0.25},
+        NEG: {"ballot": 0.0},
+    }
+
+
+def test_chain_bonus_awarded_even_when_aff_loses_and_is_not_zero_sum():
+    """'Regardless of who won': AFF and NEG each carry a symmetric conceded chain ->
+    tie -> presumption NEG. AFF still earns the bonus for its carried chain, and the
+    two sides no longer sum to 1 (the bonus is an AFF-only auxiliary reward)."""
+    env = CDAFEnvironment(chain_extension_bonus=0.25); env.reset()
+    env.step(Introduce("plan", "advocacy", NEW)); a_adv = _last(env.state)
+    env.step(Introduce("uq", "uniqueness", a_adv, "support")); a_uni = _last(env.state)
+    env.step(Introduce("al", "link", a_uni, "support")); a_lk = _last(env.state)
+    env.step(Introduce("ai", "impact", a_lk, "support")); a_im = _last(env.state)
+    env.step(Introduce("av", "ballot_directive", a_im, "support"))
+    a_spine = (a_adv, a_uni, a_lk, a_im)
+    env.step(EndSpeech())                                 # -> 1NC
+    env.step(Introduce("cp", "advocacy", NEW)); n_adv = _last(env.state)
+    env.step(Introduce("nuq", "uniqueness", n_adv, "support")); n_uni = _last(env.state)
+    env.step(Introduce("nl", "link", n_uni, "support")); n_lk = _last(env.state)
+    env.step(Introduce("ni", "impact", n_lk, "support")); n_im = _last(env.state)
+    env.step(Introduce("nv", "ballot_directive", n_im, "support"))
+    n_spine = (n_adv, n_uni, n_lk, n_im)
+    env.step(EndSpeech())                                 # -> 2AC
+    for n in a_spine: env.step(Extend(n))
+    env.step(EndSpeech())                                 # -> 2NC/1NR
+    for n in n_spine: env.step(Extend(n))
+    env.step(EndSpeech())                                 # -> 1AR
+    for n in a_spine: env.step(Extend(n))
+    env.step(EndSpeech())                                 # -> 2NR
+    for n in n_spine: env.step(Extend(n))
+    env.step(EndSpeech())                                 # -> 2AR
+    for n in a_spine: env.step(Extend(n))
+    obs, r, done, info = env.step(EndSpeech())
+    assert info["winner"] == NEG                          # AFF lost the ballot ...
+    assert r == 0.25                                      # ... yet earned the bonus
+    assert info["rewards"] == {AFF: 0.25, NEG: 1.0}       # not zero-sum (sum = 1.25)
+
+
+def test_chain_bonus_withheld_when_no_aff_offense_chain():
+    """No carried AFF offense chain -> no bonus even with the coefficient set."""
+    env = CDAFEnvironment(chain_extension_bonus=0.25); env.reset()
+    r = info = None
+    for _ in range(len(SPEECH_BUDGET)):
+        if env.state.terminated: break
+        obs, r, done, info = env.step(EndSpeech())
+    assert info["winner"] == NEG and r == 0.0
+    assert info["rewards"] == {AFF: 0.0, NEG: 1.0}
+    assert info["reward_breakdown"][AFF]["chain_extension_bonus"] == 0.0

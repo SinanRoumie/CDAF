@@ -398,3 +398,25 @@ def test_rfd_turned_contributor_reads_as_one_statement():
     # and it is NOT ALSO listed as a plain contributor or under collapsed arguments:
     assert "survives and contributes" not in text
     assert "Collapsed arguments" not in text
+
+
+# --- REBUTTAL_SPEECHES derivation (§6) ----------------------------------------
+
+def test_rebuttal_speeches_pinned_on_policy_ordering():
+    """DURABLE PIN. On the pinned policy ordering the derived rebuttal set MUST be
+    exactly {1AR, 2NR, 2AR} -- the value the oracle fixtures were adjudicated under.
+    This lives in the suite (with the fixtures' policy labels) so a format edit that
+    changes CONSTRUCTIVE_SPEECHES / SPEECH_ORDER and breaks the policy value fails
+    LOUDLY here rather than silently letting a new rebuttal chain establish offense."""
+    assert passes.REBUTTAL_SPEECHES == frozenset({"1AR", "2NR", "2AR"})
+
+
+def test_rebuttal_speeches_are_derived_not_hardcoded():
+    """The set is 'each side's speeches strictly after its last constructive', read off
+    the model-owned label -- so it is disjoint from the constructives (incl. the neg
+    block) and every member is a real speech, on whatever ordering is in force."""
+    from model import CONSTRUCTIVE_SPEECHES
+    assert passes.REBUTTAL_SPEECHES <= set(SPEECH_ORDER)
+    assert passes.REBUTTAL_SPEECHES.isdisjoint(CONSTRUCTIVE_SPEECHES)
+    assert "2AC" not in passes.REBUTTAL_SPEECHES        # a constructive add-on speech
+    assert "2NC/1NR" not in passes.REBUTTAL_SPEECHES    # the neg block is constructive

@@ -43,6 +43,7 @@ from model import (
     Node, Edge,
     Uniqueness, Link, Impact, Advocacy, Framework, Weighing, BallotDirective,
     Support, DefensiveAttack, OffensiveAttack, Comparison,
+    CONSTRUCTIVE_SPEECHES,   # §6 constructive/rebuttal label; owned by model, read here
 )
 
 from . import dfquad, qpn, chain as chainmod
@@ -64,7 +65,34 @@ ATTACK_KINDS = frozenset({"defensive_attack", "offensive_attack"})
 # type that carries a wired uniqueness (§12.4.3 poisoning gate reads this set).
 POSTWORLD_TYPES = (Link, Impact)
 # Rebuttal speeches: a NEW chain first introduced here does not count (§6).
-REBUTTAL_SPEECHES = frozenset({"1AR", "2NR", "2AR"})
+def _derive_rebuttal_speeches() -> frozenset:
+    """§6 'no new chains in rebuttals'. A REBUTTAL is a speech a side gives STRICTLY
+    AFTER its last CONSTRUCTIVE -- derived from the model-owned CONSTRUCTIVE_SPEECHES
+    label, never from position or a hardcoded name list. This transfers to any
+    SPEECH_ORDER/format: on the pinned policy ordering it equals {1AR, 2NR, 2AR}
+    (a durable test pins that), and a relabel that changes the constructive set moves
+    the rebuttal set with it instead of silently mis-firing (the old hardcoded
+    frozenset would have wrongly allowed a new chain in a non-matching rebuttal label
+    to establish offense). A side with no constructive -> all its speeches are
+    rebuttals; the neg block counts as a constructive, so NEG's last constructive is
+    the block and only 2NR follows."""
+    rebuttals = set()
+    for side in (AFF, NEG):
+        seq = [s for s in SPEECH_ORDER if SPEECH_SIDE.get(s) == side]
+        last_con = max((i for i, s in enumerate(seq) if s in CONSTRUCTIVE_SPEECHES),
+                       default=-1)
+        rebuttals.update(seq[last_con + 1:])
+    return frozenset(rebuttals)
+
+
+REBUTTAL_SPEECHES = _derive_rebuttal_speeches()
+# Format-agnostic invariants (hold under ANY well-formed vocabulary, so they catch a
+# malformed CONSTRUCTIVE_SPEECHES -- e.g. an off-vocab or overlapping label -- without
+# pinning to policy names): every rebuttal is a real speech, and no speech is counted
+# both constructive and rebuttal. The policy-specific {1AR, 2NR, 2AR} pin lives in the
+# test suite (where format labels legitimately live, alongside the fixtures).
+assert REBUTTAL_SPEECHES <= set(SPEECH_ORDER)
+assert REBUTTAL_SPEECHES.isdisjoint(CONSTRUCTIVE_SPEECHES)
 
 
 # --- small speech/side helpers ------------------------------------------------

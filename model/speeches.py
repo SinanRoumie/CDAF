@@ -13,6 +13,15 @@ SPEECH_SIDE = {
     "1AR": "AFF", "2NR": "NEG", "2AR": "AFF",
 }
 
+# Which speeches are CONSTRUCTIVE (as opposed to rebuttal). This is a fact about the
+# FORMAT, not about position -- SPEECH_ORDER cannot tell you a speech is constructive,
+# so the schema must carry it. The neg block `"2NC/1NR"` is CONSTRUCTIVE: it contains
+# the 2NC (its 1NR half is a rebuttal, but the block is one speech string and its
+# constructive content is what matters for "a side's last constructive"). Consumers
+# derive the rebuttal set from this label rather than hardcoding speech names, so the
+# derivation transfers to any ordering instead of silently mis-firing on a relabel.
+CONSTRUCTIVE_SPEECHES = frozenset({"1AC", "1NC", "2AC", "2NC/1NR"})
+
 _INDEX = {s: i for i, s in enumerate(SPEECH_ORDER)}
 
 
