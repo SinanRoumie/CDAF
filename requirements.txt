@@ -1,2 +1,6 @@
 dash>=2.16
 dash-cytoscape>=1.0.0
+
+# Phase 4 policy encoder (policy/). CPU wheel is sufficient for the cheap ~4ms
+# rollouts; a CUDA build is a drop-in swap for training at scale.
+torch>=2.2
