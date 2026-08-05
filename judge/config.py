@@ -1,10 +1,19 @@
 """Pinned V1 constants for the CDAF judge.
 
-Single source of truth for every tunable the judge consults. Pure constants --
-imports nothing, so any pass can read these without side effects and the package
-stays decoupled from everything app-side. See docs/judge_spec.md §1 (pinned
-decisions) and §2.1 (speech order/side).
+Single source of truth for every NUMERIC tunable the judge consults. The numeric
+constants are pure (no side effects), so any pass can read them and the package
+stays decoupled from everything app-side. The one non-numeric fact here -- the
+speech order/side vocabulary -- is a DOMAIN fact owned by `model`, so it is
+imported (not re-declared) below: the judge depends on the model, never the
+reverse. See docs/judge_spec.md §1 (pinned decisions) and §2.1 (speech order/side).
 """
+
+# The canonical speech vocabulary is a domain fact (the flow of a policy round),
+# owned by `model.speeches` and imported here so there is ONE copy. Re-exported at
+# this name so `from judge.config import SPEECH_ORDER, SPEECH_SIDE` (judge.passes,
+# §2.1) keeps working -- the judge's accessor for a model-owned fact, never a second
+# hand-synced literal that can silently drift.
+from model.speeches import SPEECH_ORDER, SPEECH_SIDE   # noqa: E402  (re-export)
 
 # --- Judge / environment version ----------------------------------------------
 # Bumped when the judge's decision SEMANTICS change (not just refactors), because
@@ -116,14 +125,9 @@ EPSILON = 1e-9
 # Presumption: hardcoded and uncontestable. Every indeterminate result drains here.
 PRESUMPTION = NEG
 
-# --- Speech order and side (§2.1, judge-owned) --------------------------------
-# The model stores speech/side as free strings; the judge owns the canonical
-# vocabulary and maps them. Order by SPEECH_ORDER index, NEVER by element index
-# -- on-disk order is byte-fidelity, not chronology. The neg block is the single
-# string "2NC/1NR" (one speech).
-SPEECH_ORDER = ["1AC", "1NC", "2AC", "2NC/1NR", "1AR", "2NR", "2AR"]
-
-SPEECH_SIDE = {
-    "1AC": AFF, "2AC": AFF, "1AR": AFF, "2AR": AFF,
-    "1NC": NEG, "2NC/1NR": NEG, "2NR": NEG,
-}
+# --- Speech order and side (§2.1) ---------------------------------------------
+# SPEECH_ORDER / SPEECH_SIDE are imported from `model.speeches` at the top of this
+# module (single source of truth). Order by SPEECH_ORDER index, NEVER by element
+# index -- on-disk order is byte-fidelity, not chronology. The neg block is the
+# single string "2NC/1NR" (one speech). SPEECH_SIDE's values are the same "AFF"/
+# "NEG" strings as the AFF/NEG constants above.
