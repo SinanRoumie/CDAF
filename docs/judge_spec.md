@@ -172,6 +172,19 @@ orientation from two reliable signals instead:
   attacker/responder** (you can only answer what was already said). (Extension no longer needs
   orienting — it is per-node state, §6, not an edge.)
 
+**Terminality follows node type, not introduction order.** An Impact is the terminal sink of its
+offense chain (§2). It stops being *terminal* only when **another Impact** chains forward past it (a
+genuine multi-impact chain). A **Link never affects an impact's terminality**, regardless of
+introduction order: by the type orientation above a Link is always a *premise upstream* of the impact
+it supports (uniqueness → link → impact → BD), never downstream — so a later-introduced convergent or
+premise link supporting an impact must not disqualify that impact from being terminal. Because two
+Impacts share a node type, type alone cannot order an impact→impact chain; **speech recency** is
+retained *only* for that residual case (the later-introduced impact is the downstream one). This is
+the sole use of recency for chain direction; it is not a general terminality signal. (Reading a
+later *link* as "forward" was a bug — it leaked introduction order into a structural judgment and
+silently dropped the chain of any impact that gained a late premise link, a state a legal
+`introduce(link → impact, support)` in a later speech can reach.)
+
 Because every speech is single-side, every cross-side attack necessarily spans two speeches, so
 speech recency assigns attacker/target unambiguously. Same-side "attacks" are incoherent and inert
 (§3.4). This principle is what makes the judge robust to the noise that real rounds contain.

@@ -161,6 +161,50 @@ def test_extension_failure_when_spine_not_carried():
     assert any(r.kind == "EXTENSION_FAIL" and r.missing_speech == "1AR" for r in ctx.trace)
 
 
+# --- Terminality follows node type, not introduction order (§2.2) -------------
+
+def test_later_convergent_link_does_not_break_impact_terminality():
+    """Regression: a LINK introduced LATER than the impact it supports must NOT
+    disqualify that impact from being terminal -- a link is always a premise upstream of
+    its impact (§2.2 type orientation), never downstream. Pre-fix, `_terminals` read the
+    later link as 'chaining forward', so no node in the component was terminal and NO
+    chain was emitted for a legitimately-scoring impact. A legal
+    `introduce(link -> impact, support)` in a later speech reaches this state, so it was
+    a live self-play/warm-start correctness hole."""
+    adv = node(Advocacy, AFF, "1AC"); uni = node(Uniqueness, AFF, "1AC")
+    lk_early = node(Link, AFF, "1AC")
+    imp = node(Impact, AFF, "1AC")
+    lk_late = node(Link, AFF, "2AC")                 # convergent premise link, LATER than the impact
+    bd = node(BallotDirective, AFF, "1AC")
+    els = [adv, uni, lk_early, imp, lk_late, bd,
+           support(adv, lk_early), support(uni, imp),
+           support(lk_early, imp), support(lk_late, imp),   # both links support the shared impact
+           support(imp, bd)]
+    ctx = passes.build_context(Round(elements=els))
+    passes.pass2_drops(ctx); passes.pass_accrual(ctx); passes.pass5_chains(ctx)
+    assert imp.id in passes._terminals(ctx, list(ctx.reachable), [imp.id])   # still terminal
+    ch = [c for c in ctx.chains if c["side"] == AFF]
+    assert len(ch) == 1 and ch[0]["extended"] and ch[0]["sign"] == 1        # chain emitted, scores
+    assert imp.id in ch[0]["impacts"]
+
+
+def test_later_impact_still_disqualifies_terminality_recency_retained():
+    """Guard for the narrowing: only LINKS were removed from the forward check. A later
+    IMPACT chained forward from an earlier one must STILL make the earlier impact
+    non-terminal (the recency-governed impact->impact case is deliberately retained --
+    node type alone cannot order two impacts)."""
+    adv = node(Advocacy, AFF, "1AC"); lk = node(Link, AFF, "1AC")
+    im1 = node(Impact, AFF, "1AC")
+    im2 = node(Impact, AFF, "2AC")                   # later impact, downstream of im1
+    bd = node(BallotDirective, AFF, "1AC")
+    els = [adv, lk, im1, im2, bd,
+           support(adv, lk), support(lk, im1), support(im1, im2), support(im2, bd)]
+    ctx = passes.build_context(Round(elements=els))
+    passes.pass2_drops(ctx); passes.pass_accrual(ctx); passes.pass5_chains(ctx)
+    terminals = passes._terminals(ctx, list(ctx.reachable), [im1.id, im2.id])
+    assert im2.id in terminals and im1.id not in terminals   # later impact is the terminal one
+
+
 # --- Pass 5a: framework gate in/out -------------------------------------------
 
 def test_framework_gate_excludes_unsupported_impact():

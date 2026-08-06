@@ -658,14 +658,20 @@ def _resolve_polarity(ctx: Context) -> None:
 
 
 def _terminals(ctx: Context, members, impacts) -> list:
-    """Terminal impacts of a component (§2): impacts with nothing chaining forward
-    to a later offense-bearing node. Mirrors `_terminal_impacts` but works from raw
-    members/impacts (before the chain dict exists), for the §3.3.1 path aggregation."""
+    """Terminal impacts of a component (§2): impacts with no LATER IMPACT chaining
+    forward out of them. Mirrors `_terminal_impacts` but works from raw members/impacts
+    (before the chain dict exists), for the §3.3.1 path aggregation.
+
+    The forward neighbor must be an `Impact`, not any offense-bearing node (§2.2 type
+    orientation): a `Link` is always a premise UPSTREAM of the impact it supports and can
+    never be downstream of it, so a later-introduced convergent/premise link must NOT
+    disqualify an impact's terminality. Only another impact can be further along the
+    offense chain, and recency orders that impact->impact case (the residual)."""
     out = []
     for imp in impacts:
         forwards = any(
             isinstance(e, Support) and nbr in members
-            and isinstance(ctx.nodes.get(nbr), OFFENSE_BEARING) and nbr != imp
+            and isinstance(ctx.nodes.get(nbr), Impact) and nbr != imp
             and (_sidx(ctx.nodes[nbr].speech) or 0) > (_sidx(ctx.nodes[imp].speech) or 0)
             for nbr, e in ctx.adj.get(imp, []))
         if not forwards:
@@ -953,17 +959,21 @@ def _collapse_reason(ctx, extended, ext_fail_node, sign, mag, spine_reps, unreso
 # --- Pass 5a: framework gating ------------------------------------------------
 
 def _terminal_impacts(ctx: Context, ch: dict) -> list:
-    """The chain's terminal impacts (§2): Impact members with nothing chaining
-    forward out of them within the chain (they do not Support a later
-    offense-bearing node). These seed the §5.3 anchor walk. Genuinely independent
-    scored terminals are separate chains at discovery, so a V1 chain has exactly
-    one; the fallback to all impacts keeps this robust for a malformed graph."""
+    """The chain's terminal impacts (§2): Impact members with no LATER IMPACT chaining
+    forward out of them within the chain. These seed the §5.3 anchor walk. Genuinely
+    independent scored terminals are separate chains at discovery, so a V1 chain has
+    exactly one; the fallback to all impacts keeps this robust for a malformed graph.
+
+    The forward neighbor must be an `Impact`, not any offense-bearing node (§2.2): a
+    `Link` is a premise upstream of the impact it supports and is never downstream, so a
+    later-introduced convergent/premise link must not disqualify terminality. Only
+    another impact can be further along; recency orders that impact->impact case."""
     members = ch["members"]
     terminals = []
     for imp in ch["impacts"]:
         forwards = any(
             isinstance(e, Support) and nbr in members
-            and isinstance(ctx.nodes.get(nbr), OFFENSE_BEARING) and nbr != imp
+            and isinstance(ctx.nodes.get(nbr), Impact) and nbr != imp
             and _sidx(ctx.nodes[nbr].speech) is not None
             and _sidx(ctx.nodes[nbr].speech) > (_sidx(ctx.nodes[imp].speech) or 0)
             for nbr, e in ctx.adj.get(imp, [])
