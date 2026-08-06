@@ -42,10 +42,12 @@ def check_legality(state: RoundState, action) -> Tuple[bool, str]:
 
     Two gates: (1) structural validity (existence, well-formedness, the connect cycle
     rule), then (2) AFFORDABILITY -- the action's cost must not exceed the speech's
-    remaining budget. Cost is variable: `extend`/`concede` cost ceil(path_length / K)
-    over the walk they stamp, so a long-path extend late in a speech is unaffordable
-    (masked) while a short-path one or a cost-1 `introduce` stays legal. This replaces
-    the old flat `remaining_budget <= 0` guard, which assumed every move cost 1."""
+    remaining budget. `extend`/`concede` cost is the MARGINAL of a speech-wide
+    `ceil(count / K)` batch (`state.action_cost`): 0 on most carriages, 1 on the one
+    that starts a new K-group, so a carriage is only ever unaffordable when it would
+    start a new K-group with no budget left. The marginal cost of the next carriage is
+    a simple lookup on `extends_this_speech` -- no lookahead over the rest of the speech
+    is needed."""
     if state.terminated:
         return False, "terminated: no side's turn (round is over)"
 

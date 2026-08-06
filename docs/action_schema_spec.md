@@ -84,66 +84,58 @@ not waive those constraints.
 
 ### `extend(node_id)`
 
-Marks a node **and its entire root-to-impact spine path** as extended for the
-current speech, in one action. Selecting any node on a chain stamps the liveness
-of every node on that node's root→impact walk — the advocacy, links, and impact
-of the spine plus the satellite Uniqueness attached to them (the set the judge's
-§6 extension gate reads; the gated spine is Advocacy/Link/Impact). The pointer
-selects one node; the environment walks the path.
+Marks **exactly one node** — the named node — as carried for the current speech.
+`extend` is **atomic**: it stamps that node's liveness and nothing else. There is
+**no path-walking and no propagation**; extending a node does not touch its chain,
+its impact, or anything it supports. An agent may extend a link while deliberately
+**not** extending its impact, letting the impact die — partial-chain carriage is
+fully expressible.
 
-**Cost scales with path length.** An `extend`/`concede` costs
-`ceil(path_length / K)` action-slots against the speech budget, where
-`path_length` is the number of nodes the walk stamps and `K` is a named tunable
-constant (§Turn structure and speech budgets), default **4**. A single action
-still carries a whole path, but a longer spine costs proportionally more, so
-keeping everything alive in the back half is no longer free — the agent must
-choose what to carry and what to concede.
+**Cost — a speech-wide batch, not per-node-flat and not path-length-based.** The
+environment keeps a running counter `extends_this_speech` of `extend`/`concede`
+actions taken so far in the current speech (reset to 0 at each speech boundary). The
+marginal cost of the next carriage is
 
-  Worked examples (K = 4): a 2-node path costs 1 slot; a 6-node path costs 2; an
-  8-node path costs 2; a 9-node path costs 3 (`ceil(9/4)`).
+    ceil((count + 1) / K) − ceil(count / K)
 
-**Divergent chains (v11) — priced independently, no pooling.** Each branch off a
-shared trunk is a separate `extend`, priced by **its own** `ceil(path_length / K)`
-from its own root→impact walk. Naming a node on one branch stamps only that
-branch's path (the shared trunk included, other branches excluded); the trunk is
-neither banked nor discounted, so a later branch re-walking it pays for the trunk
-nodes again. N terminal impacts off one trunk therefore cost the **sum** of N
-independently-computed path costs. This matters because it forces the back-half
-concede/carry choice: keeping N impacts alive genuinely costs N extends. No action
-covers more than one terminal impact — naming *any* node stamps exactly the single
-root→impact path that node's walk lies on (naming a shared trunk/root node picks
-one branch deterministically, never all of them), so there is no bulk-extend
-discount that would let one action carry multiple impacts for the price of one.
-This matches the judge's per-path liveness (judge_spec §3.3.1a): each terminal
-impact is its own chain.
+where `count = extends_this_speech` and `K` is a named tunable constant
+(§Turn structure and speech budgets), default **4**. This is **1** on the 1st,
+(K+1)-th, (2K+1)-th … carriage of the speech and **0** otherwise, so **N carriages
+over a speech cost `ceil(N / K)` slots in total** — one slot buys K carriages. The
+discount is scoped to the **whole speech**, not to any chain: an agent gets the same
+`1-slot-per-K` rate whether the K nodes it carries are all on one chain or scattered
+across unrelated arguments. There is nothing chain-scoped to price, because there is
+no path-walk.
 
-An off-spine / orphan / impact-less target is still structurally legal; its walk
-stamps whatever spine is reachable (at least the node itself), priced by the same
-`ceil(path_length / K)`.
+  Worked example (K = 4): the 1st–4th carriages of a speech cost 1/0/0/0 (cumulative
+  1); the 5th–8th cost 1/0/0/0 again (cumulative 2); the 9th costs 1 (cumulative 3).
+  N carriages cost `ceil(N / 4)` — e.g. 3 → 1, 4 → 1, 5 → 2, 8 → 2, 9 → 3.
+
+  (The 1 lands on the *first* carriage of each K-group — the marginal of the given
+  formula. Cumulative cost after N carriages is `ceil(N / K)`.)
 
 **Target may be own-side or opponent-side.** Like every other targeting action
 (§introduce), `extend` accepts *any* existing node regardless of which side
-introduced it. Extending your own node carries your own chain; extending an
-opponent's node carries theirs — the walk, cost, and per-speech stamp are keyed off
-the *target's* chain, never off who is acting. Cross-side targeting is legal and
-carries no special cost or restriction.
+introduced it. Cross-side targeting is legal and carries no special cost or
+restriction; it costs against the same `extends_this_speech` batch as any carriage.
 
 ### `concede(node_id)`
 
-**`concede` is not a distinct mechanic — it is `extend`.** Same chain-level
-root-to-impact walk, same `ceil(path_length / K)` cost, same per-speech liveness
-stamp, same divergent-branch pricing — identical in every respect. "Concede" is
-simply the descriptive label used when the targeted node happens to be
-**opponent-owned**; `extend` is the label when it is your own. Functionally there is
-one action with one implementation.
+**`concede` is not a distinct mechanic — it is `extend`.** Same atomic single-node
+stamp, same speech-wide batched cost, same per-speech liveness — identical in every
+respect. "Concede" is simply the descriptive label used when the targeted node
+happens to be **opponent-owned**; `extend` is the label when it is your own.
+Functionally there is one action with one implementation, and both increment the same
+`extends_this_speech` counter.
 
 There is **no** permanence, no free/zero-cost case, no one-shot restriction, and no
-new node state: a node is kept live speech-by-speech exactly as with any extend
-(re-stamped each speech it must remain live), and conceding never restricts future
-actions (attacks included) on that node — ordinary legality rules apply throughout.
+new node state beyond the per-speech counter: a node is kept live speech-by-speech
+exactly as with any extend (re-stamped each speech it must remain live), and
+conceding never restricts future actions (attacks included) on that node — ordinary
+legality rules apply throughout.
 
 **Structural note on `extend` vs `concede`.** The two are the same structural act — a
-per-speech liveness stamp across the selected node's chain, at the same cost. They
+per-speech liveness stamp on the single named node, at the same batched cost. They
 differ only as agent-facing intent / logging: `concede` names the cross-side case,
 `extend` the same-side case. Because contested/conceded *status* is derived
 structurally from the graph (never from the verb), the labels coincide in the
@@ -231,15 +223,17 @@ These ratios are a first-iteration default, not a fixed rule — they are
 expected to be tuned empirically once the environment is running.
 
 Actions do not all cost one move. `introduce`, `weigh`, and `connect` cost one
-slot; `end_speech` costs none (it ends the turn). `extend`/`concede` cost
-`ceil(path_length / K)` slots over the root-to-impact walk they stamp (§extend).
-**`K` is a named constant defined beside the speech-budget constants** (in code:
-`env/actions.py`, `EXTEND_COST_K`, alongside `SPEECH_BUDGET`), first-iteration
-default **4**, tunable on the same footing as the speech budgets. The economy
-that discourages disconnected or low-value spam is still emergent — moves spent
-on a node that never becomes reachable, or is never extended when required, do
-not pay off — now with an explicit size cost on extension so the back-half
-concede/carry decision carries real budget pressure rather than being free.
+slot; `end_speech` costs none (it ends the turn). `extend`/`concede` cost the
+**marginal of a speech-wide `ceil(count / K)` batch** — 1 on the 1st, (K+1)-th,
+(2K+1)-th … carriage of the speech and 0 otherwise, so N carriages cost
+`ceil(N / K)` slots total (§extend). **`K` is a named constant defined beside the
+speech-budget constants** (in code: `env/actions.py`, `EXTEND_COST_K`, alongside
+`SPEECH_BUDGET`), first-iteration default **4**, tunable on the same footing as the
+speech budgets. The economy that discourages disconnected or low-value spam is
+still emergent — moves spent on a node that never becomes reachable, or is never
+extended when required, do not pay off — now with a batched cost on extension so
+keeping many nodes alive in the back half carries real budget pressure rather than
+being free, while the `1-slot-per-K` rate keeps ordinary spine carriage cheap.
 
 ## Explicitly out of scope for this spec
 

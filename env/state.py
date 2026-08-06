@@ -19,9 +19,8 @@ extend fires, because later actions in the same speech can change what is true.
 from __future__ import annotations
 
 import math
-from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from model import (
     Round, SCHEMA_VERSION, Comparison, Weighing,
@@ -71,6 +70,8 @@ class RoundState:
     edges: List[EdgeRecord] = field(default_factory=list)
     slot_index: int = 0                     # index into SPEECH_ORDER
     moves_used: int = 0
+    extends_this_speech: int = 0            # count of extend/concede actions this speech
+                                            # (drives the batched marginal cost; reset per slot)
     _seq: int = 0                           # monotonic id counter
 
     # --- ids ------------------------------------------------------------------
@@ -109,9 +110,11 @@ class RoundState:
         return self.current_slot is None
 
     def advance_speech(self) -> None:
-        """Move to the next speech slot, resetting the per-speech move counter."""
+        """Move to the next speech slot, resetting the per-speech move counter and the
+        extend/concede batching counter."""
         self.slot_index += 1
         self.moves_used = 0
+        self.extends_this_speech = 0
 
     # --- mutations (structural only; callers enforce legality) ----------------
     def add_node(self, content: str, owner: str, role: str) -> str:
@@ -144,104 +147,11 @@ class RoundState:
         return wid
 
     def carry(self, node_id: str) -> None:
-        """Stamp the node as carried through the current speech (extend/concede)."""
+        """Stamp the node as carried through the current speech (extend/concede). ATOMIC:
+        stamps ONLY this node -- no path-walking, no propagation to the rest of a chain
+        (environment_shell_spec §Liveness stamping). An agent may extend a link while
+        deliberately not extending its impact, letting it die."""
         self.nodes[node_id].carried.add(self.current_slot)
-
-    # --- chain-level extension walk -------------------------------------------
-    def extend_path(self, node_id: str) -> Set[str]:
-        """The root-to-impact walk an `extend`/`concede` on `node_id` stamps
-        (environment_shell_spec §Liveness stamping): every spine node (advocacy/link/
-        impact) on a root->impact Support path THROUGH `node_id`, plus satellite
-        Uniqueness attached to those nodes. Direction-agnostic (undirected Support,
-        matching the judge's per-path liveness, judge_spec §3.3.1a).
-
-        Divergence (v11): a shared trunk fans out to several terminal impacts. Naming a
-        node on ONE branch stamps only that branch's root->impact path(s) (the trunk is
-        included, never other branches) -- so each branch is walked and priced
-        independently (N branches -> N `extend`s, the trunk re-stamped and re-paid each
-        time, never banked). Naming a shared trunk/root node stamps every path through
-        it (a bulk extend, priced by its total size -- cost scales with what is stamped).
-
-        Off-spine / orphan / impact-less target (Open Question 2): the node is still a
-        legal target; the walk stamps whatever same-side spine is reachable from it
-        (at least the node itself)."""
-        nodes = self.nodes
-        if node_id not in nodes:
-            return set()
-        side = nodes[node_id].owner
-
-        adj: Dict[str, List[str]] = defaultdict(list)
-        for e in self.edges:
-            if e.edge_type != "support":
-                continue
-            a, b = nodes.get(e.source), nodes.get(e.target)
-            if a is None or b is None or a.owner != side or b.owner != side:
-                continue
-            adj[e.source].append(e.target)
-            adj[e.target].append(e.source)
-
-        # same-side Support component of the target
-        comp: Set[str] = set()
-        stack = [node_id]
-        while stack:
-            u = stack.pop()
-            if u in comp:
-                continue
-            comp.add(u)
-            for v in adj[u]:
-                if v not in comp:
-                    stack.append(v)
-
-        role = {n: nodes[n].role for n in comp}
-        impacts = [n for n in comp if role[n] == "impact"]
-        # roots: advocacies, else non-impact spine, else the impacts themselves
-        # (mirrors the judge's `roots` selection in passes._build_chains).
-        roots = ([n for n in comp if role[n] == "advocacy"]
-                 or [n for n in comp if role[n] != "impact"]
-                 or impacts)
-        root_set = set(roots)
-
-        # Enumerate the simple Support paths from an impact to a root that pass through
-        # `node_id` (small graphs; simple-path DFS). `path[0]` is the terminal impact.
-        candidates: List[List[str]] = []
-
-        def dfs(cur, path, seen):
-            if cur in root_set and len(path) > 1:
-                if node_id in path:
-                    candidates.append(list(path))
-                return
-            for v in adj[cur]:
-                if v not in seen:
-                    seen.add(v); path.append(v)
-                    dfs(v, path, seen)
-                    path.pop(); seen.discard(v)
-
-        for imp in impacts:
-            dfs(imp, [imp], {imp})
-
-        if candidates:
-            # Stamp EXACTLY ONE root->impact path -- the single path this node's walk
-            # covers -- so one extend can never cover more than one terminal impact and
-            # there is no pooling / no trunk discount across divergent branches (naming
-            # a shared trunk/root picks one branch, not all; the other branch still costs
-            # its own separate extend, re-paying the trunk). Deterministic tiebreak:
-            # smallest (terminal-impact id, path) so the choice is stable across runs.
-            stamped: Set[str] = set(min(candidates, key=lambda p: (p[0], tuple(p))))
-        else:
-            # off-spine / satellite / orphan / impact-less target: not on any
-            # root->impact path, so its walk stamps only itself (OQ2 -- still a legal
-            # target, and deliberately minimal so naming an off-spine node cannot
-            # bulk-stamp a whole component).
-            stamped = {node_id}
-
-        # satellite Uniqueness hanging off any stamped spine node (r32's u2/u7/u3). A
-        # Uniqueness is never a terminal impact, so this cannot make one action cover a
-        # second branch's impact.
-        for n in list(stamped):
-            for v in adj[n]:
-                if role.get(v) == "uniqueness":
-                    stamped.add(v)
-        return stamped
 
     # --- action application ---------------------------------------------------
     def apply(self, action) -> None:
@@ -265,14 +175,14 @@ class RoundState:
                 nid = self.add_node(action.content, side, action.role)
                 self.add_edge(nid, action.target, action.edge_type)
         elif isinstance(action, (Extend, Concede)):
-            # Chain-level: stamp the whole root-to-impact walk, priced by its length
-            # (ceil(len / EXTEND_COST_K)). Idempotent -- re-stamping a node already
-            # carried this speech changes nothing, but the action still costs full price
-            # (the trunk is never banked across divergent branches).
-            path = self.extend_path(action.node_id)
-            for nid in path:
-                self.carry(nid)
-            cost = _extend_slot_cost(len(path))
+            # Atomic: stamp only the named node. Cost is the MARGINAL cost of this
+            # carriage against the speech-wide batch counter (computed BEFORE the
+            # counter is bumped): 1 on the 1st, (K+1)-th, (2K+1)-th ... extend of the
+            # speech, 0 otherwise -- so N extends cost ceil(N / EXTEND_COST_K) total,
+            # the discount scoped to the whole speech rather than to any chain.
+            cost = action_cost(self, action)
+            self.carry(action.node_id)
+            self.extends_this_speech += 1
         elif isinstance(action, Weigh):
             self.add_weigh(action.node_a, action.node_b, action.favors, side)
         elif isinstance(action, Connect):
@@ -342,25 +252,27 @@ class RoundState:
 
 # --- action cost (speech-budget slots) ----------------------------------------
 
-def _extend_slot_cost(path_len: int) -> int:
-    """Slots an extend/concede over a `path_len`-node walk costs: ceil(len / K), never
-    below 1. K is `EXTEND_COST_K` (default 4). Worked examples (K=4): 2->1, 6->2, 8->2,
-    9->3."""
-    return max(1, math.ceil(path_len / EXTEND_COST_K))
-
-
 def action_cost(state: RoundState, action) -> int:
     """The number of speech-budget slots `action` consumes in `state`.
 
     `end_speech` costs 0 (it ends the turn); `introduce`/`weigh`/`connect` cost 1;
-    `extend`/`concede` cost ceil(path_length / EXTEND_COST_K) over the root-to-impact
-    walk they stamp (`RoundState.extend_path`). This is the single source of truth for
-    cost -- both `check_legality`'s affordability gate and `apply`'s `moves_used`
-    increment read the same formula, so they cannot drift."""
+    `extend`/`concede` cost the MARGINAL of a speech-wide `ceil(count / K)` batch,
+
+        marginal = ceil((count + 1) / K) - ceil(count / K)
+
+    where `count` = `state.extends_this_speech` (extends already taken this speech) and
+    K = `EXTEND_COST_K`. This is 1 on the 1st, (K+1)-th, (2K+1)-th ... extend of the
+    speech and 0 otherwise, so N extends over a speech cost `ceil(N / K)` total -- the
+    "1 slot per K carriages" discount, scoped to the whole speech (an agent gets the
+    same batch discount whether the K nodes are on one chain or scattered across
+    unrelated arguments; there is no path-walk and nothing chain-scoped). Depends only
+    on the current `count`, so the marginal cost of the NEXT carriage is a simple
+    lookup -- no knowledge of future actions is needed. Single source of truth: both
+    `check_legality`'s affordability gate and `apply`'s `moves_used` increment read
+    this, so they cannot drift."""
     if isinstance(action, EndSpeech):
         return 0
     if isinstance(action, (Extend, Concede)):
-        if action.node_id not in state.nodes:
-            return 1                         # nonexistent target: rejected on existence first
-        return _extend_slot_cost(len(state.extend_path(action.node_id)))
+        c = state.extends_this_speech
+        return math.ceil((c + 1) / EXTEND_COST_K) - math.ceil(c / EXTEND_COST_K)
     return 1                                 # introduce / weigh / connect

@@ -71,11 +71,12 @@ SPEECH_BUDGET = {
 assert set(SPEECH_BUDGET) == set(SPEECH_ORDER)
 TOTAL_BUDGET = sum(SPEECH_BUDGET.values())
 
-# Extend/concede cost divisor (§Turn structure, action_schema_spec): an `extend`/
-# `concede` carries a whole root-to-impact walk in one action but costs
-# ceil(path_length / EXTEND_COST_K) slots, so keeping a long spine live is not free
-# and the back-half concede/carry decision carries real budget pressure. Named beside
-# SPEECH_BUDGET and tunable on the same footing; first-iteration default 4.
+# Extend/concede batch size (§Turn structure, action_schema_spec): an `extend`/
+# `concede` stamps one node atomically; cost is the marginal of a speech-wide
+# `ceil(count / EXTEND_COST_K)` batch (count = extends_this_speech), so K carriages
+# cost one slot and keeping many nodes alive in the back half carries real budget
+# pressure while ordinary spine carriage stays cheap. Named beside SPEECH_BUDGET and
+# tunable on the same footing; first-iteration default 4.
 EXTEND_COST_K = 4
 
 

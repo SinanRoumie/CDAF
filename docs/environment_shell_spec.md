@@ -261,24 +261,20 @@ entry for the current speech. The `contested` / `conceded` status is
 **derived structurally**, mirroring `model/convert.py`'s existing predicate —
 never taken from which action verb the agent used.
 
-**Chain-level stamping, priced by path length.** `extend`/`concede` stamp not
-just the named node but every node on that node's **root-to-impact walk** — the
-advocacy/link/impact spine plus the satellite Uniqueness attached to it (the set
-the judge's §6 extension gate reads). The environment performs the walk; the
-policy selects one node (its pointer head is unchanged). The action costs
-`ceil(path_length / K)` slots against the speech budget, where `path_length` is
-the number of nodes stamped and `K` is the named constant beside `SPEECH_BUDGET`
-(`EXTEND_COST_K`, default 4). Divergent branches are stamped and priced
-independently: naming a node on one branch stamps only that branch's path (the
-shared trunk included, other branches excluded), so N terminal impacts off a
-trunk require N actions, each priced from its own path — the trunk is re-stamped
-idempotently and re-paid, never banked or discounted. Stamping is idempotent on
-the liveness record, so a node re-touched by a second branch's walk is unchanged
-while the action still costs full price. `contested`/`conceded` status is still
-derived structurally at materialization (below), never from the verb or the named
-node. The walk is direction-agnostic (undirected Support, matching the judge's
-per-path liveness), and reuses the judge's `roots`/path notion rather than a
-second copy of it.
+**Atomic single-node stamping, speech-wide batched cost.** `extend`/`concede` stamp
+**only the named node** for the current speech — no path-walking, no propagation to
+its chain. This makes partial-chain carriage expressible: an agent extends a link
+while deliberately not extending its impact, letting the impact die. The cost is the
+**marginal of a speech-wide `ceil(count / K)` batch**: the environment keeps a
+counter `extends_this_speech` of carriages taken so far this speech (reset at each
+speech boundary), and the next carriage costs
+`ceil((count + 1) / K) − ceil(count / K)` slots — 1 on the 1st, (K+1)-th, (2K+1)-th
+… carriage, 0 otherwise, so N carriages cost `ceil(N / K)` total. `K` is the named
+constant beside `SPEECH_BUDGET` (`EXTEND_COST_K`, default 4). The `1-slot-per-K`
+discount is scoped to the whole speech, not to any chain — the same rate whether the
+K carriages are on one chain or scattered across unrelated arguments. `contested`/
+`conceded` status is still derived structurally at materialization (below), never
+from the verb or the named node.
 
 Rationale: the same graph must produce the same verdict regardless of how it
 was built. If status were a function of action history, an env-built round and
@@ -331,11 +327,12 @@ Initializes an empty graph at slot 1AC with that slot's budget.
   structural validity: an action whose *cost* exceeds the speech's remaining
   budget is illegal — the same category as any budget-exhausted action, now
   measured against the action's cost rather than a flat 1. `end_speech` costs 0;
-  `introduce`/`weigh`/`connect` cost 1; `extend`/`concede` cost
-  `ceil(path_length / K)` over the walk they stamp, so a long-path extend late in
-  a speech is unaffordable (masked) while a short-path extend or a cost-1
-  `introduce` remains legal. `moves_used` advances by the action's cost, and the
-  turn auto-advances when the budget is reached.
+  `introduce`/`weigh`/`connect` cost 1; `extend`/`concede` cost the marginal of the
+  speech-wide `ceil(count / K)` batch (0 on most carriages, 1 on the one that starts
+  a new K-group), so a carriage is unaffordable only when it would start a new
+  K-group with no budget left — a simple lookup on `extends_this_speech`, no
+  lookahead. `moves_used` advances by the action's cost, and the turn auto-advances
+  when the budget is reached.
 - **Non-terminal steps**: `reward = 0`, `done = False`. No per-move shaping;
   every shaping term is applied at termination, in the reward, never in the
   observation. (Phase 1 reward shaping that disables presumption for early
