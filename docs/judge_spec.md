@@ -631,8 +631,16 @@ converter: `extension_migration_spec.md`.)
 
 - AFF spine speeches: whichever of 2AC, 1AR, 2AR follow introduction. NEG spine speeches: the block,
   then 2NR. An AFF argument is **not** dropped for failing to appear during NEG speeches.
-- **No new chains in rebuttals** — a chain whose *introduction* speech is a rebuttal does not count
-  (reads the node's introduction `speech`).
+- **No new offense in rebuttals** — checked **per root→impact path** (§3.3.1), not per component.
+  A path establishes no new offense — and is dropped from the live carriers, exactly like an
+  extension failure — if **any offense-bearing node on it** (a `Link` or `Impact`: the sign channel
+  of §3.2; `Advocacy` and satellite `Uniqueness` carry magnitude, not offense, and are exempt) was
+  **introduced in a rebuttal speech**. A sibling branch off a shared trunk built entirely in
+  constructives is unaffected — the disqualification is scoped to the tainted path, and the OR/max
+  aggregation over surviving paths (§3.3.1) is unchanged. (This supersedes the earlier chain-level
+  rule that read the *component's earliest* member: grafting a fresh impact or link onto a chain
+  rooted in a constructive is new offense in a rebuttal and does not count, even though the
+  component's earliest node is a constructive.)
 - Non-spine nodes need not be extended, with one exception: a **Framework** must be extended by
   its own maker to enter the live set and gate the round (§5.4). A framework serves no premise role
   for any chain, so it has no union-liveness condition — anchoring is scope, not a magnitude

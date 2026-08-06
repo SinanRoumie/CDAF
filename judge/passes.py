@@ -698,7 +698,17 @@ def _spine_paths(ctx: Context, spine_set, impact, roots) -> list:
 def _path_stats(ctx: Context, path, side):
     """(sign, mag, extended, ext_fail_node) for ONE root->impact path (§3.3.1a).
     A turned path (composed sign favors the opponent) checks liveness side-agnostic
-    (§6); an ordinary path checks its own side. mag is the path's own σ product."""
+    (§6); an ordinary path checks its own side. mag is the path's own σ product.
+
+    NO NEW OFFENSE IN REBUTTALS (§6, per-path). This path establishes no new offense --
+    and so is NOT a live carrier -- if any OFFENSE-BEARING node on it (a Link or Impact:
+    the sign channel of §3.2, `OFFENSE_BEARING`; Advocacy and satellite Uniqueness carry
+    magnitude, not offense, and are exempt) was introduced in a rebuttal speech
+    (1AR/2NR/2AR). The gate is per-PATH, not per-component: a sibling branch off a shared
+    trunk that was built entirely in constructives is unaffected (§3.3.1 OR). Disqualifying
+    a path has the same effect as an extension failure -- it is dropped from the live
+    carriers; siblings survive. This replaces the former chain-min gate, which read the
+    component's earliest member and so missed new offense grafted onto an old chain."""
     ob = [n for n in path if isinstance(ctx.nodes[n], OFFENSE_BEARING)]
     sign = qpn.sign_product([ctx.eff_pol.get(n, 1) for n in ob])
     favored = None if sign == qpn.UNRESOLVED else (side if sign > 0 else _opposing(side))
@@ -706,6 +716,9 @@ def _path_stats(ctx: Context, path, side):
     mag = 1.0
     for n in path:
         mag *= ctx.mag_sigma.get(n, TAU)
+    reb = next((n for n in ob if ctx.nodes[n].speech in REBUTTAL_SPEECHES), None)
+    if reb is not None:
+        return sign, mag, False, reb            # new offense introduced in a rebuttal
     for n in path:
         node = ctx.nodes[n]
         ok, _m = node_live_by_any_side(node) if turned else node_extension_ok(node)
@@ -879,14 +892,13 @@ def _build_chains(ctx: Context) -> None:
             if sign != qpn.UNRESOLVED:
                 favored = side if sign > 0 else _opposing(side)
 
-            # "No new chains in rebuttals" (§6): chain-level, over the component's
-            # earliest introduction (shared trunk, so per-branch == per-component).
-            if intro_speech in REBUTTAL_SPEECHES:
-                extended, ext_fail_node = False, (spine_reps[0] if spine_reps else root)
+            # "No new offense in rebuttals" (§6) is applied PER-PATH in `_path_stats`
+            # (a path with an offense-bearing node introduced in a rebuttal is not a
+            # live carrier), so `extended` / `ext_fail_node` already reflect it here.
             if not extended:
                 node = ctx.nodes.get(ext_fail_node) if ext_fail_node else None
-                if intro_speech in REBUTTAL_SPEECHES:
-                    missing = intro_speech
+                if node is not None and node.speech in REBUTTAL_SPEECHES:
+                    missing = node.speech       # disqualified: new offense in a rebuttal
                 else:
                     missing = node_extension_ok(node)[1] if node is not None else None
                 ctx.trace.append(T.ExtensionFail(

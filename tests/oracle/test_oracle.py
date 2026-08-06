@@ -1041,21 +1041,27 @@ def test_E_rebuttal_introduced_chain_not_extended_neg():
     assert ef and ef[0].missing_speech == "2NR"               # the rebuttal-intro branch
 
 
-def test_F_no_window_continuation_resolves_answered_aff():
-    """§4 final-speech CONTINUATION refinement (gap F). AFF's terminal impact is
-    introduced fresh in the 2AR (final speech, no response window), but it CONTINUES
-    a clash that was CONTESTED entering the prior opposing speech (2NR): the link it
-    attaches to carries a '2NR: contested' stamp. Unlike a fresh 2AR spike (r8, which
-    goes UNRESOLVED), a legitimate continuation resolves 'answered' -- neither
-    dropped nor unresolved -- so the chain stands and AFF wins on offense. This is
-    the continues==True branch that r8 (continues==False) does not reach."""
+def test_F_new_offense_in_rebuttal_disqualified_neg():
+    """§6 'no new offense in rebuttals', per-path (the corrected rule). AFF's terminal
+    impact is introduced fresh in the 2AR (a rebuttal). The §4 continuation refinement
+    still fires -- the impact CONTINUES a clash contested entering 2NR (its link carries
+    a '2NR: contested' stamp), so it resolves 'answered', NOT unresolved/dropped (unlike
+    the fresh 2AR spike of r8). But 'answered' is not enough: the impact is an
+    OFFENSE-BEARING node introduced in a rebuttal, so the per-path rebuttal gate
+    disqualifies the path -- the chain is not extended and establishes no offense ->
+    N = 0 -> NEG by PRESUMPTION. (Under the old chain-min gate this wrongly scored AFF,
+    because the component's earliest member is the 1AC advocacy.)"""
     ballot, trace = judge(_load("F.json"))
-    assert ballot == AFF
-    assert _ballot(trace).reason_class == "AFF offense"
-    assert not any(r.kind == "UNRESOLVED" and r.node_id == "im" for r in trace)  # not inert
-    assert not any(r.kind == "DROP" and r.node_id == "im" for r in trace)        # not dropped
+    assert ballot == NEG
+    assert _ballot(trace).reason_class == "presumption"
+    # §4 continuation still resolves the impact 'answered' -- not inert, not dropped:
+    assert not any(r.kind == "UNRESOLVED" and r.node_id == "im" for r in trace)
+    assert not any(r.kind == "DROP" and r.node_id == "im" for r in trace)
+    # ... but the chain is disqualified as new offense in a rebuttal (the 2AR impact):
     ch = _chains(trace)[0]
-    assert ch.sign == 1 and ch.extended
+    assert ch.sign == 1 and not ch.extended
+    ef = [r for r in trace if r.kind == "EXTENSION_FAIL"]
+    assert ef and ef[0].missing_speech == "2AR" and ef[0].spine_node_id == "im"
 
 
 def test_H_severed_advocacy_fails_gate_neg():
