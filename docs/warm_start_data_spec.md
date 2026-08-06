@@ -1,11 +1,12 @@
 # CDAF Warm-Start Data Spec (Phase 5, draft)
 
-> **STATUS: DRAFT / PROPOSAL.** This document proposes how to turn the static
-> fixture corpus into imitation-learning `(observation, action)` pairs. Several
-> points touch debate semantics or pinned environment parameters and are flagged
-> as **OPEN QUESTIONS** for a ruling; they are not decided here. Nothing in this
-> spec is implemented yet, and no conversion code should be written until the open
-> questions are resolved.
+> **STATUS: FINAL DRAFT (ready to commit).** This document defines how to turn the
+> static fixture corpus into imitation-learning `(observation, action)` pairs. **All
+> eight original open questions (A–H) are resolved** (see §Resolved rulings) and folded
+> into the strategy below; **no open questions remain**. The one outstanding item is a
+> task, not a question — importing `8node1ac.json` as the warm-start 1AC fixture (H) —
+> which does not block writing the core inversion. Conversion code can be written
+> against this document.
 
 ## Scope
 
@@ -61,9 +62,9 @@ judge. This keeps inversion honest: the same `validate_round` / `judge` the RL l
 uses at termination is the acceptance oracle, so a warm-start example can never train
 the policy toward a graph the judge would score differently than the fixture.
 
-### Reproduction fidelity — PROPOSAL (open question A)
+### Reproduction fidelity — RULED (A: judge-equivalent)
 
-**Proposed:** "reproduce the fixture" means **judge-equivalent**, not
+**Ruling (A):** "reproduce the fixture" means **judge-equivalent**, not
 byte-identical:
 
 - identical node set — same ids, roles, sides, introduction speeches, and per-speech
@@ -72,21 +73,23 @@ byte-identical:
   support/attack/comparison type),
 - identical judge verdict + trace class.
 
-It does **not** require identical edge `source`/`target` **orientation**. Rationale:
-the judge is direction-agnostic (`judge_spec.md` §2.2 — edges are read as undirected;
-chains orient by node *type* and clashes by *speech recency*, never by drawn
-direction), and the warm-start observations come from **env-built** orientation, not
-the fixture's, so byte-fidelity to authored orientation buys nothing for the verdict.
+It does **not** require identical edge `source`/`target` **orientation**. The judge is
+direction-agnostic (`judge_spec.md` §2.2 — edges are read as undirected; chains orient
+by node *type* and clashes by *speech recency*, never by drawn direction), and the
+warm-start observations come from **env-built** orientation, not the fixture's, so
+byte-fidelity to authored orientation buys nothing for the verdict.
 
-**Why this is an open question, not a free call.** The encoder's structural attention
-bias *is* directional (`encoder_spec.md` §Structural bias: `supports` vs
-`supported_by` are distinct relations). So the orientation the environment happens to
-build is exactly what the warm-started policy imitates. Choosing judge-equivalence
-means we must also fix a **single, consistent orientation policy** for env
-construction (proposed in §Edge inversion), and the user should ratify that the
-policy learns *that* directional structure rather than the fixture's authored one —
-which, as §Reachability shows, is itself inconsistent across the corpus and often not
-introduce-reproducible in its authored direction anyway.
+**Why this is the right target (and not a byte-fidelity one).** The encoder's
+structural attention bias *is* directional (`encoder_spec.md` §Structural bias:
+`supports` vs `supported_by` are distinct relations), so the orientation the
+environment builds is exactly what the warm-started policy imitates. R2 (below) showed
+authored orientation in the corpus is **not a reliable signal**: 43 of 48 cross-speech
+support edges are unbuildable in authored orientation, and BD↔Impact splits 29/12 with
+no consistent convention. Training the encoder's directional bias on authored
+orientation would therefore fit **data-entry artifacts**, not real structure. Under A
+the env-built orientation (§Edge inversion, ruling E) is a single, consistent,
+mechanically-derived convention — the directional structure the policy learns is
+principled rather than an artifact of how a fixture happened to be typed.
 
 ## The inversion problem
 
@@ -94,9 +97,20 @@ A fixture records only final structure: nodes (`id, role, side, speech, liveness
 edges (`source, target, type`), and weigh pointers. It records **no action history** —
 not the order nodes were introduced, not which incident edge was a node's
 "introduction edge" vs. a later `connect`, not whether a liveness stamp came from an
-`extend` or a `concede`, not the intra-speech move order. Inversion must recover a
-*plausible legal* history that the environment would accept and that reproduces the
-graph.
+`extend` or a `concede`, not the intra-speech move order. Inversion must recover
+**any** legal history that the environment would accept and that reproduces a
+judge-equivalent graph.
+
+**Any-legal-path — RULED (B).** Inversion targets *any* legal action sequence that
+reaches a judge-equivalent graph; it does **not** model or approximate realistic human
+construction order (advocacy-first, construct-broad-then-narrow, etc.). A fixture's
+static graph records no real construction order, so approximating a "plausible" order
+would mean **inventing and hardcoding** an assumed strategic pattern — which cuts
+against the schema's emergence-over-hardcoding principle: sequencing is exactly the
+kind of thing self-play should discover, not a heuristic baked into the training data.
+The tiebreaks in §Underdetermination therefore exist **only for determinism** (so the
+same fixture yields the same data run-to-run); none of them is a plausibility model,
+and none should be read as one.
 
 What is **already determined by the fixture** (not inferred):
 
@@ -118,9 +132,9 @@ What must be **inferred**:
 4. the **verb** (`extend` vs `concede`) for each post-introduction liveness stamp,
 5. the **intra-speech ordering** of all of the above against the move budget.
 
-## Inversion strategy (proposal)
+## Inversion strategy
 
-### 1. Node introduction: speech-bucketed reverse-spine topological order
+### 1. Node introduction: speech-bucketed topological order over the introduction forest
 
 Bucket nodes by `speech` (order buckets by `SPEECH_ORDER`). Within a speech, all
 nodes share one side and are introduced in that speech's turn.
@@ -128,21 +142,25 @@ nodes share one side and are introduced in that speech's turn.
 Introduction obeys one hard constraint from the environment: **`introduce(role,
 target, edge_type)` creates a new node whose single edge runs `new → target`, so the
 `target` must already exist.** Therefore a node introduced via an attaching
-`introduce` must have its introduction-edge target already present.
+`introduce` must have its introduction-edge target already present, and the built edge
+is oriented `new → target` — which, under ruling E (§2), is simply *whatever
+orientation natural forward construction produces*, never the fixture's authored one.
 
-**Proposed order within the whole round:** a topological order over the chosen
-*introduction-edge* forest such that every introduction edge's target precedes its
-source, subject to speech buckets being contiguous and in `SPEECH_ORDER`. Concretely:
+**Order within the round:** any topological order over the chosen *introduction-edge*
+forest such that every introduction edge's target precedes its source, with speech
+buckets contiguous and in `SPEECH_ORDER`. Concretely:
 
 - **Roots** (nodes whose introduction is a fresh `NEW` node, no edge) come first
   within their speech.
-- A node attached by introduction edge `X → T` is introduced after `T`.
+- A node attached by introduction edge `new → target` is introduced after `target`.
 
-Because the authored support spine runs premise→conclusion (`advocacy → … → impact →
-BD`) but `introduce` forces `new = source`, reproducing an authored support edge
-`A → B` in-orientation requires introducing `B` **before** `A` and attaching `A` onto
-`B`. Within a single speech this is free (see §2 for the orientation choice and its
-tension with construction plausibility). Across speeches it is often impossible (§4).
+Because there is no authored-orientation target to hit (E), this order is
+**unconstrained beyond legality**: for a support edge inside one speech, either
+endpoint may be the parent; for a cross-speech support edge, the earlier-speech
+endpoint is necessarily the parent and the later node simply attaches onto it (edge
+`later → earlier`), which is always a plain `introduce` — no reverse-order gymnastics
+and no `connect` needed. The intra-speech order among independent introductions is a
+determinism tiebreak (§Underdetermination), not a plausibility choice (B).
 
 ### 2. Edge inversion: introduction edges vs. `connect`, and orientation
 
@@ -158,142 +176,155 @@ Partition every non-comparison edge into exactly one of:
 
 `introduce` can only grow a forest (one node + one edge); `connect` builds everything
 non-forest (`action_schema_spec.md`). So the count of `connect` moves per fixture is
-at least `#edges − (#nodes − #roots)` and lands in specific speeches (§3).
+`#edges − (#nodes − #roots)` — the **non-forest** edges only — and lands in specific
+speeches (§3).
 
-**Orientation — PROPOSAL (ties into open question A/E).** Two families:
+**Orientation — RULED (E: natural-forward-with-flips).** Edge direction in the
+reconstructed sequence follows **whatever direction is buildable under a legal
+construction order** — never the direction authored in the fixture — and **no
+`connect`-based workaround is used to force an unbuildable authored orientation.**
 
-- *Attack and comparison edges invert cleanly in authored orientation.* An attack is
-  authored attacker→target, and the attacker is the later-speech node, matching
-  `introduce`/`connect` `source = new/acting`. A `weigh` authors `weighing → a`,
-  `weighing → b`, matching the `weigh` action exactly. (Measured: every weighing has
-  exactly two comparison edges from it; attacks orient attacker-as-source.)
-- *Support edges frequently cannot be reproduced in authored orientation.* 43 of 48
-  cross-speech support edges have `source` in an **earlier** speech than `target`
-  (e.g. `impact(1AC) → bd(2AR)`); `introduce`'s `new = source` would require the
-  earlier node to attach onto a not-yet-existent later node. These must be built by
-  **`connect` at the later speech**, and even then `connect(source, target)` can set
-  orientation freely — so authored orientation *is* reproducible for cross-speech
-  support **via `connect`**, at the cost of a move in the later speech.
+- **Introduction edges (the forest) are built in their natural orientation.** A node's
+  one introduction edge runs `new → target`. For a support edge that means: whichever
+  endpoint is introduced first is the target, and the other attaches onto it. Same
+  speech → either endpoint may be the parent (a determinism tiebreak); cross-speech →
+  the earlier node is the parent and the later attaches (`later → earlier`). Either
+  way it is a plain `introduce`. This is what makes R2 vanish: the 43/48
+  "source-earlier, unbuildable-in-authored-orientation" support edges are built as
+  ordinary flipped introduction edges, and the 29/12 BD↔Impact inconsistency is moot
+  because no authored orientation is targeted.
+- **Attacks and comparisons happen to match authored orientation, and that is fine —
+  not required.** An attack is authored attacker→target and the attacker is the
+  later-speech node, so `introduce`/`connect` `source = new/acting` reproduces it
+  naturally; a `weigh` authors `weighing → a`, `weighing → b`, exactly what the `weigh`
+  action emits. We do not *rely* on this matching — it simply falls out of natural
+  construction (E asks only for a buildable direction, and here the buildable direction
+  coincides with the authored one).
+- **Non-forest edges use `connect` in whatever orientation is legal**, chosen
+  deterministically — again never to hit an authored direction. For a `support`
+  connect, orientation is picked to **avoid closing a Support cycle** (the one legality
+  constraint on connect); because E frees us from the authored orientation, we can
+  always pick the cycle-safe direction, so E cannot introduce a connect-cycle
+  rejection that byte-fidelity might have forced.
 
-  For **same-speech** support edges, orientation is reproducible by `introduce` only
-  in reverse-spine order (introduce the impact end first). This collides with
-  construction plausibility (a debater states the advocacy first) — see open
-  question E. Under the judge-equivalence proposal (A), same-speech support edges may
-  instead be built in natural forward order with **flipped** orientation, which the
-  judge scores identically.
-
-**Proposed default orientation policy:** preserve authored orientation for attacks
-and comparisons (always feasible); for support edges, prefer the `introduce`
-introduction-edge in whatever orientation natural forward construction produces, and
-use `connect` (authored orientation) only where an edge is non-forest or cross-speech.
-This is the *simplest legal* policy; whether the corpus's authored orientation should
-instead be preserved everywhere (forcing reverse-order construction and extra
-`connect`s) is open question E.
+There is therefore **no orientation-driven `connect`** at all: `connect` is used only
+for genuinely non-forest edges (a node's second-or-later incident edge), never to
+force a forest edge into its authored direction.
 
 ### 3. `connect` and carriage placement across speeches
 
-- A **`connect` edge** is legal only once both endpoints exist. **Proposed:** place
-  each `connect` in the **earliest speech in which both endpoints exist**, performed
-  by whichever side speaks in that speech (the actor is not recorded and does not
-  affect the edge — open question C on whether the *owner* side should be preferred).
-  For a same-speech non-forest edge (e.g. the closing edge of a convergence diamond
-  authored entirely in 1AC), the `connect` is placed in that speech, after both
-  endpoints' introductions.
+- A **`connect` edge** (non-forest edges only) is legal once both endpoints exist.
+  **RULED (C): earliest-legal-speech placement.** Place each `connect` in the **first
+  speech, in `SPEECH_ORDER`, by which both endpoints have been introduced and the
+  connect is structurally legal and affordable**, performed by the side whose turn that
+  speech is (`SPEECH_SIDE[that speech]` — equivalently, the next side to speak once both
+  endpoints exist and the move is legal). The actor is not recorded in the fixture and
+  does not affect the graph; C fixes it deterministically so the `(observation, action)`
+  stream is reproducible. For a same-speech non-forest edge (e.g. the closing edge of a
+  convergence diamond authored entirely in 1AC), that earliest legal speech is the
+  endpoints' own speech, so the `connect` lands there after both introductions; its
+  orientation is the cycle-safe deterministic one (E), never the authored direction.
 - A **carriage action** (`extend`/`concede`) is emitted for each liveness key after a
-  node's introduction speech, in that key's speech, by the node's owning side.
-  Introduction itself stamps the introduction speech (no separate move).
+  node's introduction speech, in that key's speech, **by the side whose speech that is**
+  (`SPEECH_SIDE[key]`) — the node's own side for an own-side carriage, or the **opponent**
+  for a cross-side one (a `concede`; recall `concede` is just `extend` targeting an
+  opponent-owned node, `action_schema_spec.md`). Cross-side carriage is **required, not
+  optional**: 8 turned-chain nodes across 5 fixtures (`F`, `r4`/`r4b`/`r4c`, `r5`) are
+  AFF nodes carried by NEG at NEG speeches, so an own-side-only inverter would fail to
+  reproduce them. Introduction itself stamps the introduction speech (no separate move).
 
 ### 4. Speech-budget and boundary placement
 
-Each emitted move (`introduce`, `connect`, `weigh`, `extend`, `concede`) costs one
-move against the acting speech's budget (`SPEECH_BUDGET`; 1AC/1NC/2AC = 8, block = 13,
-rebuttals = 5). `end_speech` closes a turn. **Proposed placement:** within a speech,
-emit in this order — introductions (reverse-spine topological), then same-speech
-`connect`s, then `weigh`s, then carriage (`extend`/`concede`) — then `end_speech`. The
-intra-speech order among independent moves is a tiebreak (§Underdetermination).
+`introduce`/`weigh`/`connect` cost one slot; `end_speech` costs none;
+`extend`/`concede` cost `ceil(path_length / EXTEND_COST_K)` over the root-to-impact
+walk they stamp (`action_schema_spec.md` §Turn structure; the chain-level-extend +
+variable-cost model that landed after this draft's first pass). **Placement:** within
+a speech, emit in this order — introductions (topological over the introduction
+forest), then same-speech `connect`s, then `weigh`s, then carriage
+(`extend`/`concede`) — then `end_speech`. The intra-speech order among independent
+moves is a determinism tiebreak (§Underdetermination), not a plausibility choice (B).
 
-**This is where inversion collides with reality (see §Reachability).** The per-speech
-move total an inversion needs is `introduces + connects + weighs + carriages` in that
-speech, and for 24 of 45 v2 fixtures this exceeds the speech's budget — the fixtures
-were authored as judge oracles, with no budget in view.
+The per-speech cost an inversion needs is `introduces + connects + weighs +
+carriage-cost` in that speech. Under the chain-level extend model this is feasible
+corpus-wide (see the revised R1) — a whole spine is carried by one `ceil(len/K)`-priced
+extend rather than one move per node, which was what previously overflowed the rebuttal
+budgets.
 
-## Underdetermination and proposed tiebreaks
+## Underdetermination and determinism tiebreaks
 
-Where multiple legal sequences reproduce the same graph, inversion must be
-deterministic (so warm-start data is reproducible run-to-run). Each rule below is a
-**PROPOSAL**, not a decision.
+Where multiple legal sequences reproduce a judge-equivalent graph, inversion must be
+deterministic (so warm-start data is reproducible run-to-run). Under ruling B these
+rules are **arbitrary-but-fixed for determinism only** — none is a plausibility model.
 
 1. **Which incident edge is a node's introduction edge** (when a node has several
-   incident edges eligible). *Proposed:* prefer the edge to the target with the
-   earliest `(speech_index, id)`; if the node has no eligible `new → existing` edge
-   in authored orientation, introduce it as a `NEW` root and build all its incident
-   edges by `connect`. *Tiebreak flagged — interacts with orientation (E).*
-2. **Intra-speech order among independent introductions/connects/weighs.** *Proposed:*
+   incident edges to earlier-existing nodes). *Rule:* prefer the edge to the target
+   with the earliest `(speech_index, id)`; a node with no incident edge to an
+   earlier-existing node is introduced as a `NEW` root, and its incident edges become
+   the introduction edges of the later nodes that attach to it (E: orientation follows
+   whatever is buildable, so any spanning forest of the incidence graph works).
+2. **Intra-speech order among independent introductions/connects/weighs.** *Rule:*
    ascending `id`, after the topological constraint. Purely for determinism.
 3. **`extend` vs `concede` verb** for a post-introduction liveness stamp. The two are
-   structurally identical (status is derived at materialization, not from the verb —
-   `environment_shell_spec.md` §Liveness stamping). *Proposed:* always emit `extend`
-   (or mirror the materialized status: `concede` when that speech's derived status is
-   `conceded`, else `extend`). *Flagged — this is an action-label the policy imitates,
-   so it is a soft debate-semantics choice, open question D.*
-4. **Which side/speech performs a `connect`** whose endpoints exist across multiple
-   speeches. *Proposed:* earliest-legal speech, acting side of that speech
-   (§3). *Flagged — open question C.*
-5. **Root selection when a component has no authored `new → existing` orientation**
-   (e.g. a support edge whose only feasible orientation is reverse). *Proposed:*
-   the earliest-`(speech, id)` node becomes a `NEW` root; downstream edges become
-   `connect`. *Flagged — interacts with E.*
+   the same action structurally; the label is a deterministic function of **target
+   ownership** (D): `concede` when the carriage side ≠ the node's owner (a cross-side
+   carry — recall `concede` *is* `extend` targeting an opponent's node), `extend`
+   otherwise. This follows the labeling convention in `action_schema_spec.md`
+   directly. *Ruled — see D.*
+4. **Which side/speech performs a `connect`** (for the non-forest edges) whose
+   endpoints exist across multiple speeches. *Rule (C, §3):* the earliest speech where
+   both endpoints exist and the connect is legal, performed by that speech's side.
+5. **Orientation of a non-forest `connect`.** *Rule:* pick the deterministic
+   cycle-safe orientation (E: never the authored one; for `support`, whichever
+   direction does not close a Support cycle). No `connect` is ever used to force a
+   forest edge's authored orientation.
 
 ## Reachability gaps (candidate real bugs, not to be papered over)
 
 These are fixtures (or fixture properties) that **no legal action sequence can
 reproduce under current rules**. Surfaced, not worked around.
 
-### R1. Per-speech budget overflow — 24 of 45 v2 fixtures
+### R1. Per-speech budget overflow — RESOLVED by chain-level extend (not by A/B/E)
 
-On an `introduce + extend` lower bound alone (ignoring `connect` moves, which only add
-more), 24 of 45 v2 fixtures need more moves in some speech than its budget allows.
-The binding constraint is the **rebuttal budgets** (1AR/2NR/2AR = 5): a fixture that
-keeps a multi-node spine live through 2AR must re-extend every spine node there, which
-alone can need 6–8 moves. Examples (needed vs. budget):
+**Original finding (per-node extend model):** on an `introduce + extend` lower bound,
+24 of 45 v2 fixtures needed more moves in some speech than its budget allowed, the
+binding constraint being the rebuttal budgets (1AR/2NR/2AR = 5) — keeping a multi-node
+spine live through 2AR cost 6–8 moves at one-move-per-node (e.g. `r33`/`r34`/`r35`
+8/5 at 1AR & 2AR; `r32` 7/5 & 8/5).
 
-| Fixture | Over-budget speeches (needed/budget) |
-|---|---|
-| `fw_weigh_lockout` | 1AR 6/5, 2NR 7/5, 2AR 7/5 |
-| `r33`, `r34`, `r35` | 1AR 8/5, 2AR 8/5 |
-| `r29` | 1AR 8/5, 2AR 8/5 |
-| `r32` | 1AR 7/5, 2AR 8/5 |
-| `AFFturnOutweighed` | 2NR 7/5 |
-| … (24 total) | mostly rebuttal-speech extension load |
+**Now resolved** — but by the **chain-level extend + variable-cost** ruling that landed
+after this draft's first pass, *not* by A/B/E. Under that model a whole spine is
+carried by a single `ceil(path_length / K)`-priced `extend` instead of one move per
+node, so the rebuttal load collapses and **all 45 v2 fixtures fit every per-speech
+budget** (re-verified: 0/45 over budget, including `connect` moves greedily placed).
+A/B/E leave this unchanged — they touch orientation, path, and fidelity, not extension
+cost — but they do not re-open it either. **Open question F is therefore closed on
+budget grounds for the v2 corpus** (the former residual, the v1 `NSDA24Finals` round
+that overflowed on introductions alone, has since been deleted from the corpus — see
+R3 / G).
 
-The **total** move count is fine (max ≈ 43 < 52 ceiling); it is the **per-speech
-distribution**, specifically rebuttals, that is infeasible. The corpus and the
-first-iteration budgets were designed independently — the fixtures as judge oracles
-(no env), the budgets as `SPEECH_BUDGET` defaults ("tunable", per both specs). Warm-
-start forces a reconciliation. **This is open question F** (retune budgets? a separate
-warm-start replay budget? drop/trim infeasible fixtures? allow a node to skip re-
-extension where the verdict is invariant?). It should not be silently resolved by, e.g.,
-quietly raising budgets or dropping the offending extensions, because either choice
-changes what behavior the warm-started policy imitates.
+### R2. Authored support-edge orientation — RESOLVED by E
 
-### R2. Authored support-edge orientation is not introduce-reproducible and is corpus-inconsistent
+**Original concern:** 43 of 48 cross-speech support edges orient `source`-earlier (not
+`introduce`-buildable in authored orientation), and BD↔Impact support edges split 29
+`impact→bd` vs 12 `bd→impact` — no single authored convention, so "preserve authored
+orientation" was neither always feasible nor even well-defined across the corpus.
 
-43 of 48 cross-speech support edges orient `source`-earlier (not `introduce`-buildable
-in authored orientation), and BD↔Impact support edges split 29 `impact→bd` vs 12
-`bd→impact` across the corpus — there is **no single authored convention**. Under
-judge-equivalence (A) this is a non-issue (orientation is free and the judge is
-direction-agnostic); under a byte-fidelity requirement it forces `connect`-heavy
-reconstruction and aggravates R1. Flagged because the choice between A and byte-
-fidelity is a real fork, and because the *inconsistency itself* means "preserve
-authored orientation" is not even a well-defined target across the corpus.
+**Resolved by ruling E (natural-forward-with-flips).** Because reconstruction no longer
+targets authored orientation, every such support edge is built as an ordinary flipped
+introduction edge (the later node attaches onto the earlier one; §Edge inversion), and
+the BD↔Impact inconsistency is moot. No `connect`-based workaround is used to force an
+authored direction, and the encoder's directional bias trains on the single consistent
+env-built convention rather than on the corpus's data-entry artifacts (§Reproduction
+fidelity). This class of edge is now fully reproducible; R2 is **not** a reachability
+blocker.
 
-### R3. `NSDA24Finals` is v1 and vastly over budget
+### R3. `NSDA24Finals` — RESOLVED (fixture deleted)
 
-The single v1 fixture (`ExtensionEdge` encoding) needs `model.convert` first, and once
-converted it exceeds **every** speech's budget (10/8 at 1AC, 18/13 at the block,
-13/5 at 1AR, …). As the only genuine full-length real round in the corpus it is the
-most valuable demonstration *and* the least reproducible. **Open question G:** is
-`NSDA24Finals` in-scope for warm-start at all, and if so under what budget?
+The single v1 fixture (`ExtensionEdge` encoding) was over budget on introductions alone
+(≈84 nodes; 10/8 at 1AC, 18/13 at the block, …), making it the least reproducible round
+in the corpus. It has since been **deleted from the fixture set** (its dependent tests
+were retired or repointed to v2 rounds), so it is no longer a warm-start candidate and
+the reachability concern is moot. Open question G is thereby closed.
 
 ### R4. Non-issues confirmed (for the record)
 
@@ -316,42 +347,76 @@ The genuine ownership subtleties are narrower:
 
 - **`connect` has no recorded actor.** An edge added by `connect` is side-less; the
   environment attributes the *move* to whoever is speaking. So the *speech* a
-  `connect` lands in is a real choice (§3, tiebreak C) — it consumes that side's
-  budget and appears in that side's observation stream, which is what the policy
-  imitates. It does not change the graph, but it changes the `(observation, action)`
-  pairs. Flagged (C).
+  `connect` lands in is a real choice — it consumes that side's budget and appears in
+  that side's observation stream, which is what the policy imitates. It does not change
+  the graph, only the `(observation, action)` pairs, and is fixed by ruling C
+  (earliest-legal-speech, that speech's side; §3).
 - **Cross-side introduction targets are fine.** A NEG node introduced at 1NC
   attacking an AFF 1AC node targets an already-existing node — legal by construction,
   no ambiguity.
 - **A `connect` between two same-side nodes introduced in different speeches** may be
-  performed in either side's later speech; only the owning side's speeches are natural
-  (the opponent has no reason to spend a move wiring your spine), but "natural" is a
-  plausibility judgment, not a legality one → tiebreak C / open question E.
+  performed in any later speech where both endpoints exist. Which speech/side spends
+  the move is a legality-neutral choice — not a plausibility one (B rules out modeling
+  "the opponent has no reason to wire your spine" as a heuristic) — so it is settled by
+  ruling C: the earliest legal speech and that speech's side.
 
-## Open questions requiring a ruling (before finalize + implement)
+## Resolved rulings
 
-- **A. Reproduction fidelity.** Judge-equivalent (proposed) or byte-identical edge
-  orientation? Determines whether §Edge inversion's orientation freedom is available.
-- **B. Any-legal-path vs. plausible construction.** Should inferred sequences just be
-  *some* deterministic legal path (proposed default), or should they mimic real
-  in-round construction (advocacy-first, forward spine order, construct-broad-then-
-  narrow)? This is a debate-semantics call and it trades directly against A/E: forward
-  plausible construction implies flipped support orientation (needs A), while authored-
-  orientation fidelity implies implausible reverse-order construction.
-- **C. `connect` actor/speech placement.** Earliest-legal speech + that side (proposed),
-  owner-side-preferred, or something else? Affects which observations enter the data.
-- **D. `extend` vs `concede` verb.** Always `extend`, or mirror the derived status?
-  The policy imitates this label even though the graph is verb-invariant.
-- **E. Support-edge orientation policy** (the concrete form of A/B): natural-forward
-  with flips, vs. reverse-order/`connect` to preserve authored orientation.
-- **F. Budget reconciliation for R1** (the headline blocker): retune `SPEECH_BUDGET`
-  (esp. rebuttals), grant a separate warm-start replay budget, drop/trim the 24
-  over-budget fixtures, or relax mandatory re-extension where the verdict is invariant?
-  Each answer changes what the warm-started policy learns.
-- **G. `NSDA24Finals` (and any future full round) scope.** In or out of warm-start,
-  and under what budget, given R3?
-- **H. The "hand-authored 1AC."** `rl_training_spec.md` names it as a demonstration
-  source, but no dedicated 1AC artifact exists in the repo (no `*1ac*` fixture, no
-  builder default found). Does it need authoring as a separate deliverable, or does
-  "the fixture corpus" subsume it?
-```
+All eight original open questions (A–H) are resolved. In summary:
+
+- **A — Fidelity: judge-equivalent, not byte-identical.** A reconstructed sequence must
+  reach a graph the judge scores identically (same verdict, same liveness/path
+  structure), not one that reproduces the fixture's edges byte-for-byte
+  (§Reproduction fidelity).
+- **B — Any-legal-path, no plausibility model.** Any legal sequence reaching a
+  judge-equivalent graph is acceptable warm-start data; inversion does not model or
+  approximate human construction order, and the §Underdetermination tiebreaks exist
+  only for determinism (§The inversion problem).
+- **C — `connect` placement: earliest-legal-speech, that speech's side.** Each
+  non-forest edge's `connect` is placed in the first speech (in `SPEECH_ORDER`) by which
+  both endpoints exist and the move is legal and affordable, performed by that speech's
+  side (`SPEECH_SIDE`). Deterministic; affects the observation stream, not the graph
+  (§3, tiebreak 4).
+- **D — `extend`/`concede` verb label: by target ownership.** The verb is a pure label
+  (the two are one action; §concede in `action_schema_spec.md`), fixed deterministically:
+  `concede` when the carriage side ≠ the node's owner (cross-side carry), else `extend`.
+  This follows the schema's own labeling convention; it supersedes this question's
+  original "always `extend` / mirror the `contested`/`conceded` status" framing, which
+  predated the concede ruling and conflated the per-speech *status tag* with the *verb*
+  (§Underdetermination tiebreak 3).
+- **E — Edge orientation: natural-forward-with-flips.** Orientation follows whatever is
+  buildable under a legal construction order, never the fixture's authored direction,
+  and `connect` is never used to force an unbuildable authored orientation (§Edge
+  inversion). Rationale for A/E: R2 showed authored direction encodes no reliable
+  signal (43/48 cross-speech support edges unbuildable in authored orientation;
+  BD↔Impact 29/12), so treating it as ground truth would train the encoder's
+  directional bias on data-entry artifacts. Rationale for B: a static graph records no
+  real construction order, so a "plausible" order would be invented/hardcoded strategy,
+  against emergence-over-hardcoding.
+- **F — Budget reconciliation: closed by chain-level extend.** All 45 v2 fixtures fit
+  every per-speech budget under the `ceil(path_length / K)` extend-cost model (0/45 over
+  budget, connect moves included); no budget retune or corpus trim is needed (§R1).
+- **G — `NSDA24Finals` scope: closed by deleting the fixture.** The sole v1 round was
+  over budget on introductions alone and irreproducible; it has been **deleted** from the
+  corpus (its dependent tests retired or repointed to v2 rounds), so it is no longer a
+  warm-start candidate (§R3).
+- **H — hand-authored 1AC: `8node1ac.json` (pending import).** The artifact
+  `rl_training_spec.md` refers to exists and is already builder-loadable v2 (no
+  conversion), a single-speech 1AC opening (8 AFF nodes, one support tree), and
+  **feasible** under the extend-cost model — 0 `connect` moves, 8 introduces = the 1AC
+  budget, 0 extends. Importing it (proposed: a dedicated `tests/warmstart/` rather than
+  the oracle-verdict corpus) is a separate, later task.
+
+## Readiness
+
+No open questions remain. The strategy above — judge-equivalent reproduce-by-replay
+(A), any-legal-path with determinism tiebreaks (B), forest-`introduce` /
+non-forest-`connect` edge partition, natural-forward-with-flips orientation (E),
+earliest-legal-speech `connect` placement (C), chain-level `ceil(path_length / K)`
+carriage priced per speech (F), and ownership-labeled `extend`/`concede` (D) — is
+complete and internally consistent, and every reachability concern (R1–R4) is resolved
+or confirmed a non-issue. Conversion code can be written against this document.
+
+The only outstanding item is a **task, not a question**: importing `8node1ac.json` as
+the warm-start 1AC fixture (H), a separate later step that does not block writing the
+core inversion.
