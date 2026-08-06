@@ -121,17 +121,33 @@ An off-spine / orphan / impact-less target is still structurally legal; its walk
 stamps whatever spine is reachable (at least the node itself), priced by the same
 `ceil(path_length / K)`.
 
+**Target may be own-side or opponent-side.** Like every other targeting action
+(§introduce), `extend` accepts *any* existing node regardless of which side
+introduced it. Extending your own node carries your own chain; extending an
+opponent's node carries theirs — the walk, cost, and per-speech stamp are keyed off
+the *target's* chain, never off who is acting. Cross-side targeting is legal and
+carries no special cost or restriction.
+
 ### `concede(node_id)`
 
-Identical chain-level effect and identical `ceil(path_length / K)` cost as
-`extend`, over the selected node's walk. Retained as a distinct verb only as
-agent-facing intent / logging.
+**`concede` is not a distinct mechanic — it is `extend`.** Same chain-level
+root-to-impact walk, same `ceil(path_length / K)` cost, same per-speech liveness
+stamp, same divergent-branch pricing — identical in every respect. "Concede" is
+simply the descriptive label used when the targeted node happens to be
+**opponent-owned**; `extend` is the label when it is your own. Functionally there is
+one action with one implementation.
 
-**Structural note on `extend` vs `concede`.** Both actions have the same
-structural effect — a per-speech liveness stamp across the selected path, at the
-same cost. Because contested/conceded *status* is derived structurally from the
-graph (never from the verb the agent used), the two coincide in the materialized
-graph and differ only as agent-facing intent and logging.
+There is **no** permanence, no free/zero-cost case, no one-shot restriction, and no
+new node state: a node is kept live speech-by-speech exactly as with any extend
+(re-stamped each speech it must remain live), and conceding never restricts future
+actions (attacks included) on that node — ordinary legality rules apply throughout.
+
+**Structural note on `extend` vs `concede`.** The two are the same structural act — a
+per-speech liveness stamp across the selected node's chain, at the same cost. They
+differ only as agent-facing intent / logging: `concede` names the cross-side case,
+`extend` the same-side case. Because contested/conceded *status* is derived
+structurally from the graph (never from the verb), the labels coincide in the
+materialized graph and carry no distinct semantics.
 
 ### `weigh(node_a, node_b, favors, justification)`
 
