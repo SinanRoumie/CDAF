@@ -152,6 +152,8 @@ losslessly:
 The old structure contains exactly the information the new one needs, so this is a re-encoding, not a
 guess. Bump the schema version. Expect rounds to shrink substantially (NSDA24Finals from ~84 nodes).
 Re-encoding NSDA24Finals is also the first correctness check — the extension bug may resolve here.
+(NSDA24Finals — the sole v1 round — has since been deleted from the fixture set; this records the
+original migration validation, which ran against it at the time.)
 
 ---
 
@@ -161,7 +163,7 @@ Strict dependency order — correctness is proven before the UI is touched.
 
 | Stage | Build | Gate |
 |---|---|---|
-| E1 | Model field (`liveness`) + serializer round-trip + version bump + the §5 converter | existing saved rounds (incl. NSDA24Finals) load, convert, re-save; graphs shrink; round-trips clean; `ExtensionEdge` gone |
+| E1 | Model field (`liveness`) + serializer round-trip + version bump + the §5 converter | existing saved rounds (incl. NSDA24Finals, since deleted from the corpus) load, convert, re-save; graphs shrink; round-trips clean; `ExtensionEdge` gone |
 | E2 | Judge §6 rewrite (record-based extension) + §4 new-argument threshold | extension unit tests pass (clean chain counts; a gap fails; side-agnostic turn keeps opponent node live; shared-node union holds); new-argument tests pass (contested continuation counts, conceded-live spike inert, new-from-nothing inert) |
 | E3 | Builder: extend act = select path + pick speech + stamp; nodes visibly show live speeches; collapse is visible on the graph | build and collapse a branchy argument in the dashboard; liveness renders; judging it matches E2 |
 

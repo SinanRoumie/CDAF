@@ -100,7 +100,7 @@ Persistence is shown **on the node**, never by motion or duplication.
 
 | Stage | Build | Gate |
 |---|---|---|
-| E3a | New layout engine (intro-speech X anchor, vertical argument fan, soft bands) + node rendering (glow always, driven by liveness-to-final-speech, side-agnostic; strip on select) | load the converted NSDA round: nodes sit at intro speech, glow reflects liveness depth, selecting a node shows its 7-cell strip; a node kept alive by an opponent turn glows |
+| E3a | New layout engine (intro-speech X anchor, vertical argument fan, soft bands) + node rendering (glow always, driven by liveness-to-final-speech, side-agnostic; strip on select) | load a converted round (originally NSDA24Finals, since deleted from the corpus): nodes sit at intro speech, glow reflects liveness depth, selecting a node shows its 7-cell strip; a node kept alive by an opponent turn glows |
 | E3b | Extend/collapse interaction (select path + speech → stamp liveness) + retire ExtensionEdge (palette + model) | build a small round, extend one branch to 2AR and drop another; glow/strips update; Save→Load→Judge round-trips; judging the built round == judging its saved JSON |
 
 E3a is display-only (safe to build and eyeball). E3b changes authoring and finalizes the migration.

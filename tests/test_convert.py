@@ -4,8 +4,6 @@ Pure model/ work: no dash/plotly/flask; the converter is a lossless v1 -> v2
 re-encoding of the ExtensionEdge structure into per-node liveness.
 """
 
-import os
-
 from model import (
     Round, Link, Advocacy, BallotDirective,
     Support, DefensiveAttack, OffensiveAttack,
@@ -15,8 +13,6 @@ from model import (
 
 def _no_extension_edges(rnd):
     return not any(e.etype == "ExtensionEdge" for e in rnd.edges)
-
-ORACLE = os.path.join(os.path.dirname(__file__), "oracle", "NSDA24Finals.json")
 
 
 # --- model field --------------------------------------------------------------
@@ -154,22 +150,3 @@ def test_authored_liveness_survives_the_v2_from_dict_path():
     # liveness from the (absent) ExtensionEdge structure -> only the intro speech.
     wiped = serialize.from_dict({"elements": elements})
     assert [n for n in wiped.nodes][0].liveness == {"1AC": CONCEDED}
-
-
-# --- real round ---------------------------------------------------------------
-
-def test_nsda_round_converts_shrinks_and_restabilizes():
-    import json
-    raw = json.load(open(ORACLE))
-    before_nodes = sum(1 for e in raw["elements"] if "source" not in e["data"])
-
-    rnd = serialize.load(ORACLE)           # v1 -> auto-convert -> v2
-    assert rnd.version == 2
-    assert len(rnd.nodes) < before_nodes                       # duplicates collapsed
-    assert _no_extension_edges(rnd)   # no ExtensionEdges
-    # every node carries liveness including its intro speech
-    for n in rnd.nodes:
-        assert n.liveness and n.speech in n.liveness
-    # re-saving the v2 round and reloading is byte-stable (no second conversion)
-    text = serialize.dumps(rnd)
-    assert serialize.dumps(serialize.loads(text)) == text

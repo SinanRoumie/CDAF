@@ -21,9 +21,8 @@ from env.validator import trace_has_convergence_marker, CONVERGENCE_MARKER
 ORACLE_DIR = os.path.join(os.path.dirname(__file__), "oracle")
 
 # Fixtures the oracle SUITE actually loads -- these must all validate clean (the
-# fence must never refuse a round the judge is scored on). NSDA24Finals.json is a
-# real full round NOT used by the suite; it is genuinely multi-terminal and, since
-# Fence A retired (v11), is now admitted (asserted separately below).
+# fence must never refuse a round the judge is scored on). A genuine multi-terminal
+# oracle round (r37) is admitted since Fence A retired (v11) -- asserted separately below.
 SUITE_FIXTURES = [
     "r29.json", "r31.json", "r32.json", "r33.json", "r34.json", "r35.json",
     "AFFLinkturnsNeg.json", "AFFLinkturnsNeg_impactanchor.json",
@@ -81,9 +80,10 @@ def test_multiterminal_component_admitted():
 
 
 def test_real_multiterminal_round_admitted():
-    """NSDA24Finals is genuinely multi-terminal; with Fence A retired it is admitted
-    (structural admission is Fence G only). Its judge verdict is not pinned here."""
-    rnd = serialize.load(os.path.join(ORACLE_DIR, "NSDA24Finals.json"))
+    """r37 is a genuine multi-terminal oracle round (a same-side Support component with
+    two terminal impacts); with Fence A retired it is admitted (structural admission is
+    Fence G only). Its judge verdict is not pinned here."""
+    rnd = serialize.load(os.path.join(ORACLE_DIR, "r37.json"))
     assert validate_round(rnd).ok
 
 

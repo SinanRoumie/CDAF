@@ -1,4 +1,4 @@
-"""J3/E2 gate -- per-pass unit tests on small constructed Rounds + robustness.
+"""J3/E2 gate -- per-pass unit tests on small constructed Rounds.
 
 Model C: extension is per-node LIVENESS, not an edge. A node built here carries a
 liveness record; by default `node()` stamps FULL own-side liveness (introduction
@@ -6,12 +6,10 @@ through the side's final speech) so a clean chain is fully extended. Tests that
 exercise a gap pass an explicit partial `live=`.
 """
 
-import os
-
 from model import (
     Round, Advocacy, Uniqueness, Link, Impact, Framework, Weighing, BallotDirective,
     Support, DefensiveAttack, OffensiveAttack, Comparison,
-    SPEECH_ORDER, SPEECH_SIDE, CONTESTED, CONCEDED, serialize,
+    SPEECH_ORDER, SPEECH_SIDE, CONTESTED, CONCEDED,
 )
 
 from judge import passes, judge as judge_mod
@@ -251,16 +249,6 @@ def test_empty_round_drains_to_neg_presumption():
     ballot, trace = judge(Round(elements=[]))
     assert ballot == NEG
     assert [r for r in trace if r.kind == "BALLOT"][0].winner == NEG
-
-
-# --- Robustness: the real saved round -----------------------------------------
-
-def test_real_round_runs_without_error():
-    path = os.path.join(os.path.dirname(__file__), "oracle", "NSDA24Finals.json")
-    rnd = serialize.load(path)
-    ballot, trace = judge(rnd)
-    assert ballot in (AFF, NEG)
-    assert len(trace) > 0
 
 
 # --- Part 1 (J4a): polarity flip gated on OffensiveAttack (§3.2) --------------
