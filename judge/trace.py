@@ -102,6 +102,25 @@ class InertAttack(TraceRecord):
 
 
 @dataclass
+class WindowClosed(TraceRecord):
+    """An attack ruled inert because it arrived AFTER its target's response window
+    closed (§4): the argument was already settled/conceded as of the window's close,
+    so a late 'answer' is not evaluated. Distinct from the no-new-offense-in-rebuttals
+    rule -- this is response VALIDITY/timing on an existing argument, not new-offense
+    legality. Reported (not silent) so a late response is visible and debuggable,
+    mirroring the lapsed/turn-ineligible INERT_ATTACK trace."""
+    edge_id: str
+    attacker_id: str
+    attacker_speech: str
+    target_id: str
+    target_speech: str
+    window_close: str
+
+    kind: ClassVar[str] = "WINDOW_CLOSED"
+    pass_no: ClassVar[str] = "1"
+
+
+@dataclass
 class ConvergenceOutOfScope(TraceRecord):
     """WRITE-ONLY fence marker (§3.3.1c). Emitted when `_aggregate_impact` reaches
     the UNEQUAL-magnitude sign-conflict convergence branch -- a V1-out-of-scope

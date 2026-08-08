@@ -115,9 +115,11 @@ def side_speeches(side: str) -> List[str]:
 
 
 def response_window(speech: str, side: str) -> Optional[str]:
-    """The node's response window (§4): the next speech in SPEECH_ORDER owned by
-    the opposing side after `speech`. None if no later opposing speech exists
-    (the node was introduced too late for the opponent to answer)."""
+    """The OPEN of a node's response window (§4): the next speech in SPEECH_ORDER
+    owned by the opposing side after `speech`. None if no later opposing speech exists
+    (the node was introduced too late for the opponent to answer). The default window
+    is a SINGLE speech (open == close); the 1AC exception widens it -- see
+    `window_close`."""
     i = _sidx(speech)
     if i is None:
         return None
@@ -126,6 +128,33 @@ def response_window(speech: str, side: str) -> Optional[str]:
         if SPEECH_SIDE.get(SPEECH_ORDER[j]) == opp:
             return SPEECH_ORDER[j]
     return None
+
+
+def window_close(speech: str, side: str) -> Optional[str]:
+    """The CLOSE of a node's response window (§4): the LATEST speech at which an
+    argument introduced at `speech` can still be legally answered.
+
+    Default: the immediately-following opposing speech (== `response_window`), so the
+    window is that single speech. EXCEPTION: a **1AC**-introduced node's window extends
+    through BOTH of NEG's constructive speeches, so its latest legal response is
+    **2NC/1NR**, not just 1NC. An attack arriving after this is inert (`WINDOW_CLOSED`);
+    the argument is settled/conceded as of the close."""
+    if speech == "1AC":
+        return "2NC/1NR"
+    return response_window(speech, side)
+
+
+def in_response_window(answer_speech: str, target_speech: str, target_side: str) -> bool:
+    """True iff an opposing answer introduced at `answer_speech` falls WITHIN the
+    target's response window [open .. close] (§4). For the default (single-speech)
+    window this is `answer_speech == open`; for a 1AC target it accepts any of NEG's
+    constructive speeches up to and including 2NC/1NR."""
+    opn = response_window(target_speech, target_side)
+    cls = window_close(target_speech, target_side)
+    ai = _sidx(answer_speech)
+    if opn is None or cls is None or ai is None:
+        return False
+    return _sidx(opn) <= ai <= _sidx(cls)
 
 
 # --- context ------------------------------------------------------------------
@@ -314,6 +343,23 @@ def _classify_attacks(ctx: Context) -> None:
             ctx.trace.append(T.InertAttack(edge_id=e.id, reason=reason))
             continue
 
+        # Response-window gate (§4). An attack is a legal RESPONSE only within its
+        # target's response window -- the immediately following opposing speech,
+        # EXTENDED through 2NC/1NR for a 1AC-introduced target (the 1AC exception). An
+        # attack arriving AFTER the window closes is inert: the argument was already
+        # settled/conceded as of the close, so a late "answer" is not evaluated. This
+        # is response VALIDITY/timing on an existing argument, DISTINCT from the
+        # no-new-offense-in-rebuttals rule (which governs whether a rebuttal move may
+        # introduce new offense). Reported via WINDOW_CLOSED so it is visible, not
+        # silent, and so the drop-lock (Pass 2) and the magnitude channel (Pass 3) no
+        # longer disagree about a late-attacked node.
+        wc = window_close(target.speech, target.side)
+        if wc is not None and _sidx(attacker.speech) > _sidx(wc):
+            ctx.trace.append(T.WindowClosed(
+                edge_id=e.id, attacker_id=attacker.id, attacker_speech=attacker.speech,
+                target_id=target.id, target_speech=target.speech, window_close=wc))
+            continue
+
         # Attacker-liveness gate (§3.1, §6 -- v4). An attack contributes to its
         # target's accrual ONLY while the attack itself is LIVE -- extended by its
         # maker (side-agnostic union, node_live_by_any_side, so a turn kept live by
@@ -372,8 +418,13 @@ def pass2_drops(ctx: Context) -> None:
         answered = False
         for nbr, e in ctx.adj.get(nid, []):
             m = ctx.nodes.get(nbr)
+            # Answered iff an opposing clash falls WITHIN the response window (§4).
+            # Uses the window RANGE, not equality with the single open speech, so a
+            # 1AC node answered at 2NC/1NR (the 1AC exception) counts as answered
+            # rather than being mis-classified as dropped.
             if m is not None and isinstance(e, ATTACK_TYPES) \
-                    and m.side == _opposing(n.side) and m.speech == win:
+                    and m.side == _opposing(n.side) \
+                    and in_response_window(m.speech, n.speech, n.side):
                 answered = True
                 break
         if answered:

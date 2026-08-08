@@ -427,14 +427,32 @@ the root, Impact the terminal, BD the sink. Edge arrows are ignored. **Only BD-r
 are evaluated.**
 
 ### Pass 2 — Drop detection + extension (temporal)
-A node's **response window** is the *next speech in `SPEECH_ORDER` owned by the opposing side* after
-the node's own `speech`. The attacker in any clash is the **later-speech node** (§2.2), not the
-edge's `source` — direction is ignored; recency decides.
+A node's **response window** is the range of speeches in which an opposing answer is still *legal*.
+The attacker in any clash is the **later-speech node** (§2.2), not the edge's `source` — direction is
+ignored; recency decides.
 
-- **Answered** — an opposing node in the window speech is in a clash (attack edge, either drawn
-  direction) with this node -> it goes to DF-QuAD (Pass 3).
-- **Dropped** — the window speech passed with no opposing clash -> the node **locks at its strength**
-  (conceded; under tau = 1.0 that is full strength). Emit `DROP`.
+- **Default (next-speech only):** the window is the *single* next speech in `SPEECH_ORDER` owned by
+  the opposing side after the node's own `speech`. An argument introduced in speech N can be answered
+  only in the immediately following opposing speech.
+- **1AC exception (extended window):** a node introduced in **1AC** has a window covering **both** of
+  NEG's constructive speeches — its latest legal response is **2NC/1NR**, not just 1NC. (`window_close`
+  returns `2NC/1NR` for a 1AC node, the next opposing speech otherwise.)
+
+**Response-window enforcement (attack validity/timing).** An attack that arrives **after its target's
+window closes** is **inert** — the argument was settled/conceded as of the window's close, so a late
+"answer" is not evaluated (no DF-QuAD contribution). This is enforced at attack-gathering (Pass 1),
+alongside the same-side / turn-ineligibility / lapsed-attacker filters, and emits a **`WINDOW_CLOSED`**
+trace record `{edge_id, attacker_id, attacker_speech, target_id, target_speech, window_close}` so a
+late response is visible, not silent. **This is distinct from the no-new-offense-in-rebuttals rule
+(§6):** that governs whether a *rebuttal move may introduce new offense*; this governs *response
+validity/timing on an existing argument*, independent of whether the attacking move introduces offense.
+
+- **Answered** — an opposing node **within the response window** is in a clash (attack edge, either
+  drawn direction) with this node -> it goes to DF-QuAD (Pass 3).
+- **Dropped** — the window passed with no in-window opposing clash -> the node **locks at its strength**
+  (conceded; under tau = 1.0 that is full strength). Emit `DROP`. Because a late attack is now inert
+  (above), a dropped/locked node is no longer silently reduced by an out-of-window "answer" — the
+  Pass 2 lock and the Pass 3 magnitude channel agree.
 - **No window** — introduced in the final speech of its side, opponent never had standing ->
   **unresolved**, cannot establish offense. Emit `UNRESOLVED`. **Refinement (final-speech offense):**
   a final-speech node *does* engage if it continues a clash that was **contested** entering that
@@ -928,6 +946,7 @@ RFD/panel reads — judge-populated, consumed downstream, and never able to chan
 | `MAGNITUDE` | node_id, base_tau, surviving_sigma, attackers[], supporters[] | — | 3 |
 | `POLARITY_FLIP` | link_id, from_sign, to_sign, sigma, via (preference/dfquad) | — | 3 |
 | `INERT_ATTACK` | edge_id, reason | — | 3 |
+| `WINDOW_CLOSED` | edge_id, attacker_id, attacker_speech, target_id, target_speech, window_close | — | 1 |
 | `CHAIN` | chain_id, sign, mag, delta | side, extended, in_scope, collapse_reason, responsible | 3 |
 | `FRAMEWORK_SELECT` | winning_framework_id \| null, live[], defeated[], via | reason | 5 |
 | `FRAMEWORK_DEFEAT` | framework_id, weighing_id, preferred_id | — | 5 |
