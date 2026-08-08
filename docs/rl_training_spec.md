@@ -239,11 +239,21 @@ protocol below for which may move and on what evidence.
 | Learning rate | 3e-4, linear decay |
 | Clip range | 0.2 |
 | GAE lambda | 0.95 |
-| Discount (γ) | 0.99 |
+| Discount (γ) | **0.999** (ruled; see note) |
 | Epochs per batch | 4 |
 | Minibatch size | 256 |
 | Gradient clip | 0.5 |
 | Value loss coefficient | 0.5 |
+
+> **Discount (γ) — RULED 0.999 (explicit user ruling, 2026-08-06),** superseding the
+> 0.99 starting value above. γ is a semantic parameter (it changes how far the policy
+> looks ahead), so it required a ruling. Rationale: episodes are long (~50–100 actions
+> over the full speech budget) and the reward is fully sparse/terminal with the shaping
+> bonus off by default, so a high γ is needed for the terminal ballot to back-propagate
+> credit to early-episode actions (e.g. 1AC framing). 0.999 was chosen over the 0.95–0.99
+> range (typical for short-episode settings) because of the horizon length, and over
+> γ = 1.0 to retain some time-preference for value-estimation stability. Recorded in code
+> at `training/config.py::SemanticsConfig.discount`.
 
 ### Entropy
 
