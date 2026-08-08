@@ -3,7 +3,7 @@
 Verifies the spec's guarantees (docs/warm_start_data_spec.md) mechanically:
   * every converted action sequence replays LEGALLY end-to-end through the real env;
   * replay reproduces a JUDGE-IDENTICAL verdict to the oracle fixture (ruling A) --
-    now all 45/45;
+    now all 46/46;
   * edge orientation is natural-forward-with-flips (E), spot-checked on a known flipped
     cross-speech support edge;
   * `connect` placement is earliest-legal-speech, that speech's side (C), including the
@@ -15,7 +15,7 @@ edge, was not structurally derivable, so the env-built round scored differently)
 'no new offense in rebuttals' bug fix (judge_spec §6, per-path) resolved it: F's impact
 is introduced in the 2AR (a rebuttal) and is now correctly disqualified regardless of
 the contested status, so BOTH the oracle and the env-built round score NEG presumption
--- F converts cleanly. The whole corpus (45/45) now round-trips verdict-identically.
+-- F converts cleanly. The whole corpus (46/46) now round-trips verdict-identically.
 """
 
 from __future__ import annotations
@@ -61,8 +61,8 @@ def _replay(actions):
 
 # --- corpus sanity -----------------------------------------------------------
 
-def test_corpus_is_45_v2_fixtures():
-    assert len(_ALL) == 45                       # post-NSDA-deletion corpus
+def test_corpus_is_46_v2_fixtures():
+    assert len(_ALL) == 46                       # 45 §11 probes + full_round_aff_outweighs
 
 
 # --- legality of the emitted sequence ----------------------------------------
@@ -101,7 +101,7 @@ def test_verdict_equivalence_whole_corpus():
     passed = {n for n, r in _RESULTS.items() if r.ok}
     failed = {n for n, r in _RESULTS.items() if not r.ok}
     assert failed == set(KNOWN_GAP), f"unexpected verdict outcomes: failed={sorted(failed)}"
-    assert len(passed) == len(_ALL) == 45          # no known gaps remain
+    assert len(passed) == len(_ALL) == 46          # no known gaps remain
 
 
 @pytest.mark.parametrize("name", sorted(set(_names()) - KNOWN_GAP))

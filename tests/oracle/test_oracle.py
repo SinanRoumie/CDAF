@@ -1196,3 +1196,31 @@ def test_r39_divergence_branch_independent_aff():
     assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
     mags = sorted(c.mag for c in _chains(trace))
     assert len(mags) == 2 and mags[0] <= EPSILON and abs(mags[1] - 1.0) <= EPSILON
+
+
+# --- full-length realistic round (hand-authored; a whole-round exemplar, not a
+#     minimal single-mechanism probe like the rounds above) ----------------------
+
+def test_full_round_aff_advantage_outweighs_neg_disad():
+    """A complete, budget-feasible round exercising the ordinary win path end to end:
+    AFF reads a two-link advantage; NEG a disad plus a link takeout; AFF answers the
+    takeout by routing its impact through a live link and WEIGHS its impact over NEG's.
+    The impact-weigh resolves for AFF, so the NEG disad is NEUTRALIZED (survives at full
+    magnitude but contributes nothing) rather than structurally failing, and AFF's
+    carried offense takes the ballot. Distinct from the §11 probes above: all seven
+    speeches, in-window clash, and no dead-weight moves (no lapsed / out-of-window
+    attacks)."""
+    ballot, trace = judge(_load("full_round_aff_outweighs.json"))
+    assert ballot == AFF
+    bl = _ballot(trace)
+    assert bl.reason_class == "AFF offense" and bl.N > EPSILON
+    # the impact-weigh resolves for AFF's impact (n1), defeating NEG's disad impact (n15)
+    weigh = [r for r in trace if r.kind == "WEIGH" and r.outcome == "resolved"]
+    assert weigh and weigh[0].preferred_node == "n1"
+    # both chains survive at full magnitude; the NEG disad is neutralized-not-failed
+    chains = {c.side: c for c in _chains(trace)}
+    assert abs(chains[AFF].mag - 1.0) <= EPSILON and abs(chains[NEG].mag - 1.0) <= EPSILON
+    neg_dec = next(d for d in bl.decomposition if d["side"] == NEG)
+    assert neg_dec["contributed"] is False           # beaten by the weigh, not a gate failure
+    # clean round: the response-window rule fires on nothing (every attack is in-window)
+    assert not [r for r in trace if r.kind == "WINDOW_CLOSED"]
