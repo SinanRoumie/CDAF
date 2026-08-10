@@ -245,7 +245,7 @@ class ActorCritic(nn.Module):
                 return Introduce("", role, NEW, None), type_name, records
             ctx = torch.cat([g, node_emb[i]], dim=0)
             e = stage("introduce_edge", self.introduce_edge_head(ctx),
-                      mask.introduce_edge_mask(target))
+                      mask.introduce_edge_mask(target, role))
             return Introduce("", role, target, EDGE_TYPE_ORDER[e]), type_name, records
 
         if type_name == "weigh":

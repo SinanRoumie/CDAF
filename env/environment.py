@@ -12,24 +12,20 @@ the ballot reward is reported from AFF's perspective (+1 AFF win / 0 NEG win) an
 `info["rewards"]` gives the per-side split so a self-play harness can assign each
 policy its own return.
 
-CHAIN-EXTENSION REWARD SHAPING (optional, off by default). On top of the ballot
-reward, AFF earns a small bonus at termination iff it carried AT LEAST ONE chain
-that is extended, in-scope, and sign +1 -- a genuine, spine-carried AFF offense
-chain -- regardless of who won the ballot. The bonus is BINARY: one such chain is
-worth exactly as much as three; magnitude does not scale it.
+POTENTIAL-BASED REWARD SHAPING (PBRS). The flat chain-extension bonus is RETIRED. The env
+now EXPOSES a scalar potential Φ(s) via `info['phi']` each step (Φ_maxdiff over the mid-round
+chain resolver -- observation.potential); the TRAINING LOOP forms the per-step shaping reward
+F_t = λ·(γ·Φ_L(s') − Φ_L(s)) (rollout.apply_pbrs). Shaping lives entirely in training, not in
+this env's reward: the env's terminal reward is the UNSHAPED ballot (minus the dormant inert
+penalty). PBRS is policy-invariant (environment_shell_spec §step()), so nothing is annealed.
 
-  Rationale (recorded): in uniform-random play AFF builds an offense chain ~75% of
-  rounds but CARRIES one (extends its spine through every own-side speech) only
-  ~1.6%, and passes zero ballot gates in 500 rounds -- so the terminal reward is
-  constant-zero and nothing bootstraps. Rewarding chain EXISTENCE teaches "carry a
-  spine," which is closer to a RULE of the game than a strategic opinion. Rewarding
-  chain COUNT or MAGNITUDE would teach "extend everything," which is bad debate and
-  is exactly the genuine strategy we want to stay EMERGENT -- hence the binary gate.
-
-The coefficient (`chain_extension_bonus`) is configurable and ANNEALABLE to zero;
-the final policy should train on the terminal reward alone, so the default is 0.0
-(terminal-only, byte-identical to an unshaped env). It lives in the REWARD, never
-in the observation -- the agent sees no signal that its chain was credited.
+INERT-ACTION PENALTY (dormant, coef 0.0). A per-side penalty is subtracted from each side's
+return at termination -- `inert_penalty_coef` per NO-OP RE-EXTEND that side took (the only
+reward-side inert class; same-side attack / offense-at-non-polarity / redundant connect are
+now structurally ILLEGAL, and the no-op re-extend is primarily priced via full-slot COST).
+Detection is per-step (classified BEFORE `apply`); application is a terminal aggregate. At
+0.0 it is byte-identical to no penalty -- a documented backstop (see `legal_actions.is_inert`,
+`state.action_cost`).
 
 Termination sequence (order is load-bearing):
   1. materialize state -> model.Round (`state.to_round`)
@@ -52,8 +48,8 @@ from judge.config import AFF, NEG
 
 from .state import RoundState
 from .actions import EndSpeech
-from .legal_actions import check_legality
-from .observation import observe
+from .legal_actions import check_legality, is_inert
+from .observation import observe, potential
 from .validator import validate_round, assert_scope_ruled
 
 # Trace record kinds surfaced in `info` on terminal steps (diagnostics only; NOT
@@ -65,14 +61,17 @@ class CDAFEnvironment:
     """One debate round as an episode. Construct, `reset()`, then `step(action)`
     until `done`. Not thread-safe; one round per instance."""
 
-    def __init__(self, chain_extension_bonus: float = 0.0):
+    def __init__(self, inert_penalty_coef: float = 0.0):
         self.state: RoundState = RoundState()
-        # Coefficient for the AFF chain-extension shaping bonus (see module docstring).
-        # Public and mutable so a training loop can ANNEAL it between episodes
-        # (construct-per-episode or set on a reused instance). 0.0 == terminal reward
-        # alone, byte-identical to an unshaped env; this is the default the final
-        # policy trains under.
-        self.chain_extension_bonus: float = chain_extension_bonus
+        # Coefficient for the per-side inert-action penalty (see is_inert). One unit is
+        # subtracted from a side's return per structurally-doomed-at-creation action it
+        # took. Default 0.0 (byte-identical to no penalty); the run config supplies the
+        # real value (currently 0.0, dormant backstop).
+        self.inert_penalty_coef: float = inert_penalty_coef
+        # NOTE: the flat chain-extension bonus (`chain_extension_bonus`) is RETIRED. Shaping
+        # is now potential-based (PBRS): the env exposes Φ(s) via `info['phi']` each step and
+        # the TRAINING LOOP forms the per-step shaping reward (environment_shell_spec §step()).
+        # The env's terminal reward is unshaped: ballot minus the (dormant) inert penalty.
 
     # --- gym contract ---------------------------------------------------------
     def reset(self) -> Dict:
@@ -94,12 +93,22 @@ class CDAFEnvironment:
         if not ok:
             raise ValueError(f"illegal action {type(action).__name__}: {reason}")
 
+        # Inert-action detection: classify BEFORE apply (a no-op re-extend is an
+        # idempotent set-add, unrecoverable afterwards) and against the ACTING side
+        # (current_side may advance inside apply). REWARD ONLY -- the action is legal and
+        # proceeds normally; only the terminal per-side penalty is affected.
+        inert, kind = is_inert(self.state, action)
+        if inert:
+            self.state.record_inert(self.state.current_side, kind)
+
         self.state.apply(action)            # mutates; may auto-advance the speech
 
         if self.state.terminated:
             return self._terminate()
 
-        return observe(self.state), 0.0, False, {}
+        # Env raw reward is 0 on non-terminal steps; it EXPOSES Φ(s) in info so the training
+        # loop can form the per-step PBRS shaping reward (environment_shell_spec §step()).
+        return observe(self.state), 0.0, False, {"phi": potential(self.state)}
 
     # --- termination ----------------------------------------------------------
     def _terminate(self) -> Tuple[Dict, float, bool, Dict]:
@@ -117,41 +126,30 @@ class CDAFEnvironment:
         # (4) SCOPE GUARD (Fence B) -- unreachable in V1; raises if ever hit.
         assert_scope_ruled(trace)
 
-        # (5) binary terminal ballot reward, reported from AFF's perspective, PLUS the
-        # optional chain-extension shaping bonus (AFF-only, binary, off by default).
+        # (5) binary terminal ballot reward, reported from AFF's perspective, MINUS the
+        # per-side inert-action penalty (both sides; dormant at coef 0.0). The flat
+        # chain-extension bonus is RETIRED -- shaping is PBRS, applied in training, not here.
         aff_ballot = 1.0 if ballot == AFF else 0.0
         neg_ballot = 1.0 - aff_ballot
-        bonus = (self.chain_extension_bonus
-                 if self.chain_extension_bonus and _aff_carried_offense_chain(trace)
-                 else 0.0)
-        aff_reward = aff_ballot + bonus     # NOTE: with bonus>0 the two sides no longer
-                                            # sum to 1 -- the bonus is an AFF auxiliary
-                                            # reward, deliberately NOT zero-sum.
+        # Per-side inert penalty: coef x (count of that side's inert actions). Non-positive.
+        aff_penalty = self.inert_penalty_coef * self.state.inert_by_side.get(AFF, 0)
+        neg_penalty = self.inert_penalty_coef * self.state.inert_by_side.get(NEG, 0)
+        aff_reward = aff_ballot - aff_penalty   # NOTE: with a nonzero penalty the two sides
+        neg_reward = neg_ballot - neg_penalty   # no longer sum to 1 (penalty is not zero-sum).
         info = {
             "winner": ballot,
-            "rewards": {AFF: aff_reward, NEG: neg_ballot},
+            "rewards": {AFF: aff_reward, NEG: neg_reward},
             "reward_breakdown": {
-                AFF: {"ballot": aff_ballot, "chain_extension_bonus": bonus},
-                NEG: {"ballot": neg_ballot},
+                AFF: {"ballot": aff_ballot, "inert_penalty": -aff_penalty},
+                NEG: {"ballot": neg_ballot, "inert_penalty": -neg_penalty},
             },
+            "phi": 0.0,                                       # Φ(terminal) = 0 (invariance boundary)
+            "inert_counts": dict(self.state.inert_by_kind),   # per-class diagnostics (both sides)
+            "inert_counts_by_side": {s: dict(k)               # side x kind diagnostics
+                                     for s, k in self.state.inert_by_side_kind.items()},
             "diagnostics": _diagnostics(trace),
         }
         return observe(self.state), aff_reward, True, info
-
-
-def _aff_carried_offense_chain(trace) -> bool:
-    """True iff AFF carried at least one chain that is EXTENDED, IN-SCOPE, and sign
-    +1 -- a genuine spine-carried AFF offense chain. Reads the judge's CHAIN records
-    off the terminal trace (the same records the fuzz diagnostic ranks on); presence,
-    not count or magnitude (§ shaping rationale in the module docstring). `sign` is the
-    QPN sign: +1 real AFF offense, -1 turned (favors NEG), "?" unresolved -- only +1
-    counts. This never touches the ballot tally, so it credits a carried chain even in
-    a round AFF lost."""
-    for r in trace:
-        if (getattr(r, "kind", None) == "CHAIN"
-                and r.side == AFF and r.extended and r.in_scope and r.sign == 1):
-            return True
-    return False
 
 
 def _diagnostics(trace) -> list:

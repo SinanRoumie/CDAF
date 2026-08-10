@@ -25,8 +25,8 @@ from .actions import (
     ROLE_TO_NODE_CLASS, EDGE_TYPE_TO_CLASS, SPEECH_BUDGET, TOTAL_BUDGET,
 )
 from .state import RoundState, NodeRecord, EdgeRecord
-from .legal_actions import check_legality, is_legal, legal_targets
-from .observation import observe
+from .legal_actions import check_legality, is_legal, legal_targets, is_inert
+from .observation import observe, potential
 from .environment import CDAFEnvironment
 
 __all__ = [
@@ -40,5 +40,6 @@ __all__ = [
     # state
     "RoundState", "NodeRecord", "EdgeRecord",
     # legality / observation / env
-    "check_legality", "is_legal", "legal_targets", "observe", "CDAFEnvironment",
+    "check_legality", "is_legal", "legal_targets", "is_inert", "observe", "potential",
+    "CDAFEnvironment",
 ]

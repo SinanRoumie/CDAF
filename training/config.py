@@ -13,10 +13,11 @@ split is STRUCTURAL, not cosmetic:
                    composition + sampling ratio, discount). Each is ruled on by the human;
                    until ruled it is an `_UNSET` sentinel and reading it raises, so a run
                    can never start having silently picked a default for a semantic
-                   parameter. As of 2026-08-06 every semantic parameter has been ruled
-                   EXCEPT the three shaping-anneal TRIGGER fields, which are DELIBERATELY
-                   DEFERRED (see below): they are consumed only when shaping is active, so
-                   while shaping is off they do not block a run yet still fail-loud if read.
+                   parameter. As of 2026-08-08 EVERY semantic parameter is ruled: shaping is
+                   ENABLED (coef 0.1) with the anneal triggers ARMED at provisional values,
+                   and the inert-action penalty is ruled at 0.01. Nothing is deferred now --
+                   the deferral MACHINERY remains (it still lets a run proceed with shaping
+                   off and the triggers unset), it is simply not exercised by these defaults.
 
 Any config diff touching `semantics` defines a NEW experiment, not a continuation
 (spec §Configuration). `resolve()` writes the fully-resolved config to the run's output
@@ -28,10 +29,11 @@ parameter needed just to make the code RUN -- the critic's Monte-Carlo value tar
 during warm-start and the GAE returns during PPO both consume it -- so BEFORE the ruling
 neither the critic warm-start nor a PPO update could execute at all. That was the intended
 fail-loud, and it is now resolved by a human DECISION, not by a silently-chosen default:
-the ruled value is recorded here exactly the way the other semantic parameters will be as
-they are ruled. The remaining ELEVEN semantic parameters are still UNSET and still block a
-real run. Tests and the smoke script that must exercise the mechanics pass EXPLICIT,
-clearly-labelled throwaway values for those eleven -- never defaults baked into this file.
+the ruled value is recorded here exactly the way the other semantic parameters are as they
+are ruled. As of 2026-08-08 all remaining semantic parameters have since been ruled too
+(shaping on, anneal triggers armed-but-provisional, inert-action penalty 0.01), so no
+semantic parameter blocks a run and neither the tests nor the smoke script need throwaway
+values -- the rulings ARE the defaults.
 """
 
 from __future__ import annotations
@@ -76,20 +78,6 @@ UNSET = _Unset()
 def _unset(name: str) -> Any:
     """Field default factory producing a NAMED unset sentinel."""
     return _Unset(name)
-
-
-# The shaping-anneal TRIGGER fields. The anneal controller consumes them ONLY when shaping
-# is ACTIVE (enabled + nonzero coefficient); with shaping off -- the shipped state -- the
-# bonus mechanism is inert and never reads them. They are therefore DEFERRABLE: not
-# required for a run to start while shaping is off, yet still fail-loud if accessed
-# directly. Deferral is deliberate -- these three must be set from an OBSERVED win-rate
-# plateau, never guessed, and never tuned to make a run look better (rl_training_spec
-# §Adjustment protocol; integrity flag in `anneal.py`).
-_SHAPING_ANNEAL_TRIGGER_FIELDS = (
-    "anneal_trigger_ballot_winrate",
-    "anneal_trigger_window_episodes",
-    "anneal_decay_updates",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -162,26 +150,27 @@ class SemanticsConfig:
     entropy_coef_final: Any = 0.0
     entropy_decay_fraction: Any = 0.5
 
-    # Chain-extension shaping bonus coefficient -- RULED 0.0 (user ruling 2026-08-06).
-    # FORMALLY SET, not left unset: this defines the "on" magnitude as ZERO rather than
-    # undefined. The bonus stays OFF (`shaping_enabled` False). With coefficient 0 the bonus
-    # never fires REGARDLESS of trigger state (env: `chain_extension_bonus and ...`), which
-    # is exactly why the anneal TRIGGER fields below can stay deferred without affecting any
-    # run -- see `shaping_active()` and the readiness gate.
-    shaping_coef: Any = 0.0
-    shaping_enabled: bool = False         # HOOK is built; OFF by default (non-negotiable).
+    # Potential-based shaping weight λ -- RULED 0.5 (user ruling; REPLACES the retired flat
+    # chain-extension bonus, shaping_coef/shaping_enabled/anneal-triggers, all removed).
+    # SEMANTIC: it sets how much the dense Φ-proxy shapes early learning, NOT correctness
+    # (PBRS is policy-invariant for any λ; rl_training_spec §Reward). Φ_maxdiff ∈ [-1,1] vs the
+    # ballot ∈ [0,1], so 0.5 is a half-scale value prior: dense enough to break the
+    # sparse-reward bootstrap barrier, small enough that Φ's imperfections are a modest prior
+    # for the critic to shed. FIXED, no schedule (invariance ⇒ nothing to withdraw; there is
+    # no annealing for PBRS). Consumed in training/rollout `apply_pbrs`, with γ = `discount`
+    # (single source, per the invariance constraint -- never a second literal).
+    pbrs_lambda: Any = 0.5
 
-    # Annealing trigger + window -- DELIBERATELY LEFT UNSET (user ruling 2026-08-06):
-    # deferred, NOT yet ruled. These must NEVER be tuned to make a run look better (the
-    # existing non-negotiable, flagged in `anneal.py`), so the honest way to set them is by
-    # observing where a REAL run's ballot win-rate actually plateaus -- setting them now
-    # would be guessing numbers with no empirical basis. They are DEFERRED: while shaping is
-    # inactive (`shaping_active()` False -- the shipped state) the controller never reads
-    # them, so they do NOT block a run, yet they STILL fail-loud if accessed directly via
-    # `require(...)`. Rule them once a real run produces a win-rate curve to look at.
-    anneal_trigger_ballot_winrate: Any = field(default_factory=lambda: _unset("semantics.anneal_trigger_ballot_winrate"))
-    anneal_trigger_window_episodes: Any = field(default_factory=lambda: _unset("semantics.anneal_trigger_window_episodes"))
-    anneal_decay_updates: Any = field(default_factory=lambda: _unset("semantics.anneal_decay_updates"))
+    # Inert-action penalty coefficient -- RULED 0.0, DORMANT (user ruling 2026-08-08,
+    # revised). Semantic (it changes what behavior is rewarded), recorded as a ruled DEFAULT
+    # the same way as the others. The three structurally-incoherent inert classes (same-side
+    # attack, offense-at-non-polarity, redundant connect) are now ILLEGAL (masked, never
+    # sampled); the one context-dependent class (no-op re-extend) is priced via COST (a full
+    # slot; env.state.action_cost), not reward. This coefficient is kept as a DORMANT
+    # BACKSTOP -- a per-side reward penalty on no-op re-extends -- to be re-ruled nonzero
+    # ONLY on evidence of residual slack-budget no-op spam the cost model does not reach
+    # (rl_training_spec §Reward). At 0.0 it is byte-identical to no penalty.
+    inert_penalty_coef: Any = 0.0
 
     # Self-play pool composition + sampling ratio -- RULED (user ruling 2026-08-06).
     # Approach-A pattern: permanent early ANCHORS + a rolling RECENT window, sized modestly
@@ -219,39 +208,21 @@ class SemanticsConfig:
                 "(rl_training_spec §Adjustment protocol: semantic parameters require a ruling).")
         return val
 
-    def shaping_active(self) -> bool:
-        """True iff the chain-extension bonus will apply a NONZERO coefficient -- the only
-        state in which the anneal machinery (and its trigger fields) is consumed. Requires
-        shaping ENABLED and a SET, nonzero coefficient; a zero or unset coefficient means
-        the bonus never fires (env: `chain_extension_bonus and ...`), so the trigger fields
-        are irrelevant. Single source of truth for 'is shaping on', read by both the anneal
-        controller and the readiness gate so they can never disagree."""
-        if not self.shaping_enabled:
-            return False
-        coef = self.shaping_coef
-        if isinstance(coef, _Unset):
-            return False
-        return float(coef) != 0.0
-
     def unset_fields(self) -> list:
         """Every semantic field still holding the sentinel -- the honest list of what is
-        unruled, INCLUDING deliberately-deferred fields (for reporting)."""
+        unruled. With the shaping-anneal machinery retired (PBRS is never annealed), there
+        are no longer any DEFERRABLE fields: every unset semantic blocks a run."""
         return [f.name for f in fields(self) if isinstance(getattr(self, f.name), _Unset)]
 
     def deferred_unset_fields(self) -> list:
-        """Unset fields that do NOT block a run in the current shaping state: the
-        shaping-anneal TRIGGER fields while shaping is inactive (the controller never reads
-        them, so a run is well-defined without them). Empty once shaping is active -- then
-        they are required like any other consumed parameter."""
-        if self.shaping_active():
-            return []
-        return [n for n in self.unset_fields() if n in _SHAPING_ANNEAL_TRIGGER_FIELDS]
+        """Retained for API compatibility: nothing is deferred anymore (the shaping-anneal
+        triggers that used to be deferred are removed). Always empty."""
+        return []
 
     def blocking_unset_fields(self) -> list:
-        """Unset fields that MUST be ruled before a run can start: all unset semantics minus
-        those currently deferred."""
-        deferred = set(self.deferred_unset_fields())
-        return [n for n in self.unset_fields() if n not in deferred]
+        """Unset fields that MUST be ruled before a run can start -- now simply every unset
+        semantic (no deferral)."""
+        return self.unset_fields()
 
 
 @dataclass
@@ -307,17 +278,23 @@ class TrainingConfig:
 
     @classmethod
     def from_dict(cls, d: dict) -> "TrainingConfig":
-        """Build a config from a dict (e.g. a loaded JSON run config). Any semantics key
-        absent or set to the string 'UNSET' stays the unset sentinel."""
+        """Build a config from a dict (e.g. a loaded JSON run config). A semantics key set
+        to the string 'UNSET' is restored to the fail-loud sentinel EXPLICITLY (an absent
+        key keeps the dataclass default). We inject the sentinel rather than skip the field:
+        now that the ruled defaults are real values (shaping on, triggers armed), skipping
+        would silently reload a serialized 'UNSET' as the ruled default -- a silent
+        un-setting. Explicit injection keeps a written-out sentinel honest across a
+        round-trip regardless of what the current defaults are."""
         tuning = TuningConfig(**(d.get("tuning") or {}))
         sem_in = dict(d.get("semantics") or {})
         sem = SemanticsConfig()
         for k, v in sem_in.items():
-            if v == "UNSET":
-                continue                    # leave the sentinel in place
             if not hasattr(sem, k):
                 raise KeyError(f"unknown semantics key: {k}")
-            setattr(sem, k, v)
+            if v == "UNSET":
+                setattr(sem, k, _unset(f"semantics.{k}"))   # restore fail-loud sentinel
+            else:
+                setattr(sem, k, v)
         return cls(tuning=tuning, semantics=sem, output_dir=d.get("output_dir"))
 
     @classmethod

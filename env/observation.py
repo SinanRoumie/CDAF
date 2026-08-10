@@ -32,7 +32,8 @@ from dataclasses import dataclass
 
 from model import speech_index, SPEECH_ORDER
 from model.nodes import CONTESTED, CONCEDED
-from judge.passes import response_window, side_speeches, node_accrual
+from judge.passes import (response_window, side_speeches, node_accrual,
+                          resolve_chains, weighing_excluded, phi_maxdiff)
 
 from .state import RoundState
 from .actions import ROLE_TO_NODE_CLASS
@@ -116,6 +117,30 @@ def _accrual(state: RoundState) -> Dict:
         "sigma": {nid: acc.sigma.get(nid) for nid in state.nodes},
         "eff_pol": {nid: acc.eff_pol.get(nid) for nid in state.nodes},  # None for non-offense nodes
     }
+
+
+def potential(state: RoundState) -> float:
+    """The scalar PBRS potential Φ(s) = Φ_maxdiff over the WHOLE current graph at the
+    current-slot liveness horizon (environment_shell_spec §step(), rl_training_spec §Reward).
+    Best AFF-favoring chain strength minus best NEG-favoring, over the mid-round chain
+    resolver (weighing-excluded chains zeroed). Φ ∈ [-1,1]; Φ(empty)=0 (no chains);
+    Φ(terminal)=0 by convention (the round is over — invariance identity).
+
+    This is a **pure function of state** (invariance constraint 1). It is exposed via
+    `info['phi']` and consumed by the training loop's PBRS reward; it is NOT part of the
+    observation dict — chain-level signal is withheld from the policy (Mechanism B deferred).
+    Reuses `node_accrual` -> `resolve_chains` -> `weighing_excluded` -> `phi_maxdiff`, the
+    same functions the judge uses at termination (no second implementation).
+
+    Perf note: this runs its own `node_accrual` pass, separate from `observe`'s -- a known
+    optimization opportunity (fuse the two per-step passes) that is left for later."""
+    if state.terminated:
+        return 0.0                              # Φ(terminal) = 0 (invariance boundary)
+    nodes, edges = _accrual_view(state)
+    ctx = node_accrual(nodes, edges, as_of=state.current_slot)
+    chains = resolve_chains(ctx, emit_trace=False)
+    excluded = weighing_excluded(ctx, chains)
+    return phi_maxdiff(ctx, chains, excluded)
 
 
 def _graph(state: RoundState) -> Dict:

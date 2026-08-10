@@ -61,6 +61,7 @@ OFFENSE_BEARING = (Link, Impact)
 # above; model classes carry a matching `kind` ClassVar and the env its role/edge_type.
 OFFENSE_BEARING_KINDS = frozenset({"link", "impact"})
 ATTACK_KINDS = frozenset({"defensive_attack", "offensive_attack"})
+SPINE_KINDS = frozenset({"link", "impact", "advocacy"})   # mirror SPINE_TYPES, .kind form
 # v9 uniform-uniqueness schema (§12): a post-world node is Link/Impact -- the node
 # type that carries a wired uniqueness (§12.4.3 poisoning gate reads this set).
 POSTWORLD_TYPES = (Link, Impact)
@@ -229,7 +230,7 @@ def _index_uniqueness(ctx: Context) -> None:
     effect is via the §12.4.3 poisoning gate."""
     def _support_nbrs(uid):
         return [ctx.nodes.get(nbr) for nbr, e in ctx.adj.get(uid, [])
-                if isinstance(e, Support) and nbr in ctx.reachable]
+                if e.kind == "support" and nbr in ctx.reachable]
 
     wired: Dict[str, List[str]] = defaultdict(list)
     for uid in ctx.reachable:
@@ -721,8 +722,8 @@ def _terminals(ctx: Context, members, impacts) -> list:
     out = []
     for imp in impacts:
         forwards = any(
-            isinstance(e, Support) and nbr in members
-            and isinstance(ctx.nodes.get(nbr), Impact) and nbr != imp
+            e.kind == "support" and nbr in members
+            and ctx.nodes[nbr].kind == "impact" and nbr != imp
             and (_sidx(ctx.nodes[nbr].speech) or 0) > (_sidx(ctx.nodes[imp].speech) or 0)
             for nbr, e in ctx.adj.get(imp, []))
         if not forwards:
@@ -743,7 +744,7 @@ def _spine_paths(ctx: Context, spine_set, impact, roots) -> list:
             out.append(list(path))          # root is the premise terminus; do not pass it
             return
         for nbr, e in ctx.adj.get(cur, []):
-            if isinstance(e, Support) and nbr in spine_set and nbr not in seen:
+            if e.kind == "support" and nbr in spine_set and nbr not in seen:
                 seen.add(nbr); path.append(nbr)
                 dfs(nbr, path, seen)
                 path.pop(); seen.discard(nbr)
@@ -766,7 +767,7 @@ def _path_stats(ctx: Context, path, side):
     a path has the same effect as an extension failure -- it is dropped from the live
     carriers; siblings survive. This replaces the former chain-min gate, which read the
     component's earliest member and so missed new offense grafted onto an old chain."""
-    ob = [n for n in path if isinstance(ctx.nodes[n], OFFENSE_BEARING)]
+    ob = [n for n in path if ctx.nodes[n].kind in OFFENSE_BEARING_KINDS]
     sign = qpn.sign_product([ctx.eff_pol.get(n, 1) for n in ob])
     favored = None if sign == qpn.UNRESOLVED else (side if sign > 0 else _opposing(side))
     turned = favored is not None and favored != side
@@ -778,7 +779,12 @@ def _path_stats(ctx: Context, path, side):
         return sign, mag, False, reb            # new offense introduced in a rebuttal
     for n in path:
         node = ctx.nodes[n]
-        ok, _m = node_live_by_any_side(node) if turned else node_extension_ok(node)
+        # Liveness horizon from the caller's Context: the judge sets as_of=None (full
+        # schedule -> byte-identical to prior behavior); the mid-round Φ caller sets
+        # as_of=current slot so "extended" means "carried through every own-side speech
+        # SO FAR." Mirrors node_accrual's as_of threading for node-level liveness.
+        ok, _m = (node_live_by_any_side(node, as_of=ctx.as_of) if turned
+                  else node_extension_ok(node, as_of=ctx.as_of))
         if not ok:
             return sign, mag, False, n
     return sign, mag, True, None
@@ -802,7 +808,7 @@ def _impact_poisoned(ctx: Context, impact: str, path_links) -> bool:
     for lid in path_links:
         if ctx.mag_sigma.get(lid, TAU) < POLARITY_THRESHOLD:
             continue                                   # delinked -> kicked
-        if not node_extension_ok(ctx.nodes[lid])[0]:
+        if not node_extension_ok(ctx.nodes[lid], as_of=ctx.as_of)[0]:
             continue                                   # dropped -> kicked
         if any(_zeroed(u) for u in ctx.wired_uniqueness.get(lid, [])):
             return True
@@ -822,7 +828,7 @@ def _aggregate_impact(ctx: Context, spine_set, impact, roots, side):
     # it zeroes the shared impact across all paths -- checked BEFORE the per-path OR
     # below. The chain keeps its (un-poisoned) favouring sign so a complete extended
     # chain driven to mag 0 reads as structural failure (§7), not presumption.
-    links_to_impact = {n for p in paths for n in p if isinstance(ctx.nodes[n], Link)}
+    links_to_impact = {n for p in paths for n in p if ctx.nodes[n].kind == "link"}
     if _impact_poisoned(ctx, impact, links_to_impact):
         ext = [s for s in stats if s[2]]
         sgn = max(ext, key=lambda s: s[1])[0] if ext else (stats[0][0] if stats else 1)
@@ -865,15 +871,27 @@ def _aggregate_impact(ctx: Context, spine_set, impact, roots, side):
     return rep[0], rep[1], False, ext_fail_node or rep[3]
 
 
-def _build_chains(ctx: Context) -> None:
+def resolve_chains(ctx: Context, *, emit_trace: bool = True) -> List[dict]:
     """Enumerate same-side Support-edge components containing an Impact; propagate
     sign (QPN) and magnitude (§3.3), aggregating redundant root->impact paths per
     §3.3.1 (per-path liveness, same-sign max, equal-magnitude convergence wash).
-    Apply the binary extension gate (§6) by reading each spine node's LIVENESS."""
+    Apply the binary extension gate (§6) by reading each spine node's LIVENESS.
+
+    THE single chain-resolution implementation, two callers (mirrors node_accrual):
+      * judge, at termination -- `_build_chains` calls this over the BD-reachable ctx with
+        `as_of=None` and `emit_trace=True`; byte-identical to prior behavior.
+      * mid-round Φ -- called over a whole-graph `node_accrual` ctx with `as_of=current`
+        and `emit_trace=False` (no ExtensionFail records into the throwaway
+        trace; the §3.3.1c ConvergenceOutOfScope marker inside `_aggregate_impact` is
+        write-only and unreachable via the generator, so it is harmless there).
+
+    Pure w.r.t. `ctx.chains` -- returns the chain list; `_build_chains` assigns it. Reads
+    ctx.reachable/sigma/mag_sigma/eff_pol/offense_on/attackers_by_target/status/as_of."""
+    chains: List[dict] = []
     ids = [nid for nid in ctx.reachable]
     find, union, _parent = _union_find(ids)
     for e in ctx.edges:
-        if isinstance(e, Support):
+        if e.kind == "support":
             a = ctx.nodes.get(e.source)
             b = ctx.nodes.get(e.target)
             if a and b and a.id in ctx.reachable and b.id in ctx.reachable and a.side == b.side:
@@ -884,7 +902,7 @@ def _build_chains(ctx: Context) -> None:
         comps[find(nid)].append(nid)
 
     for root, members in comps.items():
-        impacts = [m for m in members if isinstance(ctx.nodes[m], Impact)]
+        impacts = [m for m in members if ctx.nodes[m].kind == "impact"]
         if not impacts:
             continue
         side = ctx.nodes[members[0]].side
@@ -895,14 +913,14 @@ def _build_chains(ctx: Context) -> None:
         # computed per-path (§3.3.1) so a dead node on one redundant path cannot
         # collapse an impact a clean sibling path still carries.
         spine_reps = sorted(
-            (m for m in members if isinstance(ctx.nodes[m], SPINE_TYPES)),
+            (m for m in members if ctx.nodes[m].kind in SPINE_KINDS),
             key=lambda x: (_sidx(ctx.nodes[x].speech) or 0, x),
         )
         spine_set = set(spine_reps)
         # v9: Uniqueness is no longer a spine type, so satellite uniqueness is never
         # a premise root (it stays a chain member via `members` -> anchor_members).
-        roots = ([m for m in spine_reps if isinstance(ctx.nodes[m], Advocacy)]
-                 or [m for m in spine_reps if not isinstance(ctx.nodes[m], Impact)]
+        roots = ([m for m in spine_reps if ctx.nodes[m].kind == "advocacy"]
+                 or [m for m in spine_reps if not ctx.nodes[m].kind == "impact"]
                  or list(impacts))
         terminals = _terminals(ctx, members, impacts)
 
@@ -940,7 +958,7 @@ def _build_chains(ctx: Context) -> None:
             # the whole component's impacts when single-terminal; per-branch otherwise).
             branch_impacts = sorted({
                 n for p in _spine_paths(ctx, spine_set, t, roots)
-                for n in p if isinstance(ctx.nodes[n], Impact)})
+                for n in p if ctx.nodes[n].kind == "impact"})
 
             # The side the composed sign favors -- the side that OWNS this branch's
             # offense. `side` reads normally; the opponent means TURNED (§3.5);
@@ -952,7 +970,7 @@ def _build_chains(ctx: Context) -> None:
             # "No new offense in rebuttals" (§6) is applied PER-PATH in `_path_stats`
             # (a path with an offense-bearing node introduced in a rebuttal is not a
             # live carrier), so `extended` / `ext_fail_node` already reflect it here.
-            if not extended:
+            if not extended and emit_trace:
                 node = ctx.nodes.get(ext_fail_node) if ext_fail_node else None
                 if node is not None and node.speech in REBUTTAL_SPEECHES:
                     missing = node.speech       # disqualified: new offense in a rebuttal
@@ -966,7 +984,7 @@ def _build_chains(ctx: Context) -> None:
             collapse_reason, responsible = _collapse_reason(
                 ctx, extended, ext_fail_node, sign, mag, spine_reps, unresolved)
             owner = favored or ""      # descriptive; `side` stays load-bearing for aff/neg_sum
-            ctx.chains.append({
+            chains.append({
                 "id": chain_id, "side": side, "owner": owner, "members": set(members),
                 "anchor_members": anchor_members,
                 "spine_reps": spine_reps, "impacts": branch_impacts,
@@ -975,10 +993,91 @@ def _build_chains(ctx: Context) -> None:
                 "in_scope": True, "unresolved": unresolved,
                 "collapse_reason": collapse_reason, "responsible": responsible,
             })
-            ctx.trace.append(T.Chain(
-                chain_id=chain_id, sign=sign, mag=mag, delta=delta,
-                side=side, owner=owner, extended=extended, in_scope=True,
-                collapse_reason=collapse_reason, responsible=responsible))
+            if emit_trace:
+                ctx.trace.append(T.Chain(
+                    chain_id=chain_id, sign=sign, mag=mag, delta=delta,
+                    side=side, owner=owner, extended=extended, in_scope=True,
+                    collapse_reason=collapse_reason, responsible=responsible))
+    return chains
+
+
+def _build_chains(ctx: Context) -> None:
+    """Judge caller (Pass 5): resolve chains over the BD-reachable ctx (as_of=None) with
+    ExtensionFail traces, and store them on ctx for the ballot. Byte-identical to the prior
+    inline implementation -- resolve_chains IS that body, factored out."""
+    ctx.chains.extend(resolve_chains(ctx, emit_trace=True))
+
+
+def weighing_excluded(ctx: Context, chains: List[dict]) -> set:
+    """Rank surviving offense with the recursive clash-breaker (§6.5): for each impact-pair
+    weigh, `resolve` says whether it determinately decides; if so, the dispreferred impact's
+    chain is excluded (preference overrides raw delta). Indeterminate weighs leave both in.
+
+    THE single impact-weighing-exclusion implementation, two callers:
+      * judge ballot -- over the BD-validated chain list (`judge._ballot`);
+      * mid-round Φ -- over the whole-graph chain list (`mid_round_potential`), so Φ zeros
+        chains already outweighed by weighs made so far (weighing-awareness, §Reward).
+    Moved here from `judge.judge` so both callers share one implementation."""
+    from .resolve import resolve
+    impact_to_chain = {}
+    for ch in chains:
+        for imp in ch["impacts"]:
+            impact_to_chain[imp] = ch["id"]
+        for m in ch["members"]:
+            impact_to_chain.setdefault(m, ch["id"])
+
+    excluded = set()
+    for w in ctx.weighings:
+        pair = ctx.weigh_pair.get(w.id)
+        if not pair or not all(ctx.nodes[m].kind == "impact" for m in pair):
+            continue                            # ranking is over impact clashes only
+        determinate, winner, _ = resolve(ctx, pair)
+        if determinate:
+            for member in pair:
+                if member != winner and member in impact_to_chain:
+                    excluded.add(impact_to_chain[member])
+    return excluded
+
+
+# --- mid-round potential Φ (PBRS; env exposes it, training forms the shaping) --
+
+def phi_maxdiff(ctx: Context, chains: List[dict], excluded: set) -> float:
+    """Φ_maxdiff (rl_training_spec §Reward): best AFF-favoring chain strength minus best
+    NEG-favoring, over GATED chains -- extended-so-far, in-scope, resolved sign -- excluding
+    chains outweighed by a determinate impact-weigh (`excluded`). Each side's max is a
+    σ-product in [0,1], so Φ ∈ [-1,1]; Φ = 0 when there are no qualifying chains (e.g. the
+    empty graph). Pure function of the resolved chain state (invariance constraint 1)."""
+    best_aff = 0.0
+    best_neg = 0.0
+    for ch in chains:
+        if ch["id"] in excluded:
+            continue
+        if not ch["extended"] or not ch.get("in_scope", True):
+            continue
+        if ch["sign"] == qpn.UNRESOLVED:
+            continue
+        favored = ch["side"] if ch["sign"] > 0 else _opposing(ch["side"])
+        if favored == AFF:
+            best_aff = max(best_aff, ch["mag"])
+        else:
+            best_neg = max(best_neg, ch["mag"])
+    return best_aff - best_neg
+
+
+def mid_round_potential(nodes, edges, *, as_of) -> float:
+    """The scalar potential Φ(s) for PBRS, over the PARTIAL round `(nodes, edges)` at
+    liveness horizon `as_of` (the current slot). Whole-graph scope (no BD gate), the same
+    `node_accrual` -> `resolve_chains` -> `weighing_excluded` -> `phi_maxdiff` pipeline the
+    judge uses at termination, just at a mid-round scope/horizon. Φ(empty)=0 falls out (no
+    chains); callers pass Φ(terminal)=0 by convention (the round is over).
+
+    Note: the §12.4.3 convergence-poisoning refinement (needs `wired_uniqueness`, built only
+    in `build_context`) is not applied here -- a rare uniform-uniqueness corner; Φ is a dense
+    proxy, and PBRS invariance means the terminal ballot remains the ground truth."""
+    ctx = node_accrual(nodes, edges, as_of=as_of)
+    chains = resolve_chains(ctx, emit_trace=False)
+    excluded = weighing_excluded(ctx, chains)
+    return phi_maxdiff(ctx, chains, excluded)
 
 
 def _collapse_reason(ctx, extended, ext_fail_node, sign, mag, spine_reps, unresolved):
@@ -993,7 +1092,7 @@ def _collapse_reason(ctx, extended, ext_fail_node, sign, mag, spine_reps, unreso
         return "unresolved_sign", None
     if sign == -1:
         flipped = next((r for r in spine_reps
-                        if isinstance(ctx.nodes[r], OFFENSE_BEARING) and ctx.eff_pol.get(r) == -1), None)
+                        if ctx.nodes[r].kind in OFFENSE_BEARING_KINDS and ctx.eff_pol.get(r) == -1), None)
         return "sign_flip", flipped
     if mag <= EPSILON:
         dead = next((r for r in spine_reps if ctx.sigma.get(r, TAU) <= EPSILON), None)
@@ -1023,8 +1122,8 @@ def _terminal_impacts(ctx: Context, ch: dict) -> list:
     terminals = []
     for imp in ch["impacts"]:
         forwards = any(
-            isinstance(e, Support) and nbr in members
-            and isinstance(ctx.nodes.get(nbr), Impact) and nbr != imp
+            e.kind == "support" and nbr in members
+            and ctx.nodes[nbr].kind == "impact" and nbr != imp
             and _sidx(ctx.nodes[nbr].speech) is not None
             and _sidx(ctx.nodes[nbr].speech) > (_sidx(ctx.nodes[imp].speech) or 0)
             for nbr, e in ctx.adj.get(imp, [])
@@ -1074,7 +1173,7 @@ def _framework_anchors(ctx: Context, ch: dict) -> set:
         if isinstance(node, (Advocacy, BallotDirective)):
             continue                              # absorbing: arrive, do not expand
         for nbr, e in ctx.adj.get(cur, []):
-            if isinstance(e, Support) and nbr not in seen:
+            if e.kind == "support" and nbr not in seen:
                 stack.append(nbr)
     return anchors
 

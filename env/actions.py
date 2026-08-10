@@ -63,6 +63,15 @@ EDGE_TYPE_TO_CLASS = {
 RELATIONSHIP_EDGE_TYPES = frozenset(EDGE_TYPE_TO_CLASS)
 # Every legal `edge_type` value on an attaching introduce.
 ATTACH_EDGE_TYPES = RELATIONSHIP_EDGE_TYPES
+# Attack edge_types (defensive/offensive), for the inert-attack classifier.
+ATTACK_EDGE_TYPES = frozenset({"defensive_attack", "offensive_attack"})
+
+# Roles that carry polarity -- the ONLY endpoints an offensive_attack can flip
+# (§3.4). Mirrors the judge's OFFENSE_BEARING_KINDS ({"link", "impact"},
+# judge/passes.py) so the env's inert-offense classifier agrees with the judge's
+# InertAttack classification exactly. An offensive_attack where EITHER endpoint is
+# not offense-bearing has no polarity to flip and is inert at creation.
+OFFENSE_BEARING_ROLES = frozenset({"link", "impact"})
 
 # Per-speech move budget (first-iteration defaults, tunable). Sum = 52.
 SPEECH_BUDGET = {

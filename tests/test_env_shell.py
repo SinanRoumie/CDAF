@@ -80,7 +80,10 @@ def test_illegal_params_and_targets_rejected():
     assert not is_legal(env.state, Weigh(nid, "n999", "n42"))
     # legal: attach a valid relationship, including own-side targeting (shared node)
     assert is_legal(env.state, Introduce("x", "link", nid, "support"))
-    assert is_legal(env.state, Introduce("x", "impact", nid, "offensive_attack"))
+    # ILLEGAL (masking ruling): an offensive_attack onto an own-side (and non-polarity)
+    # advocacy is BOTH a same-side attack and offense-at-non-polarity -- structurally
+    # incoherent, so masked out of the action space.
+    assert not is_legal(env.state, Introduce("x", "impact", nid, "offensive_attack"))
 
 
 def test_illegal_action_raises_in_step():
@@ -95,19 +98,23 @@ def test_illegal_action_raises_in_step():
 # --- structural legality: strategic moves are NOT filtered -------------------
 
 def test_strategic_illegal_but_structural_is_admitted():
-    """A brand-new chain introduced in a rebuttal, and an attack drawn in the 'wrong'
-    window, are STRATEGICALLY weak (the judge scores them inert / unresolved) but
-    STRUCTURALLY legal. The generator must admit them so the agent gets the learning
-    signal (spec §Governing principle)."""
+    """A brand-new chain introduced in a rebuttal, and a CROSS-SIDE attack drawn in the
+    'wrong' (late) window, are STRATEGICALLY weak (the judge scores them inert / unresolved)
+    but STRUCTURALLY legal. The generator must admit them so the agent gets the learning
+    signal (spec §Governing principle). Contrast: a same-side attack or an offense at a
+    non-polarity node is structurally INCOHERENT and IS refused (see test_connect_legality
+    and test_inert) -- that is a different boundary."""
     env = CDAFEnvironment(); env.reset()
-    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
-    # jump to the final speech without answering anything: 1AC->...->2AR is 6 advances
-    for _ in range(6):
+    env.step(Introduce("aff link", "link", NEW)); lk = _last(env.state)   # 1AC AFF link
+    # jump to 2NR (a NEG speech) without answering anything: 1AC -> ... -> 2NR is 5 advances
+    for _ in range(5):
         env.step(EndSpeech())
-    assert env.state.current_slot == "2AR"
-    # a fresh chain first introduced in the 2AR: structurally legal (judge rules it inert)
+    assert env.state.current_slot == "2NR"
+    # a fresh chain first introduced in a rebuttal: structurally legal (judge rules it inert)
     assert is_legal(env.state, Introduce("late impact", "impact", NEW))
-    assert is_legal(env.state, Introduce("late link", "link", adv, "offensive_attack"))
+    # a cross-side offense on the AFF link, drawn far past its response window: offense-
+    # bearing endpoints on opposite sides -> structurally legal, though strategically inert.
+    assert is_legal(env.state, Introduce("late turn", "impact", lk, "offensive_attack"))
 
 
 # --- divergence is legal (Fence A retired, v11) ------------------------------
@@ -145,8 +152,11 @@ def test_connect_legality():
     # a support connect that WOULD close a directed cycle is rejected: target im already
     # reaches source adv (im->L1->adv), so adding adv->im closes the loop adv->im->L1->adv.
     assert not is_legal(env.state, Connect(adv, im, "support"))
-    # a cross-type attack connect never closes a Support cycle -> fine
-    assert is_legal(env.state, Connect(adv, im, "offensive_attack"))
+    # an attack-type connect is NOT subject to the Support-cycle rule -- but adv & im are
+    # SAME-SIDE (both AFF), so an attack between them is now refused as a same-side attack
+    # (masking ruling), not for any cycle reason. (Cross-side attack connects bypassing the
+    # cycle rule are covered by test_action_heads.test_connect_support_cycle_masked.)
+    assert not is_legal(env.state, Connect(adv, im, "offensive_attack"))
 
 
 # --- observation: settled facts + node-level accrual only --------------------
@@ -263,70 +273,32 @@ def _full_aff_chain(env):
     return env.step(EndSpeech())
 
 
-def test_chain_bonus_off_by_default_is_byte_identical():
-    """Default coefficient 0.0: a carried AFF chain yields the plain ballot reward and
-    a zero bonus in the breakdown -- no drift from the unshaped env."""
+def test_reward_breakdown_shape_and_unshaped_terminal():
+    """A carried AFF chain yields the plain (UNSHAPED) ballot reward; reward_breakdown splits
+    into {ballot, inert_penalty} per side. The flat chain-extension bonus is RETIRED (no such
+    key). PBRS shaping is per-step in TRAINING, not in the env's terminal reward; Φ(terminal)=0."""
     env = CDAFEnvironment(); env.reset()
     obs, r, done, info = _full_aff_chain(env)
     assert info["winner"] == AFF and r == 1.0
     assert info["rewards"] == {AFF: 1.0, NEG: 0.0}
-    assert info["reward_breakdown"][AFF]["chain_extension_bonus"] == 0.0
-
-
-def test_chain_bonus_added_for_carried_aff_offense_chain():
-    """With the coefficient set, a carried (extended, in-scope, sign +1) AFF chain adds
-    the bonus on top of the ballot reward, split out in the breakdown."""
-    env = CDAFEnvironment(chain_extension_bonus=0.25); env.reset()
-    obs, r, done, info = _full_aff_chain(env)
-    assert r == 1.25
-    assert info["rewards"] == {AFF: 1.25, NEG: 0.0}
     assert info["reward_breakdown"] == {
-        AFF: {"ballot": 1.0, "chain_extension_bonus": 0.25},
-        NEG: {"ballot": 0.0},
+        AFF: {"ballot": 1.0, "inert_penalty": -0.0},
+        NEG: {"ballot": 0.0, "inert_penalty": -0.0},
     }
+    assert "chain_extension_bonus" not in info["reward_breakdown"][AFF]
+    assert info["phi"] == 0.0                             # Φ(terminal) = 0 (invariance boundary)
 
 
-def test_chain_bonus_awarded_even_when_aff_loses_and_is_not_zero_sum():
-    """'Regardless of who won': AFF and NEG each carry a symmetric conceded chain ->
-    tie -> presumption NEG. AFF still earns the bonus for its carried chain, and the
-    two sides no longer sum to 1 (the bonus is an AFF-only auxiliary reward)."""
-    env = CDAFEnvironment(chain_extension_bonus=0.25); env.reset()
-    env.step(Introduce("plan", "advocacy", NEW)); a_adv = _last(env.state)
-    env.step(Introduce("uq", "uniqueness", a_adv, "support")); a_uni = _last(env.state)
-    env.step(Introduce("al", "link", a_uni, "support")); a_lk = _last(env.state)
-    env.step(Introduce("ai", "impact", a_lk, "support")); a_im = _last(env.state)
-    env.step(Introduce("av", "ballot_directive", a_im, "support"))
-    a_spine = (a_adv, a_uni, a_lk, a_im)
-    env.step(EndSpeech())                                 # -> 1NC
-    env.step(Introduce("cp", "advocacy", NEW)); n_adv = _last(env.state)
-    env.step(Introduce("nuq", "uniqueness", n_adv, "support")); n_uni = _last(env.state)
-    env.step(Introduce("nl", "link", n_uni, "support")); n_lk = _last(env.state)
-    env.step(Introduce("ni", "impact", n_lk, "support")); n_im = _last(env.state)
-    env.step(Introduce("nv", "ballot_directive", n_im, "support"))
-    n_spine = (n_adv, n_uni, n_lk, n_im)
-    env.step(EndSpeech())                                 # -> 2AC
-    for n in a_spine: env.step(Extend(n))
-    env.step(EndSpeech())                                 # -> 2NC/1NR
-    for n in n_spine: env.step(Extend(n))
-    env.step(EndSpeech())                                 # -> 1AR
-    for n in a_spine: env.step(Extend(n))
-    env.step(EndSpeech())                                 # -> 2NR
-    for n in n_spine: env.step(Extend(n))
-    env.step(EndSpeech())                                 # -> 2AR
-    for n in a_spine: env.step(Extend(n))
-    obs, r, done, info = env.step(EndSpeech())
-    assert info["winner"] == NEG                          # AFF lost the ballot ...
-    assert r == 0.25                                      # ... yet earned the bonus
-    assert info["rewards"] == {AFF: 0.25, NEG: 1.0}       # not zero-sum (sum = 1.25)
-
-
-def test_chain_bonus_withheld_when_no_aff_offense_chain():
-    """No carried AFF offense chain -> no bonus even with the coefficient set."""
-    env = CDAFEnvironment(chain_extension_bonus=0.25); env.reset()
-    r = info = None
-    for _ in range(len(SPEECH_BUDGET)):
-        if env.state.terminated: break
-        obs, r, done, info = env.step(EndSpeech())
-    assert info["winner"] == NEG and r == 0.0
-    assert info["rewards"] == {AFF: 0.0, NEG: 1.0}
-    assert info["reward_breakdown"][AFF]["chain_extension_bonus"] == 0.0
+def test_env_exposes_phi_and_it_tracks_a_carried_chain():
+    """The env exposes Φ(s) via info['phi'] each step (PBRS). A clean carried AFF chain gives
+    Φ > 0; a NEG offensive turn on the AFF link lowers Φ. Φ is a pure state function; training
+    forms the per-step shaping reward from it."""
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("plan", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("lk", "link", adv, "support")); lk = _last(env.state)
+    env.step(Introduce("im", "impact", lk, "support"))
+    env.step(Introduce("vote", "ballot_directive", lk, "support"))
+    _o, _r, _d, info = env.step(EndSpeech())             # -> 1NC
+    assert "phi" in info and info["phi"] > 0.0           # carried AFF chain -> Φ > 0
+    _o, _r, _d, info2 = env.step(Introduce("turn", "impact", lk, "offensive_attack"))
+    assert info2["phi"] < info["phi"]                    # NEG turn on the AFF link lowers Φ

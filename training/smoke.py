@@ -6,11 +6,12 @@ PPO updates of a handful of episodes each, one pool snapshot -- purely to confir
 error, no NaN, and no dead wiring. Nothing here is tuned; the step counts are as small as
 possible while still touching each code path once.
 
-As of the 2026-08-06 rulings, every CONSUMED semantic value is the real ruled default from
+As of the 2026-08-08 rulings, every CONSUMED semantic value is the real ruled default from
 `SemanticsConfig` -- this smoke run exercises the actual γ / entropy schedule / pool /
-ratio, not throwaways. The three shaping-anneal TRIGGER fields remain deliberately deferred
-(shaping off), which does not block the run. Only the TUNING/throughput knobs are shrunk
-here to keep the smoke trivial.
+ratio, not throwaways. Shaping is now ON (coef 0.1) with the anneal triggers ARMED at
+provisional values, and the inert-action penalty is ON (0.01), so this smoke also exercises
+the shaping bonus, the anneal controller, and the inert-penalty path end-to-end. Only the
+TUNING/throughput knobs are shrunk here to keep the smoke trivial.
 
 Run:  python -m training.smoke     (or  python training/smoke.py)
 """
@@ -30,10 +31,10 @@ from training.imitation import build_warmstart_dataset
 
 
 def _smoke_config(outdir: str) -> TrainingConfig:
-    """A capped SMOKE config. As of the 2026-08-06 rulings, ALL consumed semantic values
-    are the REAL ruled defaults from SemanticsConfig (no throwaways) -- the three
-    shaping-anneal triggers stay deferred (shaping off), which does not block the run. Only
-    the TUNING/throughput knobs are shrunk here (tiny batch, 2 updates) to keep the smoke
+    """A capped SMOKE config. As of the 2026-08-08 rulings, ALL consumed semantic values
+    are the REAL ruled defaults from SemanticsConfig (no throwaways) -- shaping is ON with
+    the anneal triggers armed and the inert penalty ON, all exercised end-to-end. Only the
+    TUNING/throughput knobs are shrunk here (tiny batch, 2 updates) to keep the smoke
     trivial; those are mine to set."""
     tuning = TuningConfig(
         minibatch_size=8, epochs_per_batch=2, warmstart_epochs=1,
@@ -60,7 +61,8 @@ def main():
               f"{config.semantics.require('entropy_coef_final')}, "
               f"pool {config.semantics.require('pool_cap')}/{config.semantics.require('pool_recent')}/"
               f"{config.semantics.require('pool_anchors')}); "
-              f"shaping OFF; deferred(non-blocking)={config.deferred_semantics()}")
+              f"PBRS pbrs_lambda={config.semantics.require('pbrs_lambda')}, inert_penalty="
+              f"{config.semantics.require('inert_penalty_coef')} (dormant)")
 
         # (1) warm-start dataset builds from the corpus.
         ds = build_warmstart_dataset()
@@ -83,7 +85,8 @@ def main():
             print(f"[ppo] update={m['update']} winrate_aff={m['ballot_win_rate_aff']:.2f} "
                   f"pol_loss={m['mean_policy_loss']:.4f} val_loss={m['mean_value_loss']:.4f} "
                   f"ent={m['mean_entropy']:.4f} kl={m['mean_approx_kl']:.4f} "
-                  f"ent_coef={m['entropy_coef']:.4f} shaping={m['shaping_bonus']}")
+                  f"ent_coef={m['entropy_coef']:.4f} pbrs_lambda={m['pbrs_lambda']} "
+                  f"inert/ep={m['mean_inert_per_episode']:.2f} {m['inert_by_kind']}")
         print(f"[pool] {len(trainer.pool.entries)} checkpoint(s) in pool")
 
     print("=" * 72)

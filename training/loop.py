@@ -30,7 +30,7 @@ from .imitation import BehaviorCloning, build_warmstart_dataset, WarmStartDatase
 from .rollout import collect_batch, flatten_steps
 from .ppo import PPOUpdater
 from .pool import CheckpointPool
-from .anneal import entropy_coef, ShapingAnnealController
+from .anneal import entropy_coef
 from .metrics import batch_metrics
 
 
@@ -62,7 +62,6 @@ class SelfPlayTrainer:
     ac: ActorCritic = None
     pool: CheckpointPool = None
     updater: PPOUpdater = None
-    shaping: ShapingAnnealController = None
     encoder_spec: EncoderSpec = field(default_factory=EncoderSpec)
 
     def __post_init__(self):
@@ -74,16 +73,15 @@ class SelfPlayTrainer:
             self.pool = CheckpointPool(directory=pool_dir, semantics=self.config.semantics)
         if self.updater is None:
             self.updater = PPOUpdater(self.ac, self.config)
-        if self.shaping is None:
-            self.shaping = ShapingAnnealController(self.config.semantics)
 
     # --- one PPO update -------------------------------------------------------
     def run_update(self, update: int, *, rng, torch_generator: torch.Generator = None,
                    n_episodes: Optional[int] = None) -> dict:
-        """Collect one self-play batch and take one PPO update. Reads the annealed entropy
-        coefficient and shaping bonus for THIS update from the schedules (both semantic).
-        Returns a metrics dict."""
-        bonus = self.shaping.current_bonus(update)
+        """Collect one self-play batch and take one PPO update. PBRS shaping (potential-based)
+        is applied inside `collect_batch` (reading `pbrs_lambda` + `discount` from config, one
+        γ source); the entropy coefficient is annealed here. Returns a metrics dict."""
+        # Inert-action penalty coefficient is a constant read from config (dormant at 0.0).
+        inert_penalty_coef = float(self.config.semantics.require("inert_penalty_coef"))
 
         def opponent_sampler(r):
             return self.pool.sample_opponent(self.ac, r)
@@ -91,12 +89,7 @@ class SelfPlayTrainer:
         trajectories = collect_batch(
             self.ac, opponent_sampler, self.config, rng=rng,
             torch_generator=torch_generator, n_episodes=n_episodes,
-            chain_extension_bonus=bonus)
-
-        # feed ballot outcomes to the (conditional) shaping trigger.
-        for t in trajectories:
-            self.shaping.record_ballot(t.winner == AFF)
-        self.shaping.maybe_trigger(update)
+            inert_penalty_coef=inert_penalty_coef)
 
         steps = flatten_steps(trajectories)
         ecoef = entropy_coef(update, self.config.tuning.total_updates, self.config.semantics)
@@ -104,13 +97,14 @@ class SelfPlayTrainer:
 
         metrics = batch_metrics(trajectories)
         metrics.update({
-            "update": update, "entropy_coef": ecoef, "shaping_bonus": bonus,
+            "update": update, "entropy_coef": ecoef,
+            "pbrs_lambda": float(self.config.semantics.require("pbrs_lambda")),
+            "inert_penalty_coef": inert_penalty_coef,
             "n_ppo_minibatches": len(ppo_stats),
             "mean_policy_loss": _mean(s.policy_loss for s in ppo_stats),
             "mean_value_loss": _mean(s.value_loss for s in ppo_stats),
             "mean_entropy": _mean(s.entropy for s in ppo_stats),
             "mean_approx_kl": _mean(s.approx_kl for s in ppo_stats),
-            "shaping_triggered_at": self.shaping.triggered_at_update,
         })
         return metrics
 

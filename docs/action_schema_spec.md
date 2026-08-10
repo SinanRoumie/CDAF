@@ -25,6 +25,21 @@ machinery is introduced.
   the schema does not encode that as a structural restriction. The action
   space stays uniform; the dominance is left for self-play to discover and
   exploit on its own.
+- **Structural incoherence is illegal; only context-dependent inertness is
+  learned.** Three moves that can *never* be meaningful in any round state are
+  disallowed by the legal-action generator — masking them removes no strategic
+  distinction, because they were never a real option: a **same-side attack** (an
+  attack edge between two nodes of the same side), an **offense at a non-polarity
+  node** (an `offensive_attack` where an endpoint is not a Link or Impact), and a
+  **redundant connect** (a `connect` duplicating an existing edge). A **no-op
+  re-extend** (an `extend`/`concede` on a node already carried this speech) is
+  *context-dependent* — extending an uncarried node is a real, often-correct move,
+  and only this specific state makes it inert — so it stays **legal** and is priced
+  by **cost**: it consumes a full budget slot, bypassing the extend-batch discount,
+  so a wasted carriage costs the same as any other wasted move. The policy still
+  may do it; it just pays the real opportunity cost, rather than the judgment being
+  hardcoded as a prohibition (see environment_shell_spec §Governing principle and
+  §Liveness stamping, rl_training_spec §Reward).
 
 ## Action types
 
@@ -110,6 +125,14 @@ no path-walk.
   Worked example (K = 4): the 1st–4th carriages of a speech cost 1/0/0/0 (cumulative
   1); the 5th–8th cost 1/0/0/0 again (cumulative 2); the 9th costs 1 (cumulative 3).
   N carriages cost `ceil(N / 4)` — e.g. 3 → 1, 4 → 1, 5 → 2, 8 → 2, 9 → 3.
+
+**No-op re-extend exception.** Re-extending a node **already carried this speech**
+changes nothing (the liveness stamp is idempotent). It remains legal but does
+**not** get the batch discount: it costs a **full slot** (1), regardless of
+`extends_this_speech`, like any wasted move. Only *distinct* carriages — extends of
+a node not yet carried this speech — earn the `1-slot-per-K` rate. This prices inert
+re-extension at its true opportunity cost instead of letting the batch discount make
+it near-free.
 
   (The 1 lands on the *first* carriage of each K-group — the marginal of the given
   formula. Cumulative cost after N carriages is `ceil(N / K)`.)

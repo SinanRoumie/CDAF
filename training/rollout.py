@@ -42,7 +42,7 @@ from typing import Callable, List, Optional
 import torch
 
 from judge.config import AFF, NEG
-from env import CDAFEnvironment, observe
+from env import CDAFEnvironment, observe, potential
 from policy import ActorCritic
 
 from .config import TrainingConfig
@@ -62,6 +62,11 @@ class RolloutStep:
     side: str
     slot: str
     action_type: str
+    # PBRS: Φ(s) at this learner DECISION state (pre-action), stored at collection; a pure
+    # function of state. `shaping` is the per-step potential-based reward, filled by
+    # `apply_pbrs`. Both default 0.0 so a run without PBRS is unaffected.
+    phi: float = 0.0
+    shaping: float = 0.0
     # filled by compute_gae:
     advantage: float = 0.0
     ret: float = 0.0
@@ -78,6 +83,9 @@ class Trajectory:
     reward_breakdown: dict = field(default_factory=dict)
     diagnostics: list = field(default_factory=list)
     length: int = 0                     # total env actions in the episode (both sides)
+    inert_counts: dict = field(default_factory=dict)   # per-kind inert-action tally (both
+                                                       # sides), diagnostics only
+    inert_counts_by_side: dict = field(default_factory=dict)   # side -> kind -> count
 
 
 # ---------------------------------------------------------------------------
@@ -86,17 +94,20 @@ class Trajectory:
 
 def collect_episode(learner: ActorCritic, opponent: ActorCritic, *,
                     learner_side: str, rng, torch_generator: torch.Generator = None,
-                    chain_extension_bonus: float = 0.0, capture_round: bool = False):
+                    inert_penalty_coef: float = 0.0, capture_round: bool = False):
     """Play one self-play round. `learner_side` is AFF or NEG; the opponent takes the
     other. Sampling is `torch.no_grad` (collection stores detached scalars; PPO recomputes
-    with grad later). `chain_extension_bonus` wires the env's shaping HOOK -- default 0.0
-    (OFF); the loop passes a nonzero value ONLY when shaping is deliberately enabled.
+    with grad later). `inert_penalty_coef` wires the env's inert-action penalty (default 0.0
+    / dormant). The flat chain-extension bonus is retired; shaping is now PBRS, formed from
+    the stored per-step Φ by `apply_pbrs` (env exposes `info['phi']`; here we read Φ at each
+    learner decision state via `env.potential`). The learner's `terminal_reward` is the
+    unshaped ballot minus its inert penalty (`info['rewards'][learner_side]`).
 
     Returns the `Trajectory`. If `capture_round=True`, returns `(Trajectory, model.Round)`
     where the Round is the terminal graph materialized via `state.to_round()` (the same path
     `sample_round.py` uses) -- for periodic ROUND VISUALIZATION. Capture only materializes
     the final graph (one `to_round()`), so it is cheap; do it for a FEW episodes, not all."""
-    env = CDAFEnvironment(chain_extension_bonus=chain_extension_bonus)
+    env = CDAFEnvironment(inert_penalty_coef=inert_penalty_coef)
     env.reset()
     traj = Trajectory(learner_side=learner_side)
     steps_taken = 0
@@ -111,13 +122,15 @@ def collect_episode(learner: ActorCritic, opponent: ActorCritic, *,
 
             if is_learner:
                 snapshot = copy.deepcopy(env.state)
+                phi = potential(env.state)          # Φ(s) at this decision state (pre-action)
                 sa, log_prob, _entropy = policy.sample_with_log_prob(
                     enc_out, env.state, generator=torch_generator)
                 value = policy.value(enc_out.graph_embedding)
                 traj.steps.append(RolloutStep(
                     obs=obs, state=snapshot, action=sa.action,
                     old_log_prob=float(log_prob), old_value=float(value),
-                    side=side, slot=env.state.current_slot, action_type=sa.action_type))
+                    side=side, slot=env.state.current_slot, action_type=sa.action_type,
+                    phi=phi))
             else:
                 sa = policy.sample_action(enc_out, env.state, generator=torch_generator)
 
@@ -128,6 +141,8 @@ def collect_episode(learner: ActorCritic, opponent: ActorCritic, *,
                 traj.terminal_reward = info["rewards"][learner_side]
                 traj.reward_breakdown = info.get("reward_breakdown", {})
                 traj.diagnostics = info.get("diagnostics", [])
+                traj.inert_counts = info.get("inert_counts", {})
+                traj.inert_counts_by_side = info.get("inert_counts_by_side", {})
 
     traj.length = steps_taken
     if capture_round:
@@ -158,13 +173,13 @@ def save_round_json(rnd, path: str, *, role_labels: bool = True) -> str:
 
 def capture_round_to_file(learner: ActorCritic, opponent: ActorCritic, *, learner_side: str,
                           rng, path: str, torch_generator: torch.Generator = None,
-                          chain_extension_bonus: float = 0.0, role_labels: bool = True):
+                          inert_penalty_coef: float = 0.0, role_labels: bool = True):
     """Play ONE episode and save its terminal graph to `path`, builder-loadable. Returns
     `(Trajectory, path)`. Thin convenience over `collect_episode(capture_round=True)` +
     `save_round_json` for periodic in-training visualization."""
     traj, rnd = collect_episode(
         learner, opponent, learner_side=learner_side, rng=rng,
-        torch_generator=torch_generator, chain_extension_bonus=chain_extension_bonus,
+        torch_generator=torch_generator, inert_penalty_coef=inert_penalty_coef,
         capture_round=True)
     save_round_json(rnd, path, role_labels=role_labels)
     return traj, path
@@ -179,20 +194,46 @@ def random_side(rng) -> str:
 # GAE advantage / return estimation
 # ---------------------------------------------------------------------------
 
+def apply_pbrs(traj: Trajectory, *, pbrs_lambda: float, discount: float) -> Trajectory:
+    """Fill each learner step's `shaping` with the potential-based reward
+    F_t = pbrs_lambda * ( discount * Φ_L(s_{t+1}) - Φ_L(s_t) ), over the learner's DECISION
+    sequence, with the SIDE-RELATIVE potential Φ_L = Φ if learner is AFF else -Φ (the ballot
+    is zero-sum). Φ is the per-step `step.phi` stored at collection. The last step's next
+    state is TERMINAL, where Φ(terminal) = 0 (invariance boundary) -- so the telescoping
+    identity Σ γ^t F_t = γ^T·0 - Φ_L(s_0) holds and PBRS adds no policy-distorting return
+    (rl_training_spec §Reward, environment_shell_spec §step()).
+
+    `discount` MUST be the SAME γ used by `compute_gae` / the return (invariance constraint
+    2). Callers pass `config.semantics.require("discount")` to both -- single source, never
+    a second literal. `pbrs_lambda=0.0` leaves `shaping` at 0 (byte-identical to no PBRS)."""
+    steps = traj.steps
+    if not steps or pbrs_lambda == 0.0:
+        return traj
+    sign = 1.0 if traj.learner_side == AFF else -1.0        # Φ_L = sign * Φ
+    T = len(steps)
+    for t in range(T):
+        phi_cur = sign * steps[t].phi
+        phi_next = sign * steps[t + 1].phi if t + 1 < T else 0.0   # Φ(terminal) = 0
+        steps[t].shaping = pbrs_lambda * (discount * phi_next - phi_cur)
+    return traj
+
+
 def compute_gae(traj: Trajectory, *, discount: float, gae_lambda: float) -> Trajectory:
     """Fill each learner step's `advantage` and `ret` via GAE over the learner's decision
-    sequence. Reward is terminal-only: only the last learner step receives
-    `terminal_reward`; the bootstrap value past termination is 0 (the episode truly ends).
+    sequence. Per-step reward = `step.shaping` (PBRS, from `apply_pbrs`; 0 if unused) plus,
+    on the LAST step, `terminal_reward` (the unshaped ballot minus inert penalty). The
+    bootstrap value past termination is 0 (the episode truly ends).
 
-    `discount` (γ) is SEMANTIC and must be supplied by the caller (never defaulted);
-    `gae_lambda` is a mechanical tuning knob."""
+    `discount` (γ) is SEMANTIC and must be supplied by the caller (never defaulted) -- and
+    MUST match the γ passed to `apply_pbrs` for the PBRS invariance to hold; `gae_lambda` is
+    a mechanical tuning knob."""
     steps = traj.steps
     T = len(steps)
     if T == 0:
         return traj
     adv = 0.0
     for t in reversed(range(T)):
-        reward = traj.terminal_reward if t == T - 1 else 0.0
+        reward = steps[t].shaping + (traj.terminal_reward if t == T - 1 else 0.0)
         next_value = 0.0 if t == T - 1 else steps[t + 1].old_value
         delta = reward + discount * next_value - steps[t].old_value
         adv = delta + discount * gae_lambda * adv
@@ -208,15 +249,17 @@ def compute_gae(traj: Trajectory, *, discount: float, gae_lambda: float) -> Traj
 def collect_batch(learner: ActorCritic, opponent_sampler: Callable[[object], ActorCritic],
                   config: TrainingConfig, *, rng, torch_generator: torch.Generator = None,
                   n_episodes: Optional[int] = None,
-                  chain_extension_bonus: float = 0.0) -> List[Trajectory]:
+                  inert_penalty_coef: float = 0.0) -> List[Trajectory]:
     """Collect a batch of episodes. `opponent_sampler(rng) -> ActorCritic` resolves the
     opponent per episode (e.g. `CheckpointPool.sample_opponent` bound to the learner) --
-    this is where the self-play sampling ratio enters. Side is random per episode. GAE is
-    applied per trajectory using the SEMANTIC discount (raises if unset).
+    this is where the self-play sampling ratio enters. Side is random per episode. PBRS
+    shaping (`apply_pbrs`) then GAE are applied per trajectory using the SEMANTIC discount
+    (raises if unset) -- the SAME γ for both (PBRS invariance constraint).
 
     `n_episodes` overrides `config.tuning.episodes_per_update` (the smoke test passes a
     trivial count)."""
-    discount = float(config.semantics.require("discount"))     # loud if unset
+    discount = float(config.semantics.require("discount"))     # loud if unset; single γ source
+    pbrs_lambda = float(config.semantics.require("pbrs_lambda"))
     gae_lambda = config.tuning.gae_lambda
     n = n_episodes if n_episodes is not None else config.tuning.episodes_per_update
     out: List[Trajectory] = []
@@ -225,7 +268,8 @@ def collect_batch(learner: ActorCritic, opponent_sampler: Callable[[object], Act
         side = random_side(rng)
         traj = collect_episode(
             learner, opponent, learner_side=side, rng=rng,
-            torch_generator=torch_generator, chain_extension_bonus=chain_extension_bonus)
+            torch_generator=torch_generator, inert_penalty_coef=inert_penalty_coef)
+        apply_pbrs(traj, pbrs_lambda=pbrs_lambda, discount=discount)   # same γ as GAE below
         compute_gae(traj, discount=discount, gae_lambda=gae_lambda)
         out.append(traj)
     return out

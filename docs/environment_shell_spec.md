@@ -28,20 +28,36 @@ The legal-action generator enforces **structural** legality and nothing else:
 - action parameters are well-formed
 - a `connect` may not create a self-loop or close a **Support cycle** (the
   directed-cycle rule is detailed under State schema → `connect`)
+- an **attack edge** (`defensive_attack`/`offensive_attack`, whether via `introduce`
+  or `connect`) may not run between two nodes of the **same side** — a same-side
+  attack is incoherent (it can never enter any attacker set; matches the judge's own
+  `same-side attack (incoherent)` classification)
+- an **`offensive_attack`** may not touch a **non-polarity** node — both endpoints
+  must be offense-bearing (Link or Impact); offense at a uniqueness/advocacy/
+  framework/ballot_directive has no polarity to flip (judge §3.4)
+- a **`connect`** may not **duplicate an existing edge** (same source, target, and
+  edge_type) — it would add no structure
 
-It does **not** enforce strategic legality. Response-window compliance,
-whether an extension will ultimately count, whether a new chain in a rebuttal
-can establish offense, whether a spike into a conceded-but-uncontested node is
-inert — all of these remain outcomes computed by the judge, not prohibitions
-enforced at action time.
+It does **not** enforce strategic legality. Response-window compliance, whether an
+extension will ultimately count, whether a new chain in a rebuttal can establish
+offense, whether a spike into a conceded-but-uncontested node is inert — all of
+these remain outcomes computed by the judge, not prohibitions enforced at action
+time. The three structural checks above are **not** strategic: they forbid moves
+that are *logically incoherent in every round state* (no possible continuation makes
+a same-side attack, an offense at a non-polarity node, or a duplicate edge
+meaningful), so disallowing them removes no strategic distinction. Context-dependent
+inertness stays learnable: a **no-op re-extend** is legal (priced via cost, §Liveness
+stamping), and window/maker-lapsed inertness stays a judge outcome.
 
 **There is no multi-terminal refusal.** Divergent chains are first-class as of
 judge v11 — a same-side Support component may have several terminal impacts,
 each scored as its own chain (State schema → Divergence) — so the former
 "Fence A" is retired from both the generator and `validate_round`. That also
 removed the generator's per-action deepcopy probe, so legality checks are now
-O(1) structural predicates; the only non-local check is the `connect`
-Support-cycle test, a cheap reachability query. `validate_round` at termination
+near-O(1) structural predicates; the non-local ones are the `connect` Support-cycle
+test (a cheap reachability query) and the redundant-`connect` duplicate-edge scan (a
+cheap O(edges) check). Same-side-attack, offense-at-non-polarity, and
+no-op-re-extend detection are all O(1) local predicates. `validate_round` at termination
 is now the off-vocab-speech check (Fence G) only — still an assertion, satisfied
 by construction because the env stamps every node's speech from the current slot.
 
@@ -276,6 +292,23 @@ K carriages are on one chain or scattered across unrelated arguments. `contested
 `conceded` status is still derived structurally at materialization (below), never
 from the verb or the named node.
 
+**No-op re-extend costs a full slot.** A carriage of a node **already carried this
+speech** changes nothing (the stamp is an idempotent set-add). It stays legal but is
+charged a **full slot (cost 1)**, bypassing the `ceil(count/K)` batch discount, and
+still increments `extends_this_speech`. Only **distinct** carriages — a node not yet
+carried this speech — earn the `1-slot-per-K` rate. Detection reuses the same
+"already carried this speech" predicate the inert classifier uses. This prices inert
+re-extension at its true opportunity cost (a wasted move) instead of letting the
+batch discount make it near-free — the v2 diagnostic showed the near-free case
+producing tens of no-op re-extends per episode.
+
+**Slack-budget caveat (intentional, not a gap).** A no-op re-extend pays the full
+slot even in a speech with unused budget, exactly as any move does — there is no
+rebate for "there was budget to spare." The one case this does not strongly deter —
+a no-op late in a speech the agent would otherwise end with slack — is deliberately
+left to the dormant `inert_penalty_coef` reward backstop (rl_training_spec §Reward),
+to be enabled only on evidence it matters, rather than complicating the cost model.
+
 Rationale: the same graph must produce the same verdict regardless of how it
 was built. If status were a function of action history, an env-built round and
 a fixture-built round with identical structure could return different
@@ -327,32 +360,78 @@ Initializes an empty graph at slot 1AC with that slot's budget.
   structural validity: an action whose *cost* exceeds the speech's remaining
   budget is illegal — the same category as any budget-exhausted action, now
   measured against the action's cost rather than a flat 1. `end_speech` costs 0;
-  `introduce`/`weigh`/`connect` cost 1; `extend`/`concede` cost the marginal of the
-  speech-wide `ceil(count / K)` batch (0 on most carriages, 1 on the one that starts
-  a new K-group), so a carriage is unaffordable only when it would start a new
-  K-group with no budget left — a simple lookup on `extends_this_speech`, no
-  lookahead. `moves_used` advances by the action's cost, and the turn auto-advances
-  when the budget is reached.
-- **Non-terminal steps**: `reward = 0`, `done = False`. No per-move shaping;
-  every shaping term is applied at termination, in the reward, never in the
-  observation. (Phase 1 reward shaping that disables presumption for early
-  iterations applies to the *judge configuration* at termination, not to
-  intermediate steps.)
-- **Chain-extension shaping bonus** (`chain_extension_bonus`, default `0.0`):
-  on top of the ballot reward, AFF earns a small bonus at termination iff it
-  carried **at least one** chain that is *extended, in-scope, and sign +1* —
-  regardless of who won. **Binary**: one such chain is worth exactly as much as
-  three; magnitude does not scale it. The coefficient is configurable and
-  **annealable to zero** — the final policy trains on the terminal reward alone,
-  so the default is off (byte-identical to an unshaped env). Rationale: random
-  play builds an AFF offense chain ~75% of rounds but *carries* one only ~1.6%
-  and passes zero ballot gates, so the terminal reward is constant-zero and
-  nothing bootstraps; rewarding chain **existence** teaches "carry a spine" (a
-  rule of the game), whereas rewarding chain count/magnitude would teach "extend
-  everything" (bad debate — kept emergent). The bonus is an AFF-only auxiliary
-  reward: with it enabled the two sides no longer sum to 1. `info['rewards']`
-  carries the shaped per-side returns; `info['reward_breakdown']` splits each
-  side into `ballot` and `chain_extension_bonus`.
+  `introduce`/`weigh`/`connect` cost 1; a *distinct* `extend`/`concede` carriage costs
+  the marginal of the speech-wide `ceil(count / K)` batch (0 on most carriages, 1 on
+  the one that starts a new K-group), so such a carriage is unaffordable only when it
+  would start a new K-group with no budget left — a simple lookup on
+  `extends_this_speech`, no lookahead. **Exception:** a **no-op re-extend** (a
+  carriage of a node already carried this speech) costs a **full slot (1)** regardless
+  of batch position, so it is unaffordable whenever no slot remains; only *distinct*
+  carriages get the batch rate. `moves_used` advances by the action's cost, and the
+  turn auto-advances when the budget is reached.
+- **Non-terminal steps**: the env's raw `reward = 0`, `done = False` — the environment is
+  learner-agnostic and does not itself form the shaped reward. It now **exposes the scalar
+  potential Φ(s) in `info` each step** (see the PBRS bullet), from which the training loop
+  forms the per-step shaping reward. Inert-action *detection* (now `noop_reextend` only)
+  still runs per-step for the diagnostic counters and to charge the no-op its full-slot
+  cost. (Phase 1 presumption-disabling shaping still applies to the *judge configuration*
+  at termination, not to intermediate steps.)
+- **Potential-based shaping (PBRS) — the shaping term** (replaces the retired flat
+  chain-extension bonus). The environment exposes a scalar **potential Φ(s)** each step;
+  the training loop forms the per-learner-step shaping reward
+
+      F_t = λ · ( γ · Φ_L(s') − Φ_L(s) ),   λ = 0.5 (ruled)
+
+  applied on each learner decision step (s → the learner's next decision state), with the
+  **side-relative potential** Φ_AFF = Φ, Φ_NEG = −Φ. Φ is **Φ_maxdiff** (rl_training_spec
+  §Reward). This distributes shaping **densely per step**, replacing the terminal-only bonus.
+
+  **Four correctness constraints (invariance — future readers MUST preserve all four; a
+  violation reintroduces the optimum-distortion that caused the retired bonus's
+  bonus-dependence):**
+    1. **Φ is a pure function of state** — the current graph only; never action identity,
+       history, or which side built a node. Any such dependence breaks policy-invariance.
+    2. **γ in F_t MUST equal the return/GAE discount** (`SemanticsConfig.discount`, currently
+       0.999), read from that single source. A mismatch makes F_t non-potential and *can
+       change the optimal policy*.
+    3. **Φ(terminal) = 0 and Φ(empty graph) = 0**, so the telescoped shaping contributes
+       zero net discounted return per trajectory — the invariance identity.
+    4. **Side-relative potential** Φ_NEG = −Φ_AFF (valid because the ballot is zero-sum).
+
+  **Why this reverses the prior "all shaping at termination / non-terminal reward = 0"
+  contract:** the retired flat bonus was a terminal, *non*-potential term that distorted the
+  optimum (empirically: win-rate tracked the coefficient and collapsed when withdrawn —
+  Real Run 1). PBRS is per-step by construction and, under the four constraints, is
+  **policy-invariant** — it changes learning *speed*, never the optimal policy — which is
+  why it needs **no annealing** (nothing to withdraw).
+
+  **Mid-round chain resolver — one implementation, two callers** (mirrors the `node_accrual`
+  "single implementation, two callers" pattern, §Observation contract → Node-level accrual).
+  Φ is built from a chain resolver factored out of the judge's `_build_chains`, run in two
+  scopes:
+    - **judge, at termination:** BD-reachable scope, `as_of = None`, applying the
+      impact-weighing exclusion at the ballot — unchanged, byte-identical verdicts.
+    - **mid-round, per step:** whole-graph scope, `as_of = current slot`, and — per this
+      milestone — **also applying the impact-weighing exclusion rule**, so Φ zeros chains
+      already outweighed by weighs made so far.
+  As with node_accrual, this must be the *same* factored function the judge uses, not a
+  second copy.
+
+  `info['reward_breakdown']` at termination now splits each side into `ballot` and
+  `inert_penalty` (the flat `chain_extension_bonus` key is retired); the PBRS shaping is a
+  **per-step** reward, reported per step (`info['phi']` and the training loop's per-step
+  shaping series), not a terminal lump.
+- **Inert-action penalty** (`inert_penalty_coef`, default `0.0`; ruled 0.0 —
+  **dormant**): a per-side reward hook, currently zero. The only inert class it can
+  apply to is the **no-op re-extend** — the other three are now structurally illegal
+  (§Governing principle) and never sampled. Detection is the pure
+  `is_inert(state, action) -> (bool, kind)` predicate, now narrowed to the single
+  `noop_reextend` kind, still a *sibling* of the legal-action generator and **never
+  part of it** (reward-only, unchanged contract). At 0.0 the penalty is a no-op; the
+  no-op re-extend is instead priced structurally via **full-slot cost** (§Liveness
+  stamping). The step-time per-side/per-kind counters remain for diagnostics/logging.
+  `info['reward_breakdown']` still carries a per-side `inert_penalty` key
+  (−`inert_penalty_coef` × noop count; zero while dormant).
 - **Turn advance**: on `end_speech()` or budget exhaustion, the acting side
   and slot advance per `SPEECH_ORDER`.
 - **Termination**: after the final slot (2AR) completes, the environment

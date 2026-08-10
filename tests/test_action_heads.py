@@ -166,32 +166,34 @@ def test_weigh_second_target_excludes_self():
         assert (probs[k].item() > 0.0) == bool(legal)
 
 
-def _build_support_chain():
-    """A -> supported-by B -> supported-by C, so a `support` connect that would close
-    the directed Support cycle is illegal while attack edges stay legal."""
+def _build_cross_side_support_cycle():
+    """An AFF link `a`, then a NEG link `b` supporting it (b -> a; cross-side support is
+    legal). A `support` connect a -> b would close the directed cycle a -> b -> a and is
+    illegal, while the ATTACK edge_types between this CROSS-SIDE, offense-bearing pair stay
+    legal -- so `connect_edge_mask(a, b)` is [support=masked, defensive=legal, offensive=
+    legal]. (A same-side pair would have all three edge_types masked after the masking
+    ruling, so a cross-side pair is required to isolate the cycle rule.)"""
     env = CDAFEnvironment()
-    env.reset()                                          # 1AC, budget 8
-    env.step(Introduce("", "advocacy", NEW, None))       # n1 (A)
-    env.step(Introduce("", "link", "n1", "support"))     # n2 supports n1
-    env.step(Introduce("", "impact", "n2", "support"))   # n3 supports n2
-    return env
+    env.reset()                                          # 1AC (AFF), budget 8
+    env.step(Introduce("", "link", NEW, None))           # n1 = a (AFF link)
+    env.step(EndSpeech())                                # -> 1NC (NEG)
+    env.step(Introduce("", "link", "n1", "support"))     # n2 = b (NEG link) supports a: b -> a
+    return env, "n1", "n2"
 
 
 def test_connect_support_cycle_masked():
     """The one genuinely conditional structural rule: a `support` connect closing a
     Support cycle is masked out for that ordered pair, while defensive/offensive stay
-    legal -- and the masked edge_type gets zero probability."""
+    legal (cross-side, offense-bearing endpoints) -- and the masked edge_type gets zero
+    probability."""
     enc, ac = _model()
-    env = _build_support_chain()
+    env, s_id, t_id = _build_cross_side_support_cycle()
     state = env.state
     mask = LegalActionMask(state)
-    # endpoints by role (node ids skip values because edge ids share the counter):
-    # the advocacy root and the impact leaf of the A <- B <- C support chain.
-    s_id = next(nid for nid, n in state.nodes.items() if n.role == "advocacy")
-    t_id = next(nid for nid, n in state.nodes.items() if n.role == "impact")
     # ground truth straight from the generator
-    assert not is_legal(state, Connect(s_id, t_id, "support"))
-    assert is_legal(state, Connect(s_id, t_id, "defensive_attack"))
+    assert not is_legal(state, Connect(s_id, t_id, "support"))       # closes a directed cycle
+    assert is_legal(state, Connect(s_id, t_id, "defensive_attack"))  # cross-side -> legal
+    assert is_legal(state, Connect(s_id, t_id, "offensive_attack"))  # cross-side, offense-bearing
     emask = mask.connect_edge_mask(s_id, t_id)
     assert list(emask) == [False, True, True]            # support masked; def/off legal
 

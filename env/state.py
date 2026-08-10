@@ -19,6 +19,7 @@ extend fires, because later actions in the same speech can change what is true.
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -73,6 +74,15 @@ class RoundState:
     extends_this_speech: int = 0            # count of extend/concede actions this speech
                                             # (drives the batched marginal cost; reset per slot)
     _seq: int = 0                           # monotonic id counter
+    # Inert-action counters (REWARD ONLY -- see legal_actions.is_inert). Accumulate over
+    # the WHOLE episode (never reset per speech), incremented at step time BEFORE apply.
+    # `inert_by_side` drives the terminal per-side penalty; `inert_by_kind` (flat, both
+    # sides) and `inert_by_side_kind` (side -> kind -> count) are diagnostics only -- the
+    # side x kind cross is what surfaces e.g. NEG's no-op-re-extend rate (Run 1: 86%).
+    inert_by_side: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    inert_by_kind: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    inert_by_side_kind: Dict[str, Dict[str, int]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(int)))
 
     # --- ids ------------------------------------------------------------------
     def _new_node_id(self) -> str:
@@ -116,6 +126,15 @@ class RoundState:
         self.moves_used = 0
         self.extends_this_speech = 0
 
+    def record_inert(self, side: str, kind: str) -> None:
+        """Tally one inert action for `side` (drives the terminal per-side penalty) and
+        for `kind` (diagnostics only). Called at step time, BEFORE `apply`, so `side` is
+        the acting side of the move being taken. Reward-only bookkeeping -- never affects
+        legality, cost, or the materialized graph."""
+        self.inert_by_side[side] += 1
+        self.inert_by_kind[kind] += 1
+        self.inert_by_side_kind[side][kind] += 1
+
     # --- mutations (structural only; callers enforce legality) ----------------
     def add_node(self, content: str, owner: str, role: str) -> str:
         nid = self._new_node_id()
@@ -145,6 +164,14 @@ class RoundState:
         self.add_edge(wid, node_a, "comparison")
         self.add_edge(wid, node_b, "comparison")
         return wid
+
+    def already_carried_this_speech(self, node_id: str) -> bool:
+        """True iff `node_id` exists and is ALREADY stamped carried for the CURRENT speech
+        -- so an extend/concede on it would be a NO-OP RE-EXTEND (idempotent set-add). The
+        single source of truth for the no-op predicate, shared by `action_cost` (which
+        prices it as a full slot) and `legal_actions.is_inert` (reward/diagnostic side)."""
+        rec = self.nodes.get(node_id)
+        return rec is not None and self.current_slot in rec.carried
 
     def carry(self, node_id: str) -> None:
         """Stamp the node as carried through the current speech (extend/concede). ATOMIC:
@@ -256,23 +283,34 @@ def action_cost(state: RoundState, action) -> int:
     """The number of speech-budget slots `action` consumes in `state`.
 
     `end_speech` costs 0 (it ends the turn); `introduce`/`weigh`/`connect` cost 1;
-    `extend`/`concede` cost the MARGINAL of a speech-wide `ceil(count / K)` batch,
+    a DISTINCT `extend`/`concede` carriage costs the MARGINAL of a speech-wide
+    `ceil(count / K)` batch,
 
         marginal = ceil((count + 1) / K) - ceil(count / K)
 
     where `count` = `state.extends_this_speech` (extends already taken this speech) and
     K = `EXTEND_COST_K`. This is 1 on the 1st, (K+1)-th, (2K+1)-th ... extend of the
-    speech and 0 otherwise, so N extends over a speech cost `ceil(N / K)` total -- the
-    "1 slot per K carriages" discount, scoped to the whole speech (an agent gets the
-    same batch discount whether the K nodes are on one chain or scattered across
-    unrelated arguments; there is no path-walk and nothing chain-scoped). Depends only
-    on the current `count`, so the marginal cost of the NEXT carriage is a simple
-    lookup -- no knowledge of future actions is needed. Single source of truth: both
+    speech and 0 otherwise, so N distinct carriages over a speech cost `ceil(N / K)`
+    total -- the "1 slot per K carriages" discount, scoped to the whole speech.
+
+    NO-OP RE-EXTEND EXCEPTION: an extend/concede on a node ALREADY carried this speech
+    changes nothing, so it does NOT get the batch discount -- it costs a FULL SLOT (1)
+    regardless of `count`, like any wasted move (action_schema_spec §extend). It still
+    increments `extends_this_speech` in `apply`. Only distinct carriages earn the batch
+    rate. Detection uses `state.already_carried_this_speech` -- the same predicate
+    `legal_actions.is_inert` uses -- computed on the PRE-apply state (before `carry`),
+    so a genuine no-op (target already carried) is priced at 1 and a distinct carriage
+    at the batch marginal.
+
+    Depends only on current state, so the cost of the NEXT carriage is a simple lookup
+    -- no knowledge of future actions is needed. Single source of truth: both
     `check_legality`'s affordability gate and `apply`'s `moves_used` increment read
     this, so they cannot drift."""
     if isinstance(action, EndSpeech):
         return 0
     if isinstance(action, (Extend, Concede)):
+        if state.already_carried_this_speech(action.node_id):
+            return 1                         # no-op re-extend: full slot, no batch discount
         c = state.extends_this_speech
         return math.ceil((c + 1) / EXTEND_COST_K) - math.ceil(c / EXTEND_COST_K)
     return 1                                 # introduce / weigh / connect

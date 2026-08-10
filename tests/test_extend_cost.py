@@ -19,6 +19,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
 
+from model import SPEECH_ORDER
 from env.state import RoundState, NodeRecord, action_cost
 from env.actions import Introduce, Extend, Concede, Weigh, Connect, EndSpeech, EXTEND_COST_K, NEW
 from env import CDAFEnvironment, is_legal
@@ -29,9 +30,14 @@ K = EXTEND_COST_K
 
 
 def _state_with_node(nid="a", *, moves_used=0, extends_this_speech=0):
-    """A minimal 1AC state carrying one node, with the counters set directly (so cost /
-    affordability can be probed without driving a whole speech)."""
+    """A minimal 2AC state carrying one AFF node that was introduced at 1AC -- so it is NOT
+    yet carried at the current (2AC) speech, and an extend of it is a DISTINCT carriage that
+    exercises the BATCH-marginal cost (a re-extend of an already-carried node is a no-op ->
+    full slot, tested separately). 2AC's budget equals 1AC's (8), so the affordability
+    probes against `RoundState().slot_budget` stay valid. Counters set directly so cost /
+    affordability can be probed without driving a whole speech."""
     st = RoundState()
+    st.slot_index = SPEECH_ORDER.index("2AC")            # AFF speech; node (from 1AC) uncarried here
     st.nodes[nid] = NodeRecord(nid, "", "AFF", "1AC", "link", {"1AC"})
     st.moves_used = moves_used
     st.extends_this_speech = extends_this_speech
@@ -59,6 +65,20 @@ def test_concede_costs_the_same_as_extend():
     for c in (0, 1, 3, 4):
         st.extends_this_speech = c
         assert action_cost(st, Concede("a")) == action_cost(st, Extend("a"))
+
+
+def test_noop_reextend_costs_full_slot_not_batch_rate():
+    """A re-extend of a node ALREADY carried this speech is a no-op -> FULL SLOT (1),
+    bypassing the batch discount regardless of `extends_this_speech` (masking ruling). A
+    distinct carriage at the same count would be free (mid-K-group)."""
+    st = _state_with_node()                              # 'a' from 1AC, state at 2AC (uncarried)
+    st.extends_this_speech = 1                           # mid-group: a DISTINCT carriage costs 0
+    assert action_cost(st, Extend("a")) == 0            # sanity: distinct carriage is free here
+    st.nodes["a"].carried.add("2AC")                     # now carried THIS speech -> re-extend = no-op
+    assert st.already_carried_this_speech("a")
+    assert action_cost(st, Extend("a")) == 1            # full slot, NOT the batch 0
+    assert action_cost(st, Concede("a")) == 1           # concede identical
+    assert is_legal(st, Extend("a"))                    # still LEGAL (priced, not masked)
 
 
 def test_non_carriage_costs_unchanged():

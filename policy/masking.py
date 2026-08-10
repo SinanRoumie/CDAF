@@ -98,10 +98,17 @@ class LegalActionMask:
         return np.array([self._legal(Introduce(_CONTENT, r, target, et))
                          for r in ACTION_ROLE_ORDER], dtype=bool)
 
-    def introduce_edge_mask(self, target) -> np.ndarray:
-        """(3,) bool over EDGE_TYPE_ORDER for an ATTACHING introduce onto `target`
-        (only meaningful when target != NEW)."""
-        return np.array([self._legal(Introduce(_CONTENT, ACTION_ROLE_ORDER[0], target, et))
+    def introduce_edge_mask(self, target, role) -> np.ndarray:
+        """(3,) bool over EDGE_TYPE_ORDER for an ATTACHING introduce onto `target` with
+        the ALREADY-CHOSEN `role` (only meaningful when target != NEW).
+
+        CONDITIONED ON ROLE: offense-at-non-polarity legality depends on the ATTACKER's
+        role (an `offensive_attack` needs a Link/Impact attacker as well as target), so
+        probing with a stand-in role would mis-mask `offensive_attack` -- forbidding it
+        for a valid link target when the stand-in role is non-polarity, or admitting an
+        illegal (non-polarity-role, offensive) pair. `role` is chosen one stage earlier
+        in `_walk`, so it is available here."""
+        return np.array([self._legal(Introduce(_CONTENT, role, target, et))
                          for et in EDGE_TYPE_ORDER], dtype=bool)
 
     def _first_legal_attach_edge(self, target):

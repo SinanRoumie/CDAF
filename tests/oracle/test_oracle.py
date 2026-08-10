@@ -980,7 +980,7 @@ def test_C_impact_pair_weigh_drops_dispreferred_chain():
 
     Without the weigh N = +1 - +1 = 0 -> NEG (presumption); the determinate impact-
     pair weigh drops the NEG chain, so N = +1 -> AFF. This is the ONLY path through
-    judge._weighing_excluded, exercised by no prior round (every other weigh ranks
+    passes.weighing_excluded, exercised by no prior round (every other weigh ranks
     links / uniquenesses / frameworks, never a terminal-impact pair at the ballot)."""
     b = _B()
     adv_a = b.n(Advocacy, AFF, "1AC"); uni_a = b.n(Uniqueness, AFF, "1AC")

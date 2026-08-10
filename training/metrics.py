@@ -44,6 +44,13 @@ def batch_metrics(trajectories: List[Trajectory]) -> dict:
         for s in t.steps:
             by_speech[s.slot][s.action_type] += 1
 
+    # inert-action tally, summed per kind across the batch (both sides; diagnostics only --
+    # the primary read that the no-op re-extend spam is falling as the policy learns).
+    inert_totals = Counter()
+    for t in trajectories:
+        inert_totals.update(t.inert_counts)
+    total_inert = sum(inert_totals.values())
+
     return {
         "n_episodes": n,
         "ballot_win_rate_aff": aff_wins / n,
@@ -52,4 +59,6 @@ def batch_metrics(trajectories: List[Trajectory]) -> dict:
         "mean_episode_length": sum(lengths) / n,
         "action_type_by_speech": {k: dict(v) for k, v in by_speech.items()},
         "mean_learner_decisions": sum(len(t.steps) for t in trajectories) / n,
+        "inert_by_kind": dict(inert_totals),
+        "mean_inert_per_episode": total_inert / n,
     }

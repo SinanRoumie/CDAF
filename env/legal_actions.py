@@ -8,13 +8,22 @@ enforces exactly these and NOTHING else:
   3. action parameters are well-formed (role/edge_type in vocab, favors points at a
      compared node, distinct endpoints where required),
   4. the target/endpoint nodes exist (or target = NEW),
-  5. a `connect` may not create a self-loop or close a Support cycle.
+  5. a `connect` may not create a self-loop or close a Support cycle,
+  6. STRUCTURAL INCOHERENCE is illegal -- three moves that can never be meaningful in
+     ANY round state (so masking them removes no strategic distinction):
+       - a same-side attack (an attack edge between two nodes of the same side),
+       - an offense at a non-polarity node (an offensive_attack where an endpoint is
+         not offense-bearing -- not a Link or Impact),
+       - a redundant connect (a `connect` duplicating an existing edge).
 
-It does NOT enforce strategic legality -- response-window compliance, whether an
+It does NOT enforce STRATEGIC legality -- response-window compliance, whether an
 extension will count, whether a rebuttal-introduced chain can establish offense,
 whether a spike into a conceded-but-uncontested node is inert. Those remain judge
 OUTCOMES, scored as inert rather than blocked, so the agent gets the learning
-signal (spec §Governing principle, reasons 1-2). Do not add such checks here.
+signal (spec §Governing principle, reasons 1-2). Do not add such checks here. The
+one CONTEXT-DEPENDENT inert move -- a no-op re-extend -- also stays legal (it is a
+real move in most states); it is priced via COST (a full slot; see state.action_cost)
+and diagnosed reward-side by `is_inert`, never blocked.
 
 (There is no Fence A: as of judge v11 divergent chains are first-class, so a
 same-side Support component with more than one terminal impact is legal. The old
@@ -27,11 +36,12 @@ cycle test for `connect`, which is a cheap reachability query, not a re-judge.)
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from .actions import (
     Introduce, Extend, Concede, Weigh, Connect, EndSpeech,
-    ROLES, RELATIONSHIP_EDGE_TYPES, ATTACH_EDGE_TYPES, NEW,
+    ROLES, RELATIONSHIP_EDGE_TYPES, ATTACH_EDGE_TYPES, ATTACK_EDGE_TYPES,
+    OFFENSE_BEARING_ROLES, NEW,
 )
 from .state import RoundState, action_cost
 
@@ -100,13 +110,24 @@ def _structural_legal(state: RoundState, action) -> Tuple[bool, str]:
         if action.edge_type == "support" and _closes_support_cycle(
                 state, action.source_id, action.target_id):
             return False, "connect would close a Support cycle"
+        # Rule 6: redundant connect (duplicates an existing edge -- adds no structure).
+        if _duplicate_edge(state, action.source_id, action.target_id, action.edge_type):
+            return False, ("redundant connect: an edge (same source, target, edge_type) "
+                           "already exists")
+        # Rule 6: structural incoherence of an attack edge between two existing nodes.
+        src, tgt = state.nodes[action.source_id], state.nodes[action.target_id]
+        reason = _incoherent_attack(src.owner, src.role, tgt.owner, tgt.role,
+                                    action.edge_type)
+        if reason:
+            return False, reason
         return True, ""
 
     return False, f"unknown action type: {type(action).__name__}"
 
 
 def _check_introduce(state: RoundState, action: Introduce) -> Tuple[bool, str]:
-    """Well-formedness + target-existence for an introduce (rules 3-4)."""
+    """Well-formedness + target-existence (rules 3-4) plus the attack-incoherence rules
+    (rule 6) for an ATTACHING introduce."""
     if action.role not in ROLES:
         return False, f"role {action.role!r} not in vocabulary {sorted(ROLES)}"
     if action.target == NEW:
@@ -119,7 +140,49 @@ def _check_introduce(state: RoundState, action: Introduce) -> Tuple[bool, str]:
     if action.edge_type not in ATTACH_EDGE_TYPES:
         return False, (f"edge_type {action.edge_type!r} not in "
                        f"{sorted(ATTACH_EDGE_TYPES)} for an attaching introduce")
+    # Rule 6: the new node is owned by the acting side (state.current_side) with the
+    # declared role; the target is an existing node. Reject a same-side attack or an
+    # offense at a non-polarity node.
+    tgt = state.nodes[action.target]
+    reason = _incoherent_attack(state.current_side, action.role, tgt.owner, tgt.role,
+                                action.edge_type)
+    if reason:
+        return False, reason
     return True, ""
+
+
+def _incoherent_attack(a_side: str, a_role: str, b_side: str, b_role: str,
+                       edge_type: Optional[str]) -> Optional[str]:
+    """Rule 6 for an ATTACK edge between endpoint A (side `a_side`, role `a_role`) and
+    endpoint B (side `b_side`, role `b_role`). Returns a rejection reason, or None if the
+    edge is coherent (or not an attack). Two structurally-incoherent cases:
+
+      - SAME-SIDE ATTACK: an attack edge between two same-side nodes can never enter any
+        target's attacker set (mirrors the judge's `same-side attack (incoherent)`).
+      - OFFENSE AT A NON-POLARITY NODE: an `offensive_attack` where EITHER endpoint is
+        not offense-bearing (Link/Impact) has no polarity to flip (judge §3.4).
+
+    Direction-agnostic in `edge_type`: a `defensive_attack` is checked only for the
+    same-side case (it lowers magnitude and never flips, so it stays coherent against a
+    non-polarity node); only `offensive_attack` is guarded for polarity -- matching the
+    judge's own asymmetry in `_classify_attacks`."""
+    if edge_type not in ATTACK_EDGE_TYPES:
+        return None
+    if a_side == b_side:
+        return "same-side attack (incoherent): attack edge between two same-side nodes"
+    if edge_type == "offensive_attack" and not (
+            a_role in OFFENSE_BEARING_ROLES and b_role in OFFENSE_BEARING_ROLES):
+        return ("offense at a non-polarity node: offensive_attack requires "
+                "offense-bearing (Link/Impact) endpoints (§3.4)")
+    return None
+
+
+def _duplicate_edge(state: RoundState, source: str, target: str,
+                    edge_type: str) -> bool:
+    """True iff an edge with the same source, target, AND edge_type already exists -- a
+    redundant `connect` that would add no structure. O(edges) scan."""
+    return any(e.source == source and e.target == target and e.edge_type == edge_type
+               for e in state.edges)
 
 
 def _closes_support_cycle(state: RoundState, source: str, target: str) -> bool:
@@ -160,3 +223,42 @@ def legal_targets(state: RoundState) -> List[str]:
 def is_legal(state: RoundState, action) -> bool:
     """Convenience boolean over `check_legality`."""
     return check_legality(state, action)[0]
+
+
+# --- inert-action classification (REWARD ONLY -- NOT legality) -----------------
+#
+# `is_inert` is a SIBLING of `check_legality`, deliberately NOT part of it. It now
+# classifies the ONE CONTEXT-DEPENDENT inert class that stays legal: a no-op re-extend
+# (extend/concede on a node already carried this speech). Extending an UNCARRIED node is
+# a real, often-correct move -- only this specific state makes it inert -- so it is not
+# masked; it is priced via COST (a full slot; see state.action_cost) and this predicate
+# is used only for reward-side/diagnostic bookkeeping. The reward penalty coefficient is
+# currently 0.0 (dormant backstop, rl_training_spec §Reward), so at present this predicate
+# only feeds diagnostic counters.
+#
+# The three STRUCTURALLY-INCOHERENT classes it used to classify -- same-side attack,
+# offense-at-non-polarity, redundant connect -- are now ILLEGAL (`check_legality` rule 6),
+# never sampled, so they are no longer inert classes here. DO NOT call this from
+# `check_legality`; DO NOT let it gate a step.
+
+# Inert-class tag (the sole remaining reward-side class; "" when not inert).
+INERT_NOOP_REEXTEND = "noop_reextend"
+
+
+def is_inert(state: RoundState, action) -> Tuple[bool, str]:
+    """Return (inert, kind) for the one context-dependent inert class this predicate
+    still governs: a NO-OP RE-EXTEND -- an `extend`/`concede` on a node already carried
+    THIS speech, so the liveness stamp is an idempotent set-add that changes nothing. The
+    introduction speech counts as a carry, so re-extending a node in the speech it was
+    introduced is a no-op too. Returns (True, INERT_NOOP_REEXTEND) in that case, else
+    (False, "").
+
+    Reward-only / diagnostic; never consulted for legality (the structurally-incoherent
+    classes are handled in `check_legality`). Must run at STEP TIME against the PRE-apply
+    state: a no-op re-extend leaves no graph trace, so it is unrecoverable afterward.
+    Shares the `already_carried_this_speech` predicate with `state.action_cost`, which
+    prices the same case as a full slot."""
+    if isinstance(action, (Extend, Concede)):
+        if state.already_carried_this_speech(action.node_id):
+            return True, INERT_NOOP_REEXTEND
+    return False, ""

@@ -53,13 +53,18 @@ def test_observation_accrual_view_matches_model_objects():
     liveness). Compares the observation's accrual to `node_accrual` over the materialized
     model objects (whole graph, matching the observation's caller-scope)."""
     from env import CDAFEnvironment, Introduce, NEW
+    from env.actions import EndSpeech
     from env.observation import observe
     env = CDAFEnvironment(); env.reset()
     env.step(Introduce("adv", "advocacy", NEW)); adv = list(env.state.nodes)[-1]
     env.step(Introduce("lk", "link", adv, "support")); lk = list(env.state.nodes)[-1]
     env.step(Introduce("im", "impact", lk, "support"))
-    env.step(Introduce("no", "link", lk, "offensive_attack"))     # exercises offense/eff_pol path
     env.step(Introduce("vote", "ballot_directive", lk, "support"))
+    env.step(EndSpeech())                                          # -> 1NC (NEG)
+    # a CROSS-SIDE offense on the AFF link (NEG link -> AFF link, both offense-bearing):
+    # legal, and exercises the offense/eff_pol path. A same-side offense would now be
+    # illegal (masking ruling).
+    env.step(Introduce("no", "link", lk, "offensive_attack"))
     obs = observe(env.state)
     rnd = env.state.to_round()
     # same horizon on both sides -> this isolates the VIEW adapter, not the as_of gate

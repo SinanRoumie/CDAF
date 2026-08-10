@@ -51,35 +51,81 @@ and it is the single number to watch early in training.
 **Terminal ballot reward**, binary, from AFF's perspective, with the per-side
 split in `info["rewards"]`.
 
-**Chain-extension shaping bonus** (implemented, coefficient default 0.0):
-awarded at termination if AFF has at least one chain that is extended,
-in-scope, and sign +1 — regardless of who won.
+**Potential-based shaping (PBRS) — the shaping term** (replaces the retired flat
+chain-extension bonus). Shaping is a per-step potential difference, not a terminal bonus:
 
-- **Binary.** One qualifying chain is worth the same as three. Magnitude does
-  not scale it.
-- **Why binary:** rewarding chain existence teaches "carry a spine," which
-  restates a gate the judge already applies. Rewarding count or magnitude
-  would teach "extend everything," which is bad debate and is exactly the
-  strategic judgment that must stay emergent.
-- **Annealed to zero** before the run ends, so the final policy is trained on
-  the terminal reward alone.
+    F_t = λ · ( γ · Φ_L(s') − Φ_L(s) ),   λ = 0.5 (ruled; semantic hyperparameter)
 
-### Annealing trigger
+on each learner decision step, side-relative potential Φ_AFF = Φ, Φ_NEG = −Φ, with γ equal
+to the training discount (0.999). The environment exposes Φ(s); the training loop forms F_t
+(environment_shell_spec §step()).
 
-Conditional, not scheduled.
+- **Φ = Φ_maxdiff.** Φ(s) = (best AFF-favoring chain strength) − (best NEG-favoring chain
+  strength) over the mid-round chain resolver. Per chain, signed strength is +mag if it
+  favors AFF, −mag if it favors NEG, 0 if the sign is unresolved; a chain counts only if it
+  is extended-so-far and in-scope, and **chains outweighed by a determinate impact-weigh made
+  so far are excluded** (weighing-awareness). Each side's max ∈ [0,1] (mag is a σ-product), so
+  Φ_maxdiff ∈ [−1,1]; Φ(empty) = Φ(terminal) = 0. Φ_maxdiff rewards carrying/strengthening the
+  single best offense AND successfully out-weighing the opponent's best impact, while being
+  count-resistant (extra weak chains don't raise a max) — unlike a sum, which would re-create
+  the "extend everything" incentive.
+- **Policy-invariant.** Under the four correctness constraints (environment_shell_spec
+  §step()), PBRS provably does not change the optimal policy — it only speeds learning (dense,
+  low-variance critic target + shaped advantage structure). This is the key difference from
+  the retired flat bonus, which was non-potential, distorted the optimum, and produced
+  bonus-dependence (win-rate tracked the coefficient and collapsed on withdrawal, Real Run 1).
+- **λ = 0.5, fixed, no schedule.** Φ as a half-scale value prior: dense enough to break the
+  sparse-reward bootstrap barrier, small enough that Φ's imperfections are a modest prior for
+  the critic to shed. No warm-up (the dense signal is most needed at init), no decay
+  (invariance ⇒ nothing to withdraw). A late taper is only ever an empirical add-on if a run
+  shows late-stage stalling attributable to Φ over-tracking — not a default.
 
-A fixed schedule risks removing the only signal the policy has before it has
-bootstrapped, and the bootstrap duration is unknown. Decay therefore begins
-only once AFF is demonstrably winning without the crutch.
+**Inert-action penalty — dormant (coefficient `inert_penalty_coef`, ruled 0.0).**
+There is currently **no reward-side inert penalty**. The one context-dependent
+inert move — a **no-op re-extend** (extend/concede on a node already carried this
+speech) — is priced **structurally, via cost**: it consumes a full budget slot
+(environment_shell_spec §Liveness stamping), so a wasted carriage costs a real move
+rather than being near-free under the extend-batch discount. The other three inert
+classes (same-side attack, offense at a non-polarity node, redundant connect) are
+**structurally illegal** — never sampled — so they need no reward term at all
+(environment_shell_spec §Governing principle).
 
-**Trigger on AFF ballot win rate, never on total reward.** Triggering on
-total reward would let the bonus inflate its own trigger. Once ballot win
-rate crosses a threshold, decay the coefficient to zero over a fixed window.
+The `inert_penalty_coef` hook is **kept, ruled to 0.0** (byte-identical to off), as
+a documented backstop: if a future run shows residual no-op spam the cost model does
+not reach — specifically **late-speech carriages in a speech with slack budget**,
+where a wasted slot has little opportunity cost — a small nonzero coefficient can be
+enabled as a second lever on top of the full-slot cost. Enabling it is a semantic
+ruling; it is dormant until such evidence appears.
 
-Log ballot win rate and shaped return as separate series. If they diverge —
-shaped return climbing while ballot win rate stays flat — the policy is
-farming bonuses rather than learning to win, and the run needs attention
-rather than more steps.
+### Annealing — retired for PBRS
+
+The conditional-trigger annealing machinery (trigger on AFF ballot win rate; decay the
+coefficient to zero over a window) applied to the **flat** chain-extension bonus, which had
+to be withdrawn because it distorted the optimum. **PBRS is never withdrawn** — it is
+policy-invariant, so the final policy trains with it on. The trigger/window/decay
+hyperparameters and the `ShapingAnnealController` are retired for this term.
+
+### Validation (PBRS)
+
+There is nothing to withdraw, so the old "does win rate hold when shaping is decayed?"
+diagnostic (Real Run 1) does not apply. Validation rests on:
+
+- **Bootstrap-robustness across seeds — the fragile axis.** Does PBRS at λ=0.5 lift the
+  policy off the constant-zero floor (extension-survival + nonzero *ballot* win rate) from
+  warm-start, *reliably* across several seeds? Analog of the earlier magnitude/seed screens;
+  the fragile step is still bootstrap, and λ (invariance-preserving) is the knob if it
+  under-bootstraps.
+- **Eval / ballot win rate is the always-uncontaminated verdict.** PBRS adds nothing to the
+  ballot term, and evaluation is inherently shaping-free (the policy acts with no reward at
+  eval). So the training AFF **ballot** win rate and eval win rate are the direct measures —
+  no decay phase needed to expose the truth (the gap Real Run 1's decay was built to reveal
+  is closed by construction).
+- **Divergence signal — reinterpreted.** Φ (or extension-survival) climbing while ballot
+  win rate stays flat is still logged, but now reads as **"train longer / adjust λ," not
+  "abort, dependent."** Under invariance the optimum is unchanged, so such a divergence is a
+  finite-time transient (over-tracking Φ's imperfections), expected to self-correct — the
+  opposite interpretation from the flat-bonus regime, where the same signal meant permanent
+  bonus-farming.
 
 ## Self-play
 
@@ -275,14 +321,25 @@ toward `extend`.
 
 ### Shaping and annealing
 
+### Shaping (PBRS)
+
 | Parameter | Value |
 |---|---|
-| Shaping coefficient (while active) | 0.1 |
-| Decay trigger | AFF **ballot** win rate > 15% over a 1000-episode window |
-| Decay schedule | linear to zero over 200 updates after trigger |
+| Shaping mechanism | potential-based (PBRS), Φ = Φ_maxdiff |
+| λ (PBRS shaping weight) | 0.5 (ruled; semantic) |
+| λ schedule | none (fixed; invariance ⇒ no withdrawal) |
+| Inert-action penalty coefficient | 0.0 (dormant; no-op re-extend priced via cost) |
 
-Coefficient 0.1 is large enough to matter against a binary terminal reward
-and small enough that winning always dominates carrying a chain.
+λ = 0.5 is a **semantic** parameter — it sets how much the dense Φ-proxy shapes early
+learning, not correctness (PBRS is policy-invariant for any λ). Φ ∈ [−1,1] vs the ballot
+∈ [0,1], so λ=0.5 makes Φ a half-scale value prior: dense enough to break the sparse-reward
+bootstrap barrier, small enough that Φ's imperfections are a modest prior for the critic to
+shed. UNSET-until-ruled, ruled to 0.5.
+
+The retired flat-bonus parameters (`shaping_coef`, `shaping_enabled`) and the anneal-trigger
+fields (`anneal_trigger_ballot_winrate`, `anneal_trigger_window_episodes`,
+`anneal_decay_updates`) are removed — PBRS is never annealed (§Annealing — retired). The
+inert-action penalty coefficient is unchanged (dormant backstop, §Reward).
 
 ### Batch and budget
 
@@ -316,18 +373,18 @@ gradient noise against each other and have no bearing on what the policy
 learns. A diverging loss or an underutilized machine is sufficient evidence to
 change them.
 
-**Semantic parameters — require a ruling.** Entropy schedule, shaping
-coefficient, annealing trigger and window, pool composition and sampling
-ratio, discount. Each of these changes *what behavior is rewarded or
-explored*, not merely how fast it is learned. Loosening the annealing trigger
-because the run has not reached 15% is not tuning — it is deciding the policy
-may keep its crutch, which is exactly the decision the trigger exists to
-prevent from being made casually.
+**Semantic parameters — require a ruling.** Entropy schedule, the PBRS shaping weight λ,
+the inert-action penalty coefficient, pool composition and sampling ratio, discount. Each
+of these changes *what behavior is rewarded or explored*, not merely how fast it is learned.
+(The former flat-bonus coefficient and annealing trigger/window are retired — PBRS is
+policy-invariant and never annealed, §Annealing — retired.)
 
-**Never adjusted to make a run look better:** the shaping coefficient, the
-annealing trigger, and the evaluation protocol. If a run stalls, the finding
-is that it stalled. Relaxing the criterion that revealed the stall converts a
-diagnostic into a rationalization, and does so invisibly.
+**Never adjusted to make a run look better:** the evaluation protocol, and — for the flat
+bonus that used them, now retired — the shaping coefficient and annealing trigger. If a run
+stalls, the finding is that it stalled. Relaxing the criterion that revealed the stall
+converts a diagnostic into a rationalization, and does so invisibly. (λ is invariance-
+preserving, so it is not in this "never adjust" category — but it must still be recorded per
+run, below.)
 
 Any parameter change invalidates cross-run comparison. Record the full
 configuration with every run and treat a changed config as a new experiment,
@@ -340,8 +397,8 @@ has two top-level sections mirroring the adjustment protocol above:
 
 - **`tuning`** — learning rate, minibatch size, epochs per batch, gradient
   clip, batch size, worker count.
-- **`semantics`** — entropy schedule, shaping coefficient, annealing trigger
-  and window, pool composition and sampling ratio, discount.
+- **`semantics`** — entropy schedule, the PBRS shaping weight λ, the inert-action
+  penalty coefficient, pool composition and sampling ratio, discount.
 
 The split is structural, not cosmetic. It exists so that a delegated tuning
 change is visibly confined to one section. A flat config would let a

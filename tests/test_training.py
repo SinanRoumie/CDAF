@@ -43,7 +43,7 @@ from training.rollout import collect_episode, compute_gae, collect_batch, random
 from training.ppo import PPOUpdater
 from training.pool import CheckpointPool
 from training.loop import SelfPlayTrainer, warm_start
-from training.anneal import entropy_coef, ShapingAnnealController
+from training.anneal import entropy_coef
 
 from fuzz_env_shell import sample_legal
 
@@ -58,11 +58,10 @@ def _model(seed=0):
 
 
 def _full_semantics() -> SemanticsConfig:
-    """A training-READY semantics: as of the 2026-08-06 rulings every consumed semantic
-    value flows from SemanticsConfig's RULED defaults (entropy 0.01/0.0/0.5, shaping_coef
-    0.0, pool 20/5/3, self_play_ratio 0.5, discount 0.999). The three shaping-anneal
-    TRIGGER fields stay unset -- deliberately DEFERRED (shaping off), which does not block
-    readiness. No throwaway values anymore: the rulings ARE the defaults."""
+    """A training-READY semantics: every semantic value flows from SemanticsConfig's RULED
+    defaults (entropy 0.01/0.0/0.5, pbrs_lambda 0.5, inert_penalty_coef 0.0 (dormant), pool
+    20/5/3, self_play_ratio 0.5, discount 0.999). PBRS replaced the flat bonus + anneal
+    machinery; nothing is deferred -- the rulings ARE the defaults, so this config is ready."""
     sem = SemanticsConfig()
     assert sem.discount == 0.999          # the ruled value flows through, un-touched
     return sem
@@ -107,7 +106,10 @@ def test_every_corpus_demo_is_reachable():
     factored teacher-forcing decomposition (else BC would see a -inf gradient)."""
     ac = _model()
     ds = build_warmstart_dataset()
-    assert len(ds.fixtures_used) == 46 and not ds.fixtures_skipped
+    # 4 fixtures (G2/G3/r22/r25) contain now-illegal structural-incoherence constructs and
+    # are legitimately excluded from warm-start (masking ruling); the other 42 convert.
+    assert len(ds.fixtures_used) == 42
+    assert set(ds.fixtures_skipped) == {"G2", "G3", "r22", "r25"}
     bad = 0
     with torch.no_grad():
         for ex in ds.examples:
@@ -118,9 +120,14 @@ def test_every_corpus_demo_is_reachable():
     assert bad == 0, f"{bad} demonstrated actions unreachable under factored masks"
 
 
-def test_unreachable_action_gives_neg_inf_logprob():
-    """A structurally-illegal (mask-excluded) action is decodable but scores -inf, so BC
-    can detect and skip it rather than train on it."""
+def test_unreachable_action_gives_non_finite_logprob():
+    """A structurally-illegal (mask-excluded) action is decodable but scores a NON-FINITE
+    log-prob, so BC detects and skips it (its guard is `torch.isfinite`, line ~201) rather
+    than training on it. The exact non-finite value depends on the stage: a masked choice
+    within an otherwise-legal stage scores -inf; a choice within a stage where EVERY option
+    is masked (here every connect edge_type is illegal — support closes a cycle, and both
+    attack edge_types are same-side after the masking ruling) scores NaN. BC treats both
+    identically."""
     ac = _model()
     env = CDAFEnvironment(); env.reset()
     env.step(Introduce("", "advocacy", NEW, None))    # n1
@@ -133,7 +140,7 @@ def test_unreachable_action_gives_neg_inf_logprob():
     assert not is_legal(state, illegal)
     out = ac.evaluate(observe(state))
     lp, _ent = ac.evaluate_action(out, state, illegal)
-    assert lp.item() == float("-inf")
+    assert not torch.isfinite(lp), f"expected a non-finite log-prob, got {lp.item()}"
 
 
 # --- config: fail-loud semantics + run gate ----------------------------------
@@ -145,72 +152,51 @@ def test_unset_semantic_bool_raises():
 
 def test_require_unset_raises_and_set_returns():
     sem = SemanticsConfig()
+    sem.pbrs_lambda = UNSET                             # force back to the sentinel
     with pytest.raises(UnsetHyperparameter):
-        sem.require("anneal_trigger_ballot_winrate")   # a deliberately-deferred semantic
-    sem.anneal_trigger_ballot_winrate = 0.15
-    assert sem.require("anneal_trigger_ballot_winrate") == 0.15
+        sem.require("pbrs_lambda")
+    sem.pbrs_lambda = 0.5
+    assert sem.require("pbrs_lambda") == 0.5
 
 
 def test_ruled_semantic_values():
-    """Every ruled value flows from SemanticsConfig defaults (user rulings 2026-08-06)."""
+    """Every ruled value flows from SemanticsConfig defaults. PBRS replaced the flat bonus:
+    pbrs_lambda is the shaping weight; shaping_coef/shaping_enabled/anneal triggers are gone."""
     s = SemanticsConfig()
     assert s.require("discount") == 0.999
     assert s.require("entropy_coef_initial") == 0.01
     assert s.require("entropy_coef_final") == 0.0
     assert s.require("entropy_decay_fraction") == 0.5
-    assert s.require("shaping_coef") == 0.0 and s.shaping_enabled is False
+    assert s.require("pbrs_lambda") == 0.5               # PBRS shaping weight (replaces shaping_coef)
+    assert s.require("inert_penalty_coef") == 0.0        # dormant backstop (no-op priced via cost)
     assert (s.require("pool_cap"), s.require("pool_recent"), s.require("pool_anchors")) == (20, 5, 3)
     assert s.require("self_play_ratio") == 0.5
+    # retired flat-bonus / anneal fields no longer exist on the config
+    assert not hasattr(s, "shaping_coef")
+    assert not hasattr(s, "shaping_enabled")
+    assert not hasattr(s, "anneal_trigger_ballot_winrate")
 
 
-# --- the shaping-anneal deferral (the structural point of this ruling) ---------
-
-def test_default_config_is_ready_with_only_triggers_deferred():
-    """With every consumed semantic ruled and shaping OFF, the default config is READY:
-    the three shaping-anneal triggers remain literally unset but are DEFERRED (not
-    consumed), so they do not block a run."""
+def test_default_config_is_ready_and_fully_ruled():
+    """The default config is READY with NOTHING unset: every semantic (incl. pbrs_lambda) is
+    ruled. With the shaping-anneal machinery retired there are no deferrable fields."""
     cfg = TrainingConfig()
     assert cfg.is_ready_for_training()
-    # literally-unset list is exactly the three triggers ...
-    assert set(cfg.unset_semantics()) == {
-        "anneal_trigger_ballot_winrate", "anneal_trigger_window_episodes",
-        "anneal_decay_updates"}
-    # ... all deferred, none blocking.
-    assert set(cfg.deferred_semantics()) == set(cfg.unset_semantics())
+    assert cfg.unset_semantics() == []
+    assert cfg.deferred_semantics() == []               # nothing is deferred anymore
     assert cfg.blocking_semantics() == []
 
 
-def test_deferred_triggers_still_fail_loud_if_accessed():
-    """Deferral relaxes only the readiness gate -- direct consumption of a trigger field
-    still raises (the fail-loud guard is intact for these three specifically)."""
+def test_unset_semantic_blocks_and_fails_loud():
+    """The fail-loud gate is intact after the anneal retirement: forcing any consumed
+    semantic (here pbrs_lambda) back to the sentinel makes it block a run and raise on read."""
     sem = SemanticsConfig()
-    for name in ("anneal_trigger_ballot_winrate", "anneal_trigger_window_episodes",
-                 "anneal_decay_updates"):
-        with pytest.raises(UnsetHyperparameter):
-            sem.require(name)
-
-
-def test_enabling_shaping_makes_triggers_block_again():
-    """If shaping is turned ON with a nonzero coefficient, the triggers are consumed and
-    therefore REQUIRED again -- deferral is conditional on shaping being off, not blanket."""
-    sem = SemanticsConfig()
-    sem.shaping_enabled = True
-    sem.shaping_coef = 0.1                              # nonzero -> shaping active
+    sem.pbrs_lambda = UNSET
     cfg = TrainingConfig(semantics=sem)
-    assert sem.shaping_active()
     assert not cfg.is_ready_for_training()
-    assert set(cfg.blocking_semantics()) == {
-        "anneal_trigger_ballot_winrate", "anneal_trigger_window_episodes",
-        "anneal_decay_updates"}
-
-
-def test_shaping_coef_zero_keeps_shaping_inactive():
-    """The ruled shaping_coef=0.0 keeps shaping inactive even if enabled were flipped, so
-    the bonus never fires regardless of trigger state (env: coefficient 0 is falsy)."""
-    sem = SemanticsConfig()
-    assert not sem.shaping_active()                     # off: shaping_enabled False
-    sem.shaping_enabled = True
-    assert not sem.shaping_active()                     # still inactive: coef == 0.0
+    assert "pbrs_lambda" in cfg.blocking_semantics()
+    with pytest.raises(UnsetHyperparameter):
+        sem.require("pbrs_lambda")
 
 
 def test_full_semantics_is_ready():
@@ -218,14 +204,17 @@ def test_full_semantics_is_ready():
 
 
 def test_config_roundtrip_preserves_unset():
-    cfg = TrainingConfig()
+    """Round-trip preserves both ruled values and (forced) sentinels. Defaults are all ruled,
+    so force one field (pbrs_lambda) back to UNSET to exercise sentinel preservation."""
+    sem = SemanticsConfig()
+    sem.pbrs_lambda = UNSET                                   # force a sentinel to survive
+    cfg = TrainingConfig(semantics=sem)
     d = cfg.to_dict()
-    assert d["semantics"]["anneal_decay_updates"] == "UNSET"   # a deferred, unruled field
-    assert d["semantics"]["discount"] == 0.999                 # a ruled value, serialized as-is
-    assert d["semantics"]["shaping_coef"] == 0.0               # ruled to zero, not "UNSET"
+    assert d["semantics"]["pbrs_lambda"] == "UNSET"          # sentinel serializes honestly
+    assert d["semantics"]["discount"] == 0.999               # a ruled value, serialized as-is
+    assert d["semantics"]["inert_penalty_coef"] == 0.0       # ruled 0.0 (dormant), serialized as-is
     back = TrainingConfig.from_dict(d)
-    assert back.is_ready_for_training()                        # still ready after round-trip
-    assert "anneal_decay_updates" in back.unset_semantics()
+    assert "pbrs_lambda" in back.unset_semantics()           # sentinel round-trips
     assert back.semantics.require("discount") == 0.999
 
 
@@ -245,7 +234,7 @@ def test_train_refuses_with_blocking_unset_semantics(tmp_path):
 def test_warmstart_dataset_builds():
     ds = build_warmstart_dataset()
     assert len(ds) > 0
-    assert len(ds.fixtures_used) == 46
+    assert len(ds.fixtures_used) == 42          # 46 - 4 masked-construct fixtures excluded
     ex = ds.examples[0]
     assert ex.side in (AFF, NEG)
     assert ex.remaining_decisions >= 0
@@ -508,13 +497,27 @@ def test_entropy_schedule_decays():
     assert entropy_coef(150, 300, sem) == pytest.approx(0.0)   # zero by the halfway point
 
 
-def test_shaping_off_returns_zero_and_ignores_triggers():
-    """With shaping inactive (ruled coefficient 0.0, disabled) the controller returns 0.0
-    and never consults the DEFERRED trigger fields -- so it runs even though those three
-    are still unset sentinels."""
-    sem = SemanticsConfig()                    # shaping off; triggers deferred/unset
-    assert not sem.shaping_active()
-    ctrl = ShapingAnnealController(sem)
-    ctrl.record_ballot(True)
-    assert ctrl.current_bonus(0) == 0.0
-    assert ctrl.maybe_trigger(0) is False
+def test_apply_pbrs_side_relative_and_terminal_boundary():
+    """PBRS (replaces the retired flat bonus + anneal controller): apply_pbrs fills per-step
+    shaping F_t = λ(γ·Φ_L(s') - Φ_L(s)), side-relative (Φ_NEG = -Φ_AFF), with Φ(terminal)=0
+    on the last step -- so Σ F_t telescopes to -λ·Φ_L(s_0) (γ=1 here), the invariance identity."""
+    from training.rollout import apply_pbrs, Trajectory, RolloutStep
+
+    def mk(phi, side="AFF"):
+        return RolloutStep(obs={}, state=None, action=None, old_log_prob=0.0, old_value=0.0,
+                           side=side, slot="1AC", action_type="introduce", phi=phi)
+
+    aff = Trajectory(learner_side="AFF", steps=[mk(0.0), mk(0.4), mk(0.8)])
+    apply_pbrs(aff, pbrs_lambda=0.5, discount=1.0)
+    # F0=0.5(0.4-0); F1=0.5(0.8-0.4); F2=0.5(0-0.8)  [last -> Φ(terminal)=0]
+    assert [s.shaping for s in aff.steps] == pytest.approx([0.2, 0.2, -0.4])
+    assert sum(s.shaping for s in aff.steps) == pytest.approx(0.0)   # Φ_L(s0)=0 -> telescopes to 0
+
+    neg = Trajectory(learner_side="NEG", steps=[mk(0.0, "NEG"), mk(0.4, "NEG"), mk(0.8, "NEG")])
+    apply_pbrs(neg, pbrs_lambda=0.5, discount=1.0)   # Φ_NEG = -Φ -> signs flip
+    assert [s.shaping for s in neg.steps] == pytest.approx([-0.2, -0.2, 0.4])
+
+    # λ=0 leaves shaping at 0 (byte-identical to no PBRS)
+    off = Trajectory(learner_side="AFF", steps=[mk(0.4), mk(0.8)])
+    apply_pbrs(off, pbrs_lambda=0.0, discount=1.0)
+    assert all(s.shaping == 0.0 for s in off.steps)

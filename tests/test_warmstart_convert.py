@@ -3,7 +3,8 @@
 Verifies the spec's guarantees (docs/warm_start_data_spec.md) mechanically:
   * every converted action sequence replays LEGALLY end-to-end through the real env;
   * replay reproduces a JUDGE-IDENTICAL verdict to the oracle fixture (ruling A) --
-    now all 46/46;
+    for all 42 CONVERTIBLE fixtures (4 of the 46 are legitimately excluded post-masking;
+    see MASKED_CONSTRUCT_FIXTURES);
   * edge orientation is natural-forward-with-flips (E), spot-checked on a known flipped
     cross-speech support edge;
   * `connect` placement is earliest-legal-speech, that speech's side (C), including the
@@ -15,7 +16,9 @@ edge, was not structurally derivable, so the env-built round scored differently)
 'no new offense in rebuttals' bug fix (judge_spec §6, per-path) resolved it: F's impact
 is introduced in the 2AR (a rebuttal) and is now correctly disqualified regardless of
 the contested status, so BOTH the oracle and the env-built round score NEG presumption
--- F converts cleanly. The whole corpus (46/46) now round-trips verdict-identically.
+-- F converts cleanly. Every CONVERTIBLE fixture (42/42) round-trips verdict-identically;
+the 4 masked-construct fixtures (G2/G3/r22/r25) fail conversion by design (they contain
+now-illegal same-side-attack / offense-at-non-polarity edges) and are excluded.
 """
 
 from __future__ import annotations
@@ -35,9 +38,21 @@ from warmstart import convert
 
 ORACLE_DIR = os.path.join(os.path.dirname(__file__), "oracle")
 
-# No known gaps remain: the whole corpus round-trips verdict-identically (see module
-# docstring; the former F gap was resolved by the §6 rebuttal-offense bug fix).
+# No known verdict-mismatch gaps remain among CONVERTIBLE fixtures (see module docstring;
+# the former F gap was resolved by the §6 rebuttal-offense bug fix).
 KNOWN_GAP = frozenset()
+
+# Fixtures whose graphs contain now-ILLEGAL structural-incoherence constructs (a same-side
+# attack, or an offense at a non-polarity node), masked out of the action space as of the
+# 2026-08-08 masking ruling. They can no longer be reconstructed by env replay -- the
+# converter raises ConversionError on the illegal move -- so they are LEGITIMATELY EXCLUDED
+# from warm-start (42/46). The JSON files are KEPT in the repo, NOT deleted: the judge must
+# stay robust to incoherent graphs, and the judge-direct oracle tests (tests/oracle) load
+# these and call judge() directly, bypassing env legality. See docs/action_schema_spec.md
+# §Principles and docs/environment_shell_spec.md §Governing principle.
+#   G2  same-speech (=> same-side) clash;  G3  same-side attack;
+#   r22 offense at a framework;            r25 offense at a uniqueness.
+MASKED_CONSTRUCT_FIXTURES = frozenset({"G2", "G3", "r22", "r25"})
 
 
 def _names():
@@ -47,6 +62,8 @@ def _names():
 # Convert the whole corpus once (module-level cache).
 _RESULTS = {n: convert(serialize.load(os.path.join(ORACLE_DIR, n + ".json")), n) for n in _names()}
 _ALL = sorted(_RESULTS)
+# The 42 fixtures that remain reconstructable through the env after masking.
+_CONVERTIBLE = [n for n in _ALL if n not in MASKED_CONSTRUCT_FIXTURES]
 
 
 def _replay(actions):
@@ -63,11 +80,30 @@ def _replay(actions):
 
 def test_corpus_is_46_v2_fixtures():
     assert len(_ALL) == 46                       # 45 §11 probes + full_round_aff_outweighs
+    assert len(_CONVERTIBLE) == 42               # 46 - 4 masked-construct fixtures
+    assert set(_ALL) - set(_CONVERTIBLE) == set(MASKED_CONSTRUCT_FIXTURES)
 
 
-# --- legality of the emitted sequence ----------------------------------------
+# --- masked-construct fixtures: legitimately excluded, fail for the right reason ---
 
-@pytest.mark.parametrize("name", _ALL)
+@pytest.mark.parametrize("name", sorted(MASKED_CONSTRUCT_FIXTURES))
+def test_masked_construct_fixtures_fail_conversion(name):
+    """The 4 fixtures with now-illegal constructs must fail conversion at the ILLEGAL MOVE
+    (same-side attack / offense-at-non-polarity), not for some unrelated reason."""
+    r = _RESULTS[name]
+    assert r.error is not None, f"{name}: expected a conversion failure, got none"
+    # The failure must trace to the masked attack construct: either the illegal move is
+    # emitted directly (G3 same-side attack; r22/r25 offense-at-non-polarity), or -- when
+    # the incoherent edge is a `connect` that is illegal in EVERY placement (G2's same-side
+    # defensive_attack) -- the converter reports it as an attack edge that was never placed.
+    assert (("same-side" in r.error) or ("non-polarity" in r.error)
+            or ("never placed" in r.error and "attack" in r.error)), \
+        f"{name}: failed for an unexpected reason: {r.error}"
+
+
+# --- legality of the emitted sequence (convertible fixtures only) -------------
+
+@pytest.mark.parametrize("name", _CONVERTIBLE)
 def test_sequence_replays_legally_and_terminates(name):
     r = _RESULTS[name]
     assert r.error is None, f"{name}: conversion errored: {r.error}"
@@ -75,7 +111,7 @@ def test_sequence_replays_legally_and_terminates(name):
     assert env.state.terminated, f"{name}: replay did not terminate"
 
 
-@pytest.mark.parametrize("name", _ALL)
+@pytest.mark.parametrize("name", _CONVERTIBLE)
 def test_pairs_align_with_actions(name):
     r = _RESULTS[name]
     assert len(r.pairs) == len(r.actions)
@@ -98,13 +134,19 @@ def test_fresh_replay_reproduces_the_recorded_pairs():
 # --- judge-equivalence (ruling A) + the documented reachability gap -----------
 
 def test_verdict_equivalence_whole_corpus():
+    # The 4 masked-construct fixtures fail CONVERSION (illegal move on replay); every
+    # convertible fixture reconstructs verdict-equivalently (no verdict-mismatch gaps).
+    conv_failed = {n for n, r in _RESULTS.items() if r.error is not None}
+    assert conv_failed == set(MASKED_CONSTRUCT_FIXTURES), \
+        f"unexpected conversion failures: {sorted(conv_failed)}"
+    verdict_failed = {n for n, r in _RESULTS.items() if r.error is None and not r.ok}
+    assert verdict_failed == set(KNOWN_GAP), \
+        f"unexpected verdict mismatches: {sorted(verdict_failed)}"
     passed = {n for n, r in _RESULTS.items() if r.ok}
-    failed = {n for n, r in _RESULTS.items() if not r.ok}
-    assert failed == set(KNOWN_GAP), f"unexpected verdict outcomes: failed={sorted(failed)}"
-    assert len(passed) == len(_ALL) == 46          # no known gaps remain
+    assert len(passed) == 42                        # 46 - 4 masked-construct fixtures
 
 
-@pytest.mark.parametrize("name", sorted(set(_names()) - KNOWN_GAP))
+@pytest.mark.parametrize("name", _CONVERTIBLE)
 def test_passing_fixtures_reproduce_the_oracle_verdict(name):
     r = _RESULTS[name]
     assert r.ok, f"{name}: replay {r.replay_verdict} != oracle {r.oracle_verdict}"
@@ -113,7 +155,7 @@ def test_passing_fixtures_reproduce_the_oracle_verdict(name):
 
 # --- ruling D: verb labeling by target ownership -----------------------------
 
-@pytest.mark.parametrize("name", _ALL)
+@pytest.mark.parametrize("name", _CONVERTIBLE)
 def test_verb_labeling_follows_ownership(name):
     """Every carriage is `concede` iff the acting side != the target's owner, else
     `extend` (D). Checked by replay: read current side + target owner at each step."""

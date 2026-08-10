@@ -101,7 +101,7 @@ def _ballot(ctx: passes.Context) -> str:
                     valid_ids.add(ch["id"])
             ctx.trace.append(T.BdValidate(bd_id=bd.id, result=result, reason=reason, side=bd.side))
 
-    excluded = _weighing_excluded(ctx, valid)
+    excluded = passes.weighing_excluded(ctx, valid)
 
     # Net offense N = sum(AFF deltas) - sum(NEG deltas), over validated chains,
     # honoring won-weighing preferences. delta already carries any polarity flip.
@@ -197,26 +197,5 @@ def _reason_class(ctx, winner, advocacy_present, complete_chain, inscope_impact,
     return "presumption"
 
 
-def _weighing_excluded(ctx: passes.Context, valid: list) -> set:
-    """Rank surviving offense with the recursive clash-breaker (§6.5): for each
-    impact-pair weigh, `resolve` says whether it determinately decides; if so, the
-    dispreferred impact's chain is excluded from the tally (preference overrides
-    raw delta). Indeterminate weighs leave both chains in (fall to raw delta)."""
-    impact_to_chain = {}
-    for ch in valid:
-        for imp in ch["impacts"]:
-            impact_to_chain[imp] = ch["id"]
-        for m in ch["members"]:
-            impact_to_chain.setdefault(m, ch["id"])
-
-    excluded = set()
-    for w in ctx.weighings:
-        pair = ctx.weigh_pair.get(w.id)
-        if not pair or not all(isinstance(ctx.nodes[m], Impact) for m in pair):
-            continue                            # ballot ranking is over impact clashes
-        determinate, winner, _ = resolve(ctx, pair)
-        if determinate:
-            for member in pair:
-                if member != winner and member in impact_to_chain:
-                    excluded.add(impact_to_chain[member])
-    return excluded
+# `_weighing_excluded` moved to `passes.weighing_excluded` (one implementation, shared by
+# the judge ballot here and the mid-round Φ resolver). See judge/passes.py.
