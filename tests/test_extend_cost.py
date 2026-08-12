@@ -96,8 +96,8 @@ def test_extend_stamps_only_the_named_node():
     uniqueness, or impact (partial-chain carriage)."""
     env = CDAFEnvironment(); env.reset()
     env.step(Introduce("", "advocacy", NEW)); adv = list(env.state.nodes)[-1]
-    env.step(Introduce("", "uniqueness", adv, "support")); uni = list(env.state.nodes)[-1]
-    env.step(Introduce("", "link", uni, "support")); lk = list(env.state.nodes)[-1]
+    env.step(Introduce("", "link", adv, "support")); lk = list(env.state.nodes)[-1]      # advocacy -> link (r27-style)
+    env.step(Introduce("", "uniqueness", lk, "support")); uni = list(env.state.nodes)[-1]  # uniqueness -> link
     env.step(Introduce("", "impact", lk, "support")); im = list(env.state.nodes)[-1]
     env.step(EndSpeech()); env.step(EndSpeech())              # -> 2AC (AFF)
     before = {n: set(env.state.nodes[n].carried) for n in (adv, uni, lk, im)}
@@ -115,8 +115,8 @@ def test_batch_discount_is_speech_wide_across_unrelated_nodes():
     `1-slot-per-K` rate a single chain would get; the discount is speech-wide."""
     env = CDAFEnvironment(); env.reset()
     ids = []
-    for _ in range(K + 1):                                    # K+1 isolated AFF nodes
-        env.step(Introduce("", "link", NEW)); ids.append(list(env.state.nodes)[-1])
+    for _ in range(K + 1):                                    # K+1 isolated AFF nodes (advocacy roots)
+        env.step(Introduce("", "advocacy", NEW)); ids.append(list(env.state.nodes)[-1])
     env.step(EndSpeech()); env.step(EndSpeech())              # -> 2AC
     used0 = env.state.moves_used
     for nid in ids:                                           # extend all K+1 (scattered)
@@ -128,9 +128,11 @@ def test_batch_discount_is_speech_wide_across_unrelated_nodes():
 
 def test_counter_resets_each_speech():
     env = CDAFEnvironment(); env.reset()
-    env.step(Introduce("", "link", NEW)); lk = list(env.state.nodes)[-1]
+    # advocacy is a legal floating root (floating-root restriction); any carried node
+    # exercises the per-speech extend counter identically.
+    env.step(Introduce("", "advocacy", NEW)); nd = list(env.state.nodes)[-1]
     env.step(EndSpeech()); env.step(EndSpeech())              # -> 2AC
-    env.step(Extend(lk)); env.step(Extend(lk))
+    env.step(Extend(nd)); env.step(Extend(nd))
     assert env.state.extends_this_speech == 2
     env.step(EndSpeech())                                     # -> 2NC/1NR (NEG)
     assert env.state.extends_this_speech == 0                 # reset at the boundary

@@ -211,6 +211,36 @@ Masking rather than propose-and-reject is what makes the factored scheme pay
 off here — the legal-action generator's per-stage masks apply directly to
 each head.
 
+### Curriculum mask composition (opening unlock ladder)
+
+During the AFF 1AC, the policy's type/role masks are further constrained by the
+**opening unlock ladder** (rl_training_spec §Opening curriculum) — a *training
+scaffold*, not a legality rule. Its composition with the environment's
+legal-action mask is fixed:
+
+- **AND-composition, never widening.** The curriculum mask is applied by
+  element-wise AND against the legal-action generator's masks. It can only turn a
+  legal action off for sampling; it can never make an env-illegal action
+  selectable. Legality remains the environment's sole authority
+  (environment_shell §Governing principle).
+- **Keyed on speech slot and intra-1AC move index.** The mask is a function of the
+  current speech slot and the move index within the 1AC only: it forces move 0 to
+  `introduce(role = advocacy, target = NEW)` (masking `end_speech` at that
+  decision), and from move 1 onward gates the *role* of a fresh `introduce` by the
+  unlock ladder (advocacy → link → {uniqueness, impact} → {framework,
+  ballot_directive}), reading which roles have been introduced so far this round.
+- **No-op from the 1NC onward.** For every slot after the 1AC, and for every NEG
+  slot, the curriculum mask is the identity (all-ones) — it composes to exactly the
+  legal-action mask, so post-1AC behaviour is unchanged.
+- **Never consulted by the judge.** Like every mask, it lives in the policy/env
+  layers and is absent from `judge()`; it changes what the policy *samples*, never
+  what a completed graph *scores*.
+
+The ladder's semantic content and rationale (why BD gates on Impact alone, etc.)
+live in rl_training_spec §Opening curriculum; this section specifies only how the
+mask composes with the factored heads' existing per-stage masks (§Interface to the
+action heads).
+
 ## Open items
 
 1. **Attention layer count and width.** Full attention removes the hop-depth

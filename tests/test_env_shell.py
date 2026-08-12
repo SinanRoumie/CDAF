@@ -52,7 +52,7 @@ def test_end_speech_advances_side_and_slot():
 def test_budget_exhaustion_auto_advances():
     env = CDAFEnvironment(); env.reset()
     for _ in range(SPEECH_BUDGET["1AC"]):
-        obs, r, done, info = env.step(Introduce("x", "link", NEW))
+        obs, r, done, info = env.step(Introduce("x", "advocacy", NEW))   # advocacy = legal root
     # after the budget-th move the speech auto-advances to 1NC
     assert obs["sequence"]["slot"] == "1NC"
     assert obs["sequence"]["moves_used"] == 0
@@ -105,13 +105,15 @@ def test_strategic_illegal_but_structural_is_admitted():
     non-polarity node is structurally INCOHERENT and IS refused (see test_connect_legality
     and test_inert) -- that is a different boundary."""
     env = CDAFEnvironment(); env.reset()
-    env.step(Introduce("aff link", "link", NEW)); lk = _last(env.state)   # 1AC AFF link
+    env.step(Introduce("plan", "advocacy", NEW)); adv = _last(env.state)          # 1AC advocacy root
+    env.step(Introduce("aff link", "link", adv, "support")); lk = _last(env.state)   # 1AC AFF link
     # jump to 2NR (a NEG speech) without answering anything: 1AC -> ... -> 2NR is 5 advances
     for _ in range(5):
         env.step(EndSpeech())
     assert env.state.current_slot == "2NR"
-    # a fresh chain first introduced in a rebuttal: structurally legal (judge rules it inert)
-    assert is_legal(env.state, Introduce("late impact", "impact", NEW))
+    # a fresh structure (a NEW framework root -- links/impacts must attach, but a framework
+    # roots a component) first introduced in a rebuttal: structurally legal (judge rules it inert)
+    assert is_legal(env.state, Introduce("late framework", "framework", NEW))
     # a cross-side offense on the AFF link, drawn far past its response window: offense-
     # bearing endpoints on opposite sides -> structurally legal, though strategically inert.
     assert is_legal(env.state, Introduce("late turn", "impact", lk, "offensive_attack"))
@@ -123,7 +125,8 @@ def test_divergent_second_terminal_impact_admitted():
     """As of v11 a link diverging to a second terminal impact is FIRST-CLASS (scored
     per branch, summed) -- no longer refused. Both introduces are admitted."""
     env = CDAFEnvironment(); env.reset()
-    env.step(Introduce("link", "link", NEW)); lk = _last(env.state)
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("link", "link", adv, "support")); lk = _last(env.state)
     env.step(Introduce("imp1", "impact", lk, "support"))
     env.step(Introduce("vote", "ballot_directive", lk, "support"))     # BD below the divergence
     assert is_legal(env.state, Introduce("imp2", "impact", lk, "support"))
@@ -163,8 +166,8 @@ def test_connect_legality():
 
 def test_observation_excludes_provisional_signal():
     env = CDAFEnvironment(); env.reset()
-    env.step(Introduce("adv", "advocacy", NEW))
-    obs = env.step(Introduce("imp", "impact", NEW))[0]
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    obs = env.step(Introduce("lk", "link", adv, "support"))[0]
     keys = set(obs)
     assert keys == {"graph", "closed_window_drops", "permanent_extension_failures",
                     "reachability", "accrual", "sequence"}
@@ -178,13 +181,16 @@ def test_observation_excludes_provisional_signal():
 
 def test_closed_window_drop_is_settled_and_reachability():
     env = CDAFEnvironment(); env.reset()
-    # 1AC: link + impact + BD (reachable chain); 2AC introduced impact orphan
-    env.step(Introduce("lk", "link", NEW)); lk = _last(env.state)
+    # 1AC: advocacy + link + impact + BD (reachable chain); plus an orphan root
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("lk", "link", adv, "support")); lk = _last(env.state)
     env.step(Introduce("im", "impact", lk, "support")); im = _last(env.state)
     env.step(Introduce("vote", "ballot_directive", im, "support"))
     # a non-impact node disconnected from any impact is orphaned (an impact would
-    # trivially "route to an impact" -- itself -- so use a floating link)
-    env.step(Introduce("floating", "link", NEW)); orphan = _last(env.state)
+    # trivially "route to an impact" -- itself). Under the floating-root restriction only
+    # an Advocacy/Framework may float, so use a floating advocacy -- still a reachability
+    # orphan (non-impact, no path to any impact).
+    env.step(Introduce("floating", "advocacy", NEW)); orphan = _last(env.state)
     # advance past 1NC (the link's response window) with no NEG clash
     env.step(EndSpeech())                    # -> 1NC
     env.step(EndSpeech())                    # -> 2AC ; now 1NC window has passed
@@ -213,7 +219,8 @@ def test_liveness_status_is_derived_structurally_not_from_verb():
     that was live when the opponent spoke; every other carried speech is conceded."""
     from model.nodes import CONTESTED, CONCEDED
     env = CDAFEnvironment(); env.reset()
-    env.step(Introduce("lk", "link", NEW)); lk = _last(env.state)
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("lk", "link", adv, "support")); lk = _last(env.state)
     env.step(Introduce("im", "impact", lk, "support"))
     env.step(Introduce("vote", "ballot_directive", _last(env.state), "support"))
     env.step(EndSpeech())                              # -> 1NC (NEG)
@@ -235,11 +242,11 @@ def test_liveness_status_is_derived_structurally_not_from_verb():
 def test_full_conceded_aff_chain_wins_aff():
     env = CDAFEnvironment(); env.reset()
     env.step(Introduce("plan", "advocacy", NEW)); adv = _last(env.state)
-    env.step(Introduce("uq", "uniqueness", adv, "support")); uni = _last(env.state)
-    env.step(Introduce("link", "link", uni, "support")); lk = _last(env.state)
-    env.step(Introduce("impact", "impact", lk, "support")); im = _last(env.state)
+    env.step(Introduce("link", "link", adv, "support")); lk = _last(env.state)       # advocacy -> link (r27-style)
+    env.step(Introduce("uq", "uniqueness", lk, "support")); uni = _last(env.state)    # uniqueness -> link
+    env.step(Introduce("impact", "impact", lk, "support")); im = _last(env.state)     # link -> impact
     env.step(Introduce("vote aff", "ballot_directive", im, "support"))
-    spine = (adv, uni, lk, im)
+    spine = (adv, lk, uni, im)
     env.step(EndSpeech())                    # 1AC done
     env.step(EndSpeech())                    # 1NC concedes
     for n in spine: env.step(Extend(n))      # 2AC
@@ -256,14 +263,17 @@ def test_full_conceded_aff_chain_wins_aff():
 # --- chain-extension reward shaping (optional, off by default) ----------------
 
 def _full_aff_chain(env):
-    """Drive `env` to termination with a fully-extended, conceded AFF offense chain
-    (adv->uni->link->impact + BD, extended every AFF speech). AFF wins on the ballot."""
+    """Drive `env` to termination with a fully-extended, conceded AFF offense chain,
+    extended every AFF speech; AFF wins on the ballot. Topology is r27-style (the only
+    legal shape post-Ruling 4): advocacy -> link, uniqueness -> link, link -> impact -> BD.
+    The Advocacy attaches ONLY to the Link (never a bare Uniqueness); the Uniqueness
+    satellites the Link. Offense still routes through a real Link (Ruling 1)."""
     env.step(Introduce("plan", "advocacy", NEW)); adv = _last(env.state)
-    env.step(Introduce("uq", "uniqueness", adv, "support")); uni = _last(env.state)
-    env.step(Introduce("link", "link", uni, "support")); lk = _last(env.state)
-    env.step(Introduce("impact", "impact", lk, "support")); im = _last(env.state)
+    env.step(Introduce("link", "link", adv, "support")); lk = _last(env.state)      # advocacy -> link
+    env.step(Introduce("uq", "uniqueness", lk, "support")); uni = _last(env.state)   # uniqueness -> link
+    env.step(Introduce("impact", "impact", lk, "support")); im = _last(env.state)    # link -> impact
     env.step(Introduce("vote aff", "ballot_directive", im, "support"))
-    spine = (adv, uni, lk, im)
+    spine = (adv, lk, uni, im)
     env.step(EndSpeech()); env.step(EndSpeech())          # 1AC, 1NC (concede)
     for n in spine: env.step(Extend(n))                   # 2AC
     env.step(EndSpeech()); env.step(EndSpeech())          # -> 2NC/1NR (concede)

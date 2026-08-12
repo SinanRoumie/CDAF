@@ -107,9 +107,10 @@ def test_every_corpus_demo_is_reachable():
     ac = _model()
     ds = build_warmstart_dataset()
     # 4 fixtures (G2/G3/r22/r25) contain now-illegal structural-incoherence constructs and
-    # are legitimately excluded from warm-start (masking ruling); the other 42 convert.
+    # E is a NEG-only chain with no Advocacy/Framework to root it (floating-root
+    # restriction); all 5 are legitimately excluded from warm-start; the other 42 convert.
     assert len(ds.fixtures_used) == 42
-    assert set(ds.fixtures_skipped) == {"G2", "G3", "r22", "r25"}
+    assert set(ds.fixtures_skipped) == {"G2", "G3", "r22", "r25", "E"}
     bad = 0
     with torch.no_grad():
         for ex in ds.examples:
@@ -234,7 +235,7 @@ def test_train_refuses_with_blocking_unset_semantics(tmp_path):
 def test_warmstart_dataset_builds():
     ds = build_warmstart_dataset()
     assert len(ds) > 0
-    assert len(ds.fixtures_used) == 42          # 46 - 4 masked-construct fixtures excluded
+    assert len(ds.fixtures_used) == 42          # 47 - 4 masked-construct - 1 unrootable (E)
     ex = ds.examples[0]
     assert ex.side in (AFF, NEG)
     assert ex.remaining_decisions >= 0

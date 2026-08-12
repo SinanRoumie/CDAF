@@ -50,7 +50,11 @@ SNAPSHOT_INTERVAL = 15
 ENTROPY_TOTAL = 80                                  # same schedule as prior screens' bootstrap
 WIN_FLOOR = 0.10
 SURV_FLOOR = 0.20
-OUTPUT_DIR = os.path.join(ROOT, "runs", "pbrs_screen")   # gitignored
+OUTPUT_DIR = os.environ.get("PBRS_OUTDIR", os.path.join(ROOT, "runs", "pbrs_screen"))  # gitignored
+# Screen B toggle: opening unlock-curriculum ON for the LEARNER's rollouts (policy-layer
+# mask; rl_training_spec §Opening curriculum). Screen A leaves it OFF (default).
+CURRICULUM = os.environ.get("PBRS_CURRICULUM", "0") == "1"
+PROBE_EPISODES = int(os.environ.get("PBRS_PROBE_EPISODES", "200"))
 SHARED_WARMSTART = os.path.join(ROOT, "runs", "screen_v1", "warmstart.pt")
 
 
@@ -59,8 +63,85 @@ def _mean(xs):
     return sum(xs) / len(xs) if xs else 0.0
 
 
+# --- 1AC construction probe (Screen B): what does AFF build after the fixed opening? ---
+
+def _support_adj(state):
+    adj = {}
+    for e in state.edges:
+        if e.edge_type == "support":
+            adj.setdefault(e.source, set()).add(e.target)
+            adj.setdefault(e.target, set()).add(e.source)
+    return adj
+
+
+def _aff_1ac_scoring_chain_exists(state) -> bool:
+    """True iff, by end of the 1AC, an AFF advocacy->link->impact chain exists connected
+    over Support edges (direction-agnostic, as the judge reads it)."""
+    advs = {nid for nid, r in state.nodes.items() if r.role == "advocacy"}
+    links = {nid for nid, r in state.nodes.items() if r.role == "link"}
+    impacts = [nid for nid, r in state.nodes.items()
+               if r.role == "impact" and r.owner == "AFF"]
+    if not advs or not links or not impacts:
+        return False
+    adj = _support_adj(state)
+    for im in impacts:                                  # support-reachable link AND advocacy?
+        seen, stack, hit_link, hit_adv = {im}, [im], False, False
+        while stack:
+            cur = stack.pop()
+            if cur in links:
+                hit_link = True
+            if cur in advs:
+                hit_adv = True
+            for nb in adj.get(cur, ()):
+                if nb not in seen:
+                    seen.add(nb); stack.append(nb)
+        if hit_link and hit_adv:
+            return True
+    return False
+
+
+def _probe_1ac(ac, n_episodes, gen):
+    """Roll the trained learner as AFF through the 1AC only; record the role at 1AC moves
+    2-4 (move 1 is the curriculum-fixed advocacy) and how often a complete advocacy->link->
+    impact scoring chain exists by end of the 1AC."""
+    from collections import Counter
+    from env import CDAFEnvironment
+    from env.observation import observe
+    move_role = {2: Counter(), 3: Counter(), 4: Counter()}
+    end_speech_at = Counter()                           # how many introduces before end_speech
+    chain = 0
+    for _ in range(n_episodes):
+        env = CDAFEnvironment(); env.reset()
+        intro_roles = []
+        while env.state.current_slot == "1AC" and not env.state.terminated:
+            out = ac.evaluate(observe(env.state))
+            sa = ac.sample_action(out, env.state, generator=gen)
+            a = sa.action
+            tname = type(a).__name__
+            if tname == "Introduce":
+                intro_roles.append(a.role)
+            env.step(a)
+            if tname == "EndSpeech":
+                break
+        end_speech_at[len(intro_roles)] += 1
+        for k in (2, 3, 4):
+            if len(intro_roles) >= k:
+                move_role[k][intro_roles[k - 1]] += 1
+            else:
+                move_role[k]["<none>"] += 1
+        chain += 1 if _aff_1ac_scoring_chain_exists(env.state) else 0
+    return {
+        "move2_roles": dict(move_role[2]), "move3_roles": dict(move_role[3]),
+        "move4_roles": dict(move_role[4]),
+        "intro_count_hist": dict(end_speech_at),
+        "scoring_chain_by_end_1ac_frac": chain / n_episodes,
+        "n_episodes": n_episodes,
+    }
+
+
 def run_seed(seed, warmstart_path, spec, cfg):
     ac, _ = load_checkpoint(warmstart_path)
+    ac.curriculum = CURRICULUM                          # Screen B: opening unlock ladder ON
     pool = CheckpointPool(directory=os.path.join(OUTPUT_DIR, f"pool_seed{seed}"), semantics=cfg.semantics)
     updater = PPOUpdater(ac, cfg)
     rng = random.Random(seed); gen = torch.Generator().manual_seed(seed)
@@ -113,9 +194,14 @@ def run_seed(seed, warmstart_path, spec, cfg):
                  else "declining" if phi_last - phi_first < -0.05 else "stable")
     print(f"  seed{seed}: last-15 win={win:.3f} surv={surv:.3f} -> {'PASS' if passed else 'FAIL'} | "
           f"Φ {phi_first:+.3f}->{phi_last:+.3f} ({phi_trend}) divergence={divergence}", flush=True)
+    probe = None
+    if CURRICULUM:
+        probe = _probe_1ac(ac, PROBE_EPISODES, gen)
+        print(f"    seed{seed} 1AC-probe: chain-by-end={probe['scoring_chain_by_end_1ac_frac']:.2f} "
+              f"move2={probe['move2_roles']} move3={probe['move3_roles']}", flush=True)
     return {"seed": seed, "last15_win": win, "last15_surv": surv, "passed": passed,
             "phi_first15": phi_first, "phi_last15": phi_last, "phi_trend": phi_trend,
-            "divergence": divergence, "rows": rows}
+            "divergence": divergence, "probe": probe, "rows": rows}
 
 
 def main():

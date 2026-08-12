@@ -40,7 +40,9 @@ from model import SPEECH_ORDER, SPEECH_SIDE, speech_index, serialize
 from judge import judge
 
 from env import CDAFEnvironment, check_legality, observe
-from env.actions import Introduce, Extend, Concede, Weigh, Connect, EndSpeech, NEW
+from env.actions import (
+    Introduce, Extend, Concede, Weigh, Connect, EndSpeech, NEW, ROOT_ELIGIBLE_ROLES,
+)
 
 
 class ConversionError(Exception):
@@ -128,6 +130,19 @@ def convert(rnd, name: str = "") -> ConversionResult:
         oracle_verdict=oracle, replay_verdict=replay, diag=diag)
 
 
+# Unlock-ladder type precedence for the deterministic introduction order
+# (rl_training_spec §Opening curriculum): advocacy first, then link, then
+# uniqueness/impact, then framework/ballot_directive; ties broken by ascending id.
+_TYPE_PRECEDENCE = {
+    "advocacy": 0, "link": 1, "uniqueness": 2, "impact": 2,
+    "framework": 3, "ballot_directive": 3,
+}
+
+
+def _prec(kind: str) -> int:
+    return _TYPE_PRECEDENCE.get(kind, 9)
+
+
 def _build_forest(nodes, reg_ids, weigh_ids, structural_edges, diag):
     """Build a spanning forest over the regular nodes and their structural edges, and
     the introduction order. Each node attaches (`introduce`, `new -> parent`) to an
@@ -164,20 +179,41 @@ def _build_forest(nodes, reg_ids, weigh_ids, structural_edges, diag):
     for slot in SPEECH_ORDER:
         remaining = {n for n in reg_ids if nodes[n].speech == slot}
         while remaining:
-            placed = None
-            for n in sorted(remaining):
+            # Attachable nodes: those with an already-introduced neighbor. The
+            # introduction edge is the incident edge to the earliest-(speech_index, id)
+            # such neighbor.
+            attachable = []
+            for n in remaining:
                 cand = [(nbr, kind, e) for (nbr, kind, e) in adj[n] if nbr in seen]
                 if cand:
                     cand.sort(key=lambda c: (speech_index(nodes[c[0]].speech), c[0]))
-                    nbr, kind, e = cand[0]
-                    intro_meta[n] = {"parent": nbr, "kind": kind,
-                                     "authored": (e.source, e.target),
-                                     "flipped": (e.source, e.target) != (n, nbr)}
-                    consumed.add(e.id)
-                    placed = n
-                    break
-            if placed is None:                  # no attachable node -> a NEW root
-                placed = min(remaining)
+                    attachable.append((n, cand[0]))
+            if attachable:
+                # Place one attachable node, honouring the unlock ladder's type
+                # precedence (advocacy -> link -> {uniqueness, impact} ->
+                # {framework, ballot_directive}), tie-broken by ascending id.
+                attachable.sort(key=lambda item: (_prec(nodes[item[0]].kind), item[0]))
+                n, (nbr, kind, e) = attachable[0]
+                intro_meta[n] = {"parent": nbr, "kind": kind,
+                                 "authored": (e.source, e.target),
+                                 "flipped": (e.source, e.target) != (n, nbr)}
+                consumed.add(e.id)
+                placed = n
+            else:
+                # No attachable node -> seed a NEW root. Under the floating-root
+                # restriction (action_schema_spec §introduce) only an Advocacy or a
+                # Framework may root a component; a component with neither is not
+                # convertible (e.g. fixture E). Prefer Advocacy over Framework (type
+                # precedence), then ascending id.
+                roots = [n for n in remaining if nodes[n].kind in ROOT_ELIGIBLE_ROLES]
+                if not roots:
+                    raise ConversionError(
+                        f"no legal root for a component in speech {slot!r}: the "
+                        f"floating-root restriction admits only an Advocacy or a Framework "
+                        f"as a NEW root, but this component has neither "
+                        f"(nodes {sorted(remaining)})")
+                roots.sort(key=lambda n: (_prec(nodes[n].kind), n))
+                placed = roots[0]
             order.append(placed); seen.add(placed); remaining.discard(placed)
 
     connects = [(e.source, e.target, e.kind) for e in structural_edges

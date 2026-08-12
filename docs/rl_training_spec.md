@@ -69,6 +69,26 @@ to the training discount (0.999). The environment exposes Φ(s); the training lo
   single best offense AND successfully out-weighing the opponent's best impact, while being
   count-resistant (extra weak chains don't raise a max) — unlike a sum, which would re-create
   the "extend everything" incentive.
+- **Nascent channel (mid-round Φ only) — NEUTRALIZED to κ = 0 (2026-08-12); DEAD END.**
+  *Mechanism (retained for the record):* the extended-so-far gate makes Φ = 0 for a graph with
+  *attempted-but-incomplete* structure (an in-scope, resolved-sign, positive-mag chain whose
+  own-side extension is not complete) — indistinguishable from the empty graph. The nascent
+  channel added a discounted second channel over chains passing every gate *except* extension
+  and still within their own-side extension window (not lapsed):
+  Φ = (best_aff_ext − best_neg_ext) + κ·(best_aff_nascent − best_neg_nascent).
+  *Outcome:* it was tried twice (plain, then with the lapsed-exclusion "still within window"
+  gate) and measured **degrading the bootstrap screen every time — κ = 0 → 3/5 seeds, κ = 0.3
+  → 2/5, refined gate → 1/5** — and shown structurally incapable of injecting net signal
+  because PBRS invariance means shaping cannot change the optimum. **Concluded a dead end;
+  ruled back to κ = 0.**
+  **Incident note (2026-08-12):** the revert to κ = 0 was recorded in a handoff as complete
+  ("byte-identical to pre-attempt") but was **never applied to the working tree** — κ = 0.3
+  persisted uncommitted (present in no commit on any branch in history) and **shipped to the
+  pod in the Screen A re-run**, so **that run's 0/5 result is not a valid measurement** (it was
+  taken in the known-degrading κ = 0.3 regime, not the κ = 0 regime of the 3/5 baseline).
+  `PHI_NASCENT_KAPPA` is now 0.0; the `phi_maxdiff` `kappa` branch defaults to 0.0 and is left
+  dormant (full removal is optional cleanup). At κ = 0, Φ is byte-identical to the extended-only
+  potential and all four PBRS correctness constraints hold trivially.
 - **Policy-invariant.** Under the four correctness constraints (environment_shell_spec
   §step()), PBRS provably does not change the optimal policy — it only speeds learning (dense,
   low-variance critic target + shaped advantage structure). This is the key difference from
@@ -241,7 +261,7 @@ LD was considered specifically as a bootstrap aid — three AFF stamps for
 extension instead of four, making a carried spine likelier under random play.
 That problem is now addressed twice over, by the chain-extension shaping bonus
 and by imitation warm-start, so a format switch would buy nothing already
-bought and would cost re-authoring all 46 oracle fixtures under different
+bought and would cost re-authoring all 47 oracle fixtures under different
 extension requirements. That is hand-adjudication work, not relabeling.
 
 There is also a semantics argument. LD's AR raises the reactive-offense
@@ -272,6 +292,79 @@ speech from step one.
 
 The one real cost is reduced exploration near the initialization, which is
 part of why the entropy coefficient starts well above default.
+
+**Corpus — `E` is excluded from the warm-start corpus (43 → 42 convertible).** `E`
+is the sole fixture whose graph is a single component with neither an Advocacy nor a
+Framework (a NEG-only disad chain), so under the legality-layer floating-root
+restriction (action_schema §introduce) its root — a non-Advocacy, non-Framework node
+— is unreachable, and it has no legal action sequence to imitate. It is dropped from
+the demonstration set. **This does not touch the judge.** `E` remains a valid
+**oracle** fixture with its expected verdict unchanged: masks live in the
+environment and the policy layer and never enter `judge()`, which scores `E` exactly
+as before. The distinction is load-bearing — the *warm-start corpus* (what the
+policy imitates) and the *oracle corpus* (what pins judge behavior) are different
+sets, and only the former changes.
+
+**Converter root-seeding must seed from Advocacy/Framework (verdict-equivalence
+re-verified).** The warm-start converter formerly rooted each component at its
+lowest-id node (`min(id)`), which floats non-root nodes for 44 of the corpus's
+introduction forests — illegal under the floating-root restriction. It instead
+**seeds each component from its Advocacy** (or Framework, per the Advocacy/Framework
+root rule) and honors the unlock ladder's type precedence (advocacy → link →
+{uniqueness, impact} → {framework, ballot_directive}) when ordering introductions,
+tie-broken by ascending `id`, so those artifact floating roots become ordinary
+attaching introduces (the sink nodes among them build as flipped edge-sources, which
+the judge scores identically — action_schema §Floating-root known-dependency).
+**Verdict-equivalence is re-verified** via the existing round-trip test
+(`ConversionResult.ok`, comparing each replay verdict to the oracle verdict): all 42
+retained fixtures reconstruct to `ok = True`. This changes the converter's
+determinism rules, canonically specified in `warm_start_data_spec.md` (§Determinism,
+rulings B/E) — that document carries the authoritative text; this paragraph records
+the ruling and its dependency on the floating-root restriction.
+
+## Opening curriculum (policy-layer mask, AFF 1AC only)
+
+A progressive **unlock ladder** scaffolds the opening speech. It is a
+**policy-layer mask** applied on top of the environment's structural legal-action
+mask — it lives in the policy's `type_mask`/role gating (encoder_spec), **not** in
+`check_legality`. The environment's legal-action generator is unchanged and still
+enforces structural legality only (environment_shell_spec §Governing principle);
+the curriculum only *further* restricts what the policy may sample during the 1AC,
+the way warm-start biases the opening without removing any move permanently. Like
+warm-start it shapes where learning starts, not what is ultimately learnable: it
+binds on the **1AC only** and **never on NEG**.
+
+The ladder:
+
+- **Move 1 of the 1AC must be `introduce(role = advocacy, target = NEW)`.**
+  `end_speech` is masked at that decision point — AFF may not pass the 1AC. This is
+  the one place the curriculum forces a specific move; it pairs with the
+  legality-layer floating-root restriction (which already makes Advocacy/Framework
+  the only legal NEW roots), so move 1 is the Advocacy every AFF component roots on.
+- **From move 2 onward: Advocacy stays available; Link unlocks.** A Link must
+  attach (legality §Floating-root restriction); with only the Advocacy present its
+  sole legal attachment is a Support edge to that Advocacy (an Advocacy
+  support-attaches only to a Link — judge_spec §2 / action_schema §Principles),
+  which is exactly the intended advantage stem.
+- **Reading a Link unlocks Uniqueness and Impact.**
+- **Reading an Impact unlocks Framework and BallotDirective.**
+- **BallotDirective gates on Impact ALONE — explicitly not on Uniqueness.**
+  Gating BD on an upstream Uniqueness would reintroduce the **mandatory-uniqueness**
+  rule retracted last session (judge_spec §2, "the former two-shape rule is
+  retracted") — a tabula-rasa violation — and would make **r36** (a valid AFF graph
+  with a BallotDirective and no Uniqueness) unreachable.
+- **From the 1NC onward the ladder is fully unlocked.** The curriculum never binds
+  after the 1AC and never binds on NEG.
+
+`weigh`, `connect`, attaching `introduce`, and attack edges need **no** curriculum
+gate: they are already structurally unavailable on an empty graph and become
+available naturally as their endpoints appear (environment_shell_spec §Governing
+principle). The ladder gates only the *role* of a fresh `introduce` and the
+availability of `end_speech` at move 1.
+
+This is a **semantic** training scaffold (it changes what the policy explores in
+the opening), so like λ and the entropy schedule it is recorded per run
+(§Adjustment protocol) and any change to it defines a new experiment.
 
 ## Hyperparameters
 
@@ -327,6 +420,7 @@ toward `extend`.
 |---|---|
 | Shaping mechanism | potential-based (PBRS), Φ = Φ_maxdiff |
 | λ (PBRS shaping weight) | 0.5 (ruled; semantic) |
+| κ (mid-round Φ nascent-channel discount) | **0.0 (NEUTRALIZED 2026-08-12; dead end — see §Reward)** |
 | λ schedule | none (fixed; invariance ⇒ no withdrawal) |
 | Inert-action penalty coefficient | 0.0 (dormant; no-op re-extend priced via cost) |
 
@@ -335,6 +429,13 @@ learning, not correctness (PBRS is policy-invariant for any λ). Φ ∈ [−1,1]
 ∈ [0,1], so λ=0.5 makes Φ a half-scale value prior: dense enough to break the sparse-reward
 bootstrap barrier, small enough that Φ's imperfections are a modest prior for the critic to
 shed. UNSET-until-ruled, ruled to 0.5.
+
+κ (mid-round Φ **nascent channel**) is **0.0 — the channel is neutralized** (§Reward). It was
+ruled to 0.3 on 2026-08-10, then found to *degrade* the bootstrap screen (3/5 → 2/5 → 1/5)
+and to be structurally incapable of injecting net signal under PBRS invariance, so it was
+ruled a dead end and reverted to κ = 0. A residual κ = 0.3 that was never cleaned from the
+working tree shipped to the pod and invalidated the 2026-08-12 Screen A run; κ is now pinned
+to 0.0. Any future re-attempt is a fresh semantic ruling, not a default.
 
 The retired flat-bonus parameters (`shaping_coef`, `shaping_enabled`) and the anneal-trigger
 fields (`anneal_trigger_ballot_winrate`, `anneal_trigger_window_episodes`,

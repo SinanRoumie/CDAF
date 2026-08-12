@@ -37,6 +37,13 @@ The legal-action generator enforces **structural** legality and nothing else:
   framework/ballot_directive has no polarity to flip (judge §3.4)
 - a **`connect`** may not **duplicate an existing edge** (same source, target, and
   edge_type) — it would add no structure
+- a node may not be introduced as a **floating root** unless its role is
+  **`advocacy`** or **`framework`**: an `introduce` with `target_id = NEW` is legal
+  only for `role ∈ {advocacy, framework}`; every other role must attach to an
+  existing node at creation. Equivalently, **every connected component contains an
+  Advocacy or a Framework** — the two kinds the judge already treats as chain roots
+  (judge_spec §2, rule 4). (Rationale: action_schema_spec §introduce →
+  *Floating-root restriction*.)
 
 It does **not** enforce strategic legality. Response-window compliance, whether an
 extension will ultimately count, whether a new chain in a rebuttal can establish
@@ -48,6 +55,35 @@ a same-side attack, an offense at a non-polarity node, or a duplicate edge
 meaningful), so disallowing them removes no strategic distinction. Context-dependent
 inertness stays learnable: a **no-op re-extend** is legal (priced via cost, §Liveness
 stamping), and window/maker-lapsed inertness stays a judge outcome.
+
+**The Advocacy/Framework-root rule is redundancy elimination for rooted
+components, and a bounded foreclosure for rootless ones.** Unlike the
+same-side-attack ban (incoherent in *every* state), a floating non-root node
+(neither Advocacy nor Framework) is NOT inert in every continuation: `connect` has
+no same-component precondition (State schema → `connect`), so a node floated early
+can be bridged into the main chain later and goes live once connected. The
+justification is therefore construction **redundancy**, not inertness. For any
+component that already has a legal root (an Advocacy or a Framework), building a
+further node by float-then-`connect` costs two actions (`introduce` = 1, `connect`
+= 1) to reach a graph the judge scores **identically** to the one an attaching
+`introduce` reaches in one action — the judge is direction-agnostic, so the attach
+orientation is immaterial — so removing the floating route deletes no reachable
+terminal graph and no strategy for these components; it removes a strictly-costlier
+redundant path to a judge-equivalent graph, the same category as an intra-speech
+move-ordering restriction. `connect`'s general component-bridging capability is
+**unchanged**: the rule fires at `introduce` time, so a rootless component is simply
+never created for `connect` to bridge. For a component with neither an Advocacy nor
+a Framework there is nothing legal to root it, so the floating route is the only
+route and the rule removes the graph outright — a deliberate foreclosure
+(§Governing principle: deliberate action-space foreclosure, and its list). Within
+the oracle corpus the only reachable graph so removed is fixture `E`.
+
+**The opening curriculum is not part of this layer.** The Phase-5 opening-unlock
+curriculum (rl_training_spec §Opening curriculum) is a *policy-layer* mask applied
+on top of this generator during the 1AC — a training scaffold, not a legality rule.
+The legal-action generator here is unchanged by it and continues to enforce
+structural legality only: the curriculum can only further restrict sampling, never
+widen legality, and never touches the judge.
 
 **There is no multi-terminal refusal.** Divergent chains are first-class as of
 judge v11 — a same-side Support component may have several terminal impacts,
@@ -71,6 +107,48 @@ Two reasons this boundary is drawn here:
    structurally prevented from attempting it learns nothing. This matches the
    judge's existing posture throughout `judge_spec.md`, where illegitimate
    moves are scored as inert rather than blocked.
+
+## Governing principle: deliberate action-space foreclosure
+
+CDAF deliberately forecloses regions of the action space in order to define the
+space within which real strategy develops. Where a class of moves can only ever
+produce a zero-scoring or judge-redundant graph, the environment may remove it at
+legality time rather than leaving the policy to discover its uselessness through
+exploration. Exploration budget spent on such moves teaches the policy nothing, and
+the narrowed space is treated as the game CDAF actually models.
+
+This is a claim about **exploration value, not judgeability.** A foreclosed move is
+not "unjudgeable" — a floating disad, for instance, IS judged and collapses with
+`collapse_reason = "unrooted_disad"`. The point is that discovering its uselessness
+by sampling it costs exploration budget and returns no usable signal, so the
+environment removes the discovery cost by removing the move.
+
+**Authorises the one Preserved-learning-signal softening.** The structural-legality
+section's Preserved-learning-signal principle (an agent structurally prevented from
+a move learns nothing from it) is softened in exactly one place: the
+**strictly-disconnected `unrooted_disad`** case — a NEG disad built as its own
+component with neither an Advocacy nor a Framework — is now unreachable at action
+time rather than scored 0 at termination. Because such a disad can only ever score
+0, the exploration spent reaching it is wasted, and this principle is what
+authorises removing it. Ruling 1 as a whole needs no such override: for every
+rooted component it is free on redundancy grounds (action_schema_spec §introduce →
+Floating-root restriction), removing only a costlier construction route to a
+judge-equivalent graph.
+
+**Scoping consequence — equilibria are relative to the foreclosed game.** A Nash
+equilibrium is defined relative to an action space, so any equilibrium reached
+under self-play is an equilibrium of the *foreclosed* game, not of unrestricted
+policy debate. Every foreclosure must therefore be recorded in the running list
+below, so equilibrium claims can be scoped correctly.
+
+**Foreclosure list.**
+
+| # | Foreclosure | Enforcement layer | Removes reachable terminal graphs? |
+|---|---|---|---|
+| i | Floating-root restriction (Ruling 1): only Advocacy or Framework may root a component | Legality mask (`check_legality`); permanent; both sides, all speeches | **Yes** — fixture `E` alone (the sole component with neither an Advocacy nor a Framework). Advocacy/Framework-rooted components lose only redundant construction routes. |
+| ii | AFF-1AC opening curriculum (Ruling 2): progressive unlock ladder | Curriculum mask (policy `type_mask`); non-permanent — 1AC only, never NEG, off from 1NC | **No.** Every terminal graph stays reachable; the ladder constrains only opening *construction order*, which the judge is invariant to |
+
+New entries are appended here as future foreclosures are ruled.
 
 ## State schema
 
@@ -413,7 +491,10 @@ Initializes an empty graph at slot 1AC with that slot's budget.
       impact-weighing exclusion at the ballot — unchanged, byte-identical verdicts.
     - **mid-round, per step:** whole-graph scope, `as_of = current slot`, and — per this
       milestone — **also applying the impact-weighing exclusion rule**, so Φ zeros chains
-      already outweighed by weighs made so far.
+      already outweighed by weighs made so far. (A discounted **nascent channel** at κ was
+      trialed here and **NEUTRALIZED to κ = 0 on 2026-08-12** — it degraded the bootstrap
+      screen and cannot inject net signal under PBRS invariance; dead end, see rl_training_spec
+      §Reward. At κ = 0 the mid-round Φ is byte-identical to the extended-only potential.)
   As with node_accrual, this must be the *same* factored function the judge uses, not a
   second copy.
 

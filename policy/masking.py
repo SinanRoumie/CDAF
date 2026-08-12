@@ -78,13 +78,24 @@ class LegalActionMask:
     # --- introduce ------------------------------------------------------------
     def introduce_target_mask(self) -> np.ndarray:
         """(n+1,) bool: existing-node targets then a trailing NEW slot. An existing
-        target is legal iff SOME edge_type makes the attaching introduce legal; NEW is
-        legal iff a fresh-node introduce is legal."""
+        target is legal iff SOME (role, edge_type) pair makes the attaching introduce
+        legal; NEW is legal iff SOME role can be introduced as a fresh root.
+
+        Probing across ROLES (not a single stand-in role) is required at BOTH the
+        existing-target and the NEW slot, because target-legality became role-dependent:
+        (a) under the Advocacy-attachment rule an Advocacy is a legal target ONLY for a
+        Link (never a Uniqueness), so a uniqueness-only stand-in would wrongly mask out
+        every Advocacy target; (b) under the floating-root restriction only an Advocacy
+        or a Framework may be a NEW root, so a uniqueness stand-in at the NEW slot would
+        wrongly mask NEW out entirely and make the demonstrated `Introduce(advocacy, NEW)`
+        unreachable. The role/edge stages downstream still refine to the exact legal
+        pairs (introduce_role_mask filters NEW to Advocacy/Framework)."""
         m = np.zeros(self.n + 1, dtype=bool)
         for k, nid in enumerate(self.node_ids):
-            m[k] = any(self._legal(Introduce(_CONTENT, ACTION_ROLE_ORDER[0], nid, et))
-                       for et in EDGE_TYPE_ORDER)
-        m[self.n] = self._legal(Introduce(_CONTENT, ACTION_ROLE_ORDER[0], NEW, None))
+            m[k] = any(self._legal(Introduce(_CONTENT, role, nid, et))
+                       for role in ACTION_ROLE_ORDER for et in EDGE_TYPE_ORDER)
+        m[self.n] = any(self._legal(Introduce(_CONTENT, role, NEW, None))
+                        for role in ACTION_ROLE_ORDER)
         return m
 
     def introduce_role_mask(self, target) -> np.ndarray:

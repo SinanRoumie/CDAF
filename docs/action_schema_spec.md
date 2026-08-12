@@ -30,8 +30,14 @@ machinery is introduced.
   disallowed by the legal-action generator — masking them removes no strategic
   distinction, because they were never a real option: a **same-side attack** (an
   attack edge between two nodes of the same side), an **offense at a non-polarity
-  node** (an `offensive_attack` where an endpoint is not a Link or Impact), and a
-  **redundant connect** (a `connect` duplicating an existing edge). A **no-op
+  node** (an `offensive_attack` where an endpoint is not a Link or Impact), a
+  **redundant connect** (a `connect` duplicating an existing edge), an **Advocacy at
+  either end of an attack edge** (an Advocacy may be neither the source nor the target
+  of a `defensive_attack` or `offensive_attack`, regardless of edge_type — you support
+  or outweigh a proposal, you never attack it or attack *from* it; judge_spec §2), and
+  an **Advocacy support-attached to a non-Link node** (an Advocacy carries Support edges
+  only to `Link` nodes — its premises route through a Link, never a bare Uniqueness,
+  Impact, or BallotDirective). A **no-op
   re-extend** (an `extend`/`concede` on a node already carried this speech) is
   *context-dependent* — extending an uncarried node is a real, often-correct move,
   and only this specific state makes it inert — so it stays **legal** and is priced
@@ -91,11 +97,87 @@ framework, ballot_directive}. `ballot_directive` is the non-spine role — the
 discovery root the ballot needs. Weighing is *not* a role: a Weighing node is
 produced only by the `weigh` action, never by `introduce`.
 
+**Advantage vs. disadvantage is the introducing side, descriptively.** A Link attached to an
+Advocacy reads as an **advantage** (AFF) / **disadvantage** (NEG) — this falls out of side-routing
+(`resolve_chains` unions only **same-side** Support edges, so a chain's `side` is fixed by its
+members' introducing side). A **cross-side** NEG-Link→AFF-Advocacy Support edge does **not** merge
+the Advocacy into the disad's same-side component, and by judge_spec §5.3 (absorbing advocacy) it
+does not anchor the disad to the AFF framework — **but it is NOT inert:** it is one way a NEG disad
+**roots in the shared plan** (judge_spec §2, rule 4) — the direct `link → advocacy` root. A scored
+NEG chain that roots in **neither** an AFF Advocacy nor a Framework collapses `unrooted_disad`.
+
+**NEG-offense rooting (rule 4, judge-time enforced, not a legality mask).** A scored NEG chain must
+reach a **shared premise** over Support edges: a **disad** reaches the **AFF Advocacy** — directly
+(`link → advocacy`) or via the fusion idiom `advocacy → uniqueness → link` (r27); a **framework
+argument** reaches a **Framework** (its offense is evaluated under a framework it reads, not a link into the
+plan). There is **no mandatory per-Link uniqueness** (the former two-shape rule is retracted): a
+uniqueness on a disad Link is optional, drawn only to pre-empt a non-unique. Unlike the
+same-side-attack / advocacy-attachment rules above (masked at edge creation), this is a **whole-graph
+reachability check at scoring**. A disad joined to the AFF side by an attack or a non-Support path
+— its component holds the AFF Advocacy but its spine does not reach it over Support — is **not**
+rejected at creation; it is scored 0 with `collapse_reason = "unrooted_disad"` (the disad analog of
+`no_link_premise`). A *strictly disconnected* floating disad — its own component with neither an
+Advocacy nor a Framework — is additionally **unreachable at action time** under the floating-root
+restriction below; the judge-time collapse remains the enforcement for every *connected* case.
+
+**Disad-through-an-AFF-Link (Support Link→Link) vs. the turn (Attack Link→Link) — distinct in the
+data model, similar in the builder.** A NEG Link may support-attach to an AFF Link ("I *build on*
+your mechanism, and it *also* yields a negative terminal"); because the AFF Link roots in the
+Advocacy, the disad's spine reaches the Advocacy one hop further along and roots per rule 4 — no
+uniqueness of its own required. The pre-existing turn is a `DefensiveAttack`/`OffensiveAttack` edge
+between the same node types ("I *refute/delink* your mechanism", §3.4/§3.5). They are unambiguous to
+the judge and to a content-generator (the `etype` field), but **a support line and an attack line
+between the same two Links look alike in the graph-builder UI** — inspect edge type, not just
+endpoints, when reading these by eye.
+
 Any node on the graph is a legal `target_id`, regardless of which side
 introduced it or which side is introducing now. Own-side targeting is legal
 (a debater may attach to their own prior nodes). All targeting is still subject
 to existing response-window and extension rules — legality of the target does
 not waive those constraints.
+
+**Floating-root restriction — only Advocacy or Framework may root a component
+(legality mask, both sides, all speeches).** An `introduce` with `target_id = NEW`
+is legal **only for `role ∈ {advocacy, framework}`**. Every other role must attach
+to an existing node at creation. Equivalently: **every connected component of the
+finished graph contains an Advocacy or a Framework.** Two reasons, one present and
+one anticipated: (1) **construction redundancy** — for any component that already
+has a legal root (an Advocacy or a Framework), building a further node by
+float-then-`connect` (two actions) reaches a graph the judge scores identically to
+an attaching `introduce` (one action; the judge is direction-agnostic, so
+orientation is immaterial), so the restriction removes only a strictly-costlier
+redundant construction route — no reachable terminal graph and no strategy, the
+same category as an intra-speech ordering restriction; (2) a planned LLM
+content-generation layer conditions each node's generated prose on the node it
+attaches to, so a parentless non-root node has nothing to condition on. **Why
+Framework roots alongside Advocacy:** the judge already treats both as chain roots
+— a NEG offense chain roots at an AFF Advocacy *or* its own Framework (judge_spec
+§2, rule 4) — so permitting Framework as a component root makes the legality layer
+agree with what the judge already treats as a root; the content-generation
+rationale points the same way, since a framework argument is a standalone stateable
+premise with no upstream parent to condition on, exactly like an Advocacy, unlike a
+floating Link which has nothing to condition on and nothing to say. The rule is
+**not** justified by inertness: a floating non-root node can be bridged into a chain
+by a later `connect` (which has no same-component precondition) and is inert only
+*until* connected. The only reachable graphs it removes are components with neither
+an Advocacy nor a Framework — where nothing legal can root them — a deliberate
+foreclosure (environment_shell_spec §Governing principle: deliberate action-space
+foreclosure); within the oracle corpus that is fixture `E` alone. Enforced in
+`check_legality` — **not** a curriculum mask and **not** a judge rule. `connect`'s
+component-bridging capability is unchanged.
+
+**Known future dependency — the flip is verdict-invisible but not content-neutral.**
+Because the judge is direction-agnostic for Support edges (chain membership is
+undirected union-find; attack orientation is by speech recency, not stored edge
+direction), the agent builds many edges in the *reverse* of their authored
+orientation: a sink node such as a BallotDirective is created by an attaching
+`introduce` in which the **new node is the edge source**, storing e.g. `bd →
+impact` where a fixture authored `impact → bd`. This is invisible to the judge
+(confirmed by warm-start replay equivalence) and therefore fully legal, but it is
+**not** semantically neutral for a content layer, which will read edge direction as
+"A is a premise for B." When that layer lands it will need either a canonicalization
+pass over stored orientations or a directed `introduce`. Recorded as a dependency;
+not designed now.
 
 ### `extend(node_id)`
 

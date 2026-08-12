@@ -175,10 +175,14 @@ def _build_cross_side_support_cycle():
     ruling, so a cross-side pair is required to isolate the cycle rule.)"""
     env = CDAFEnvironment()
     env.reset()                                          # 1AC (AFF), budget 8
-    env.step(Introduce("", "link", NEW, None))           # n1 = a (AFF link)
+    env.step(Introduce("", "advocacy", NEW, None))       # AFF advocacy (legal root)
+    adv = list(env.state.nodes)[-1]
+    env.step(Introduce("", "link", adv, "support"))      # a = AFF link, attached to the advocacy
+    a = list(env.state.nodes)[-1]
     env.step(EndSpeech())                                # -> 1NC (NEG)
-    env.step(Introduce("", "link", "n1", "support"))     # n2 = b (NEG link) supports a: b -> a
-    return env, "n1", "n2"
+    env.step(Introduce("", "link", a, "support"))        # b = NEG link supports a: b -> a
+    b = list(env.state.nodes)[-1]
+    return env, a, b
 
 
 def test_connect_support_cycle_masked():

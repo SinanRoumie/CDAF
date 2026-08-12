@@ -41,7 +41,7 @@ from typing import List, Optional, Tuple
 from .actions import (
     Introduce, Extend, Concede, Weigh, Connect, EndSpeech,
     ROLES, RELATIONSHIP_EDGE_TYPES, ATTACH_EDGE_TYPES, ATTACK_EDGE_TYPES,
-    OFFENSE_BEARING_ROLES, NEW,
+    OFFENSE_BEARING_ROLES, ROOT_ELIGIBLE_ROLES, NEW,
 )
 from .state import RoundState, action_cost
 
@@ -120,6 +120,9 @@ def _structural_legal(state: RoundState, action) -> Tuple[bool, str]:
                                     action.edge_type)
         if reason:
             return False, reason
+        reason = _incoherent_support(src.role, tgt.role, action.edge_type)
+        if reason:
+            return False, reason
         return True, ""
 
     return False, f"unknown action type: {type(action).__name__}"
@@ -133,6 +136,16 @@ def _check_introduce(state: RoundState, action: Introduce) -> Tuple[bool, str]:
     if action.target == NEW:
         if action.edge_type is not None:
             return False, "NEW node must not carry an edge_type"
+        # Floating-root restriction (action_schema_spec §introduce): only an Advocacy
+        # or a Framework may be introduced as a floating root, so every connected
+        # component contains an Advocacy or a Framework -- the two kinds the judge
+        # already treats as chain roots (judge_spec §2, rule 4). Every other role must
+        # attach to an existing node at creation.
+        if action.role not in ROOT_ELIGIBLE_ROLES:
+            return False, (
+                f"floating-root restriction: role {action.role!r} may not be introduced "
+                f"as a NEW root (only {sorted(ROOT_ELIGIBLE_ROLES)} may root a component)"
+            )
         return True, ""
     # attaching to an existing node via a relationship edge
     if action.target not in state.nodes:
@@ -146,6 +159,9 @@ def _check_introduce(state: RoundState, action: Introduce) -> Tuple[bool, str]:
     tgt = state.nodes[action.target]
     reason = _incoherent_attack(state.current_side, action.role, tgt.owner, tgt.role,
                                 action.edge_type)
+    if reason:
+        return False, reason
+    reason = _incoherent_support(action.role, tgt.role, action.edge_type)
     if reason:
         return False, reason
     return True, ""
@@ -168,12 +184,37 @@ def _incoherent_attack(a_side: str, a_role: str, b_side: str, b_role: str,
     judge's own asymmetry in `_classify_attacks`."""
     if edge_type not in ATTACK_EDGE_TYPES:
         return None
+    # An Advocacy may be neither the SOURCE nor the TARGET of any attack edge
+    # (defensive or offensive) -- you support or outweigh a proposal, you never attack
+    # it or attack FROM it (judge_spec §2). Independent of side and polarity; checked
+    # first because it is a hard structural rule on either endpoint.
+    if a_role == "advocacy" or b_role == "advocacy":
+        return ("advocacy in attack edge: an Advocacy may be neither the source nor the "
+                "target of an attack edge (defensive or offensive) (judge_spec §2)")
     if a_side == b_side:
         return "same-side attack (incoherent): attack edge between two same-side nodes"
     if edge_type == "offensive_attack" and not (
             a_role in OFFENSE_BEARING_ROLES and b_role in OFFENSE_BEARING_ROLES):
         return ("offense at a non-polarity node: offensive_attack requires "
                 "offense-bearing (Link/Impact) endpoints (§3.4)")
+    return None
+
+
+def _incoherent_support(a_role: str, b_role: str, edge_type: Optional[str]) -> Optional[str]:
+    """Rule (Advocacy attachment): an Advocacy may carry `support` edges ONLY to `Link`
+    nodes. A Support edge with an Advocacy at either end whose OTHER endpoint is not a
+    Link is structurally incoherent (an Advocacy's premises route through a Link, never a
+    bare Uniqueness/Impact/BallotDirective/Advocacy). Direction-agnostic (support edges
+    are undirected to the judge). Only `support` edges are checked; attack edges are the
+    `_incoherent_attack` concern. Returns a rejection reason, or None if coherent."""
+    if edge_type != "support":
+        return None
+    if a_role == "advocacy" and b_role != "link":
+        return ("advocacy support-attaches only to Link: an Advocacy's Support edge must "
+                f"reach a Link (got role {b_role!r})")
+    if b_role == "advocacy" and a_role != "link":
+        return ("advocacy support-attaches only to Link: an Advocacy's Support edge must "
+                f"reach a Link (got role {a_role!r})")
     return None
 
 

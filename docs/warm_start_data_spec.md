@@ -256,12 +256,26 @@ Where multiple legal sequences reproduce a judge-equivalent graph, inversion mus
 deterministic (so warm-start data is reproducible run-to-run). Under ruling B these
 rules are **arbitrary-but-fixed for determinism only** — none is a plausibility model.
 
-1. **Which incident edge is a node's introduction edge** (when a node has several
-   incident edges to earlier-existing nodes). *Rule:* prefer the edge to the target
-   with the earliest `(speech_index, id)`; a node with no incident edge to an
-   earlier-existing node is introduced as a `NEW` root, and its incident edges become
-   the introduction edges of the later nodes that attach to it (E: orientation follows
-   whatever is buildable, so any spanning forest of the incidence graph works).
+1. **Which incident edge is a node's introduction edge, and which node roots a
+   component.** *Rule (Advocacy/Framework-seeded — supersedes the former
+   lowest-`(speech_index, id)` `NEW` root):* each connected component is rooted at an
+   **Advocacy** (or, where a component has no Advocacy, a **Framework**) — its
+   first-introduced node is that Advocacy/Framework as a `NEW` root; a component with
+   several Advocacies may float each, since every Advocacy is a legal `NEW` root under
+   the floating-root restriction. Every other node attaches to an already-introduced
+   neighbour, its introduction edge being the incident edge to the earliest-introduced
+   such neighbour. Ordering within a component follows the unlock ladder's **type
+   precedence** (advocacy → link → {uniqueness, impact} → {framework,
+   ballot_directive}; rl_training_spec §Opening curriculum), tie-broken by ascending
+   `id`. This replaces the earlier rule that rooted a component at its
+   lowest-`(speech_index, id)` node and floated whatever landed there — which under
+   the **floating-root restriction** (action_schema_spec §introduce → Floating-root
+   restriction) would emit illegal non-root `NEW` roots. Sink nodes (a
+   BallotDirective, a terminal Impact) still attach as edge **sources**, storing the
+   flipped orientation the judge scores identically (E). A component with neither an
+   Advocacy nor a Framework has no legal root and is not convertible (see corpus note
+   below). (E unchanged: orientation still follows whatever is buildable; the
+   Advocacy/Framework-seeded spanning forest is now the specific buildable one.)
 2. **Intra-speech order among independent introductions/connects/weighs.** *Rule:*
    ascending `id`, after the topological constraint. Purely for determinism.
 3. **`extend` vs `concede` verb** for a post-introduction liveness stamp. The two are
@@ -277,6 +291,16 @@ rules are **arbitrary-but-fixed for determinism only** — none is a plausibilit
    cycle-safe orientation (E: never the authored one; for `support`, whichever
    direction does not close a Support cycle). No `connect` is ever used to force a
    forest edge's authored orientation.
+
+**Corpus consequence — `E` excluded, 43 → 42 convertible.** Exactly one fixture,
+`E`, is a single component with neither an Advocacy nor a Framework (a NEG-only disad
+chain). Under the floating-root restriction it has no legal root, is **not
+convertible**, and is dropped from the warm-start corpus: the previously-43
+convertible set becomes **42**. `E` remains a valid **oracle** fixture with an
+unchanged verdict — masks live in the environment and the converter, never in the
+judge (rl_training_spec §Imitation warm-start). This is distinct from the
+budget-feasibility count in ruling F: `E`'s exclusion is a legality-of-construction
+matter, not a budget one.
 
 ## Reachability gaps (candidate real bugs, not to be papered over)
 
@@ -371,7 +395,11 @@ All eight original open questions (A–H) are resolved. In summary:
 - **B — Any-legal-path, no plausibility model.** Any legal sequence reaching a
   judge-equivalent graph is acceptable warm-start data; inversion does not model or
   approximate human construction order, and the §Underdetermination tiebreaks exist
-  only for determinism (§The inversion problem).
+  only for determinism (§The inversion problem). *(Amended:* tiebreak 1 now roots
+  each component at its Advocacy — or a Framework where a component has no Advocacy —
+  under the floating-root restriction, superseding the former lowest-`(speech_index,
+  id)` `NEW` root; see §Underdetermination tiebreak 1 and its corpus note. `E` is
+  thereby non-convertible — 43 → 42.)*
 - **C — `connect` placement: earliest-legal-speech, that speech's side.** Each
   non-forest edge's `connect` is placed in the first speech (in `SPEECH_ORDER`) by which
   both endpoints exist and the move is legal and affordable, performed by that speech's

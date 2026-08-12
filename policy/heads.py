@@ -44,6 +44,7 @@ import torch.nn as nn
 from env import NEW
 from env.actions import Introduce, Extend, Concede, Weigh, Connect, EndSpeech
 from .encoder import GraphEncoder, EncoderOutput
+from .curriculum import CurriculumLegalActionMask
 from .masking import (
     LegalActionMask, ACTION_TYPES, ACTION_ROLE_ORDER, EDGE_TYPE_ORDER,
 )
@@ -150,12 +151,18 @@ class ActorCritic(nn.Module):
     # index of each action type in ACTION_TYPES, for readability
     _T = {name: i for i, name in enumerate(ACTION_TYPES)}
 
-    def __init__(self, encoder: GraphEncoder, d_query: int = 128, hidden: int = 128):
+    def __init__(self, encoder: GraphEncoder, d_query: int = 128, hidden: int = 128,
+                 curriculum: bool = False):
         super().__init__()
         self.encoder = encoder                      # SHARED -- not duplicated/forked
         d = encoder.d_model
         g = encoder.graph_dim
         self.d_query = d_query
+        # Opening unlock-curriculum: a policy-layer scaffold that AND-composes with the env
+        # legal-action mask during the AFF 1AC (rl_training_spec §Opening curriculum). Off by
+        # default; enable for warm-start / early PPO. Never widens legality, never touches
+        # the judge.
+        self.curriculum = curriculum
 
         # Critic: scalar value from the POOLED graph embedding only.
         self.value_head = nn.Sequential(
@@ -209,7 +216,7 @@ class ActorCritic(nn.Module):
         node_emb = enc_out.node_embeddings          # (N, d)
         g = enc_out.graph_embedding                  # (graph_dim,)
         node_ids = enc_out.node_ids
-        mask = LegalActionMask(state)
+        mask = CurriculumLegalActionMask(state) if self.curriculum else LegalActionMask(state)
         assert node_ids == mask.node_ids, "encoder node order must match mask node order"
 
         records: dict = {}

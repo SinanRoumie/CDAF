@@ -3,8 +3,9 @@
 Verifies the spec's guarantees (docs/warm_start_data_spec.md) mechanically:
   * every converted action sequence replays LEGALLY end-to-end through the real env;
   * replay reproduces a JUDGE-IDENTICAL verdict to the oracle fixture (ruling A) --
-    for all 42 CONVERTIBLE fixtures (4 of the 46 are legitimately excluded post-masking;
-    see MASKED_CONSTRUCT_FIXTURES);
+    for all 42 CONVERTIBLE fixtures (5 of the 47 are legitimately excluded: 4
+    masked-construct fixtures + fixture E, unrootable under the floating-root
+    restriction; see MASKED_CONSTRUCT_FIXTURES / UNROOTABLE_FIXTURES);
   * edge orientation is natural-forward-with-flips (E), spot-checked on a known flipped
     cross-speech support edge;
   * `connect` placement is earliest-legal-speech, that speech's side (C), including the
@@ -17,8 +18,8 @@ edge, was not structurally derivable, so the env-built round scored differently)
 is introduced in the 2AR (a rebuttal) and is now correctly disqualified regardless of
 the contested status, so BOTH the oracle and the env-built round score NEG presumption
 -- F converts cleanly. Every CONVERTIBLE fixture (42/42) round-trips verdict-identically;
-the 4 masked-construct fixtures (G2/G3/r22/r25) fail conversion by design (they contain
-now-illegal same-side-attack / offense-at-non-polarity edges) and are excluded.
+the 4 masked-construct fixtures (G2/G3/r22/r25) and fixture E (a NEG-only chain with no
+Advocacy or Framework to root it) fail conversion by design and are excluded.
 """
 
 from __future__ import annotations
@@ -54,6 +55,13 @@ KNOWN_GAP = frozenset()
 #   r22 offense at a framework;            r25 offense at a uniqueness.
 MASKED_CONSTRUCT_FIXTURES = frozenset({"G2", "G3", "r22", "r25"})
 
+# Fixtures excluded by the FLOATING-ROOT restriction (action_schema_spec §introduce):
+# a connected component with neither an Advocacy nor a Framework has no legal NEW root, so
+# the converter raises ConversionError with "no legal root". E is the sole such fixture (a
+# NEG-only disad chain). Like the masked-construct fixtures it is KEPT as an ORACLE fixture
+# with an unchanged verdict -- masks live in the env/converter, never in judge().
+UNROOTABLE_FIXTURES = frozenset({"E"})
+
 
 def _names():
     return sorted(os.path.basename(f)[:-5] for f in glob.glob(os.path.join(ORACLE_DIR, "*.json")))
@@ -62,8 +70,10 @@ def _names():
 # Convert the whole corpus once (module-level cache).
 _RESULTS = {n: convert(serialize.load(os.path.join(ORACLE_DIR, n + ".json")), n) for n in _names()}
 _ALL = sorted(_RESULTS)
-# The 42 fixtures that remain reconstructable through the env after masking.
-_CONVERTIBLE = [n for n in _ALL if n not in MASKED_CONSTRUCT_FIXTURES]
+# The 42 fixtures that remain reconstructable through the env after masking + the
+# floating-root exclusion.
+_EXCLUDED = MASKED_CONSTRUCT_FIXTURES | UNROOTABLE_FIXTURES
+_CONVERTIBLE = [n for n in _ALL if n not in _EXCLUDED]
 
 
 def _replay(actions):
@@ -78,27 +88,41 @@ def _replay(actions):
 
 # --- corpus sanity -----------------------------------------------------------
 
-def test_corpus_is_46_v2_fixtures():
-    assert len(_ALL) == 46                       # 45 §11 probes + full_round_aff_outweighs
-    assert len(_CONVERTIBLE) == 42               # 46 - 4 masked-construct fixtures
-    assert set(_ALL) - set(_CONVERTIBLE) == set(MASKED_CONSTRUCT_FIXTURES)
+def test_corpus_is_47_v2_fixtures():
+    assert len(_ALL) == 47                       # + shape2_link_turn (Shape-2 disad demo)
+    assert len(_CONVERTIBLE) == 42               # 47 - 4 masked-construct - 1 unrootable (E)
+    assert set(_ALL) - set(_CONVERTIBLE) == set(_EXCLUDED)
 
 
 # --- masked-construct fixtures: legitimately excluded, fail for the right reason ---
 
 @pytest.mark.parametrize("name", sorted(MASKED_CONSTRUCT_FIXTURES))
 def test_masked_construct_fixtures_fail_conversion(name):
-    """The 4 fixtures with now-illegal constructs must fail conversion at the ILLEGAL MOVE
-    (same-side attack / offense-at-non-polarity), not for some unrelated reason."""
+    """The 4 fixtures with now-illegal constructs must fail conversion for a
+    structural-legality reason (illegal attack move, or -- once the floating-root
+    restriction is in force -- no legal root), not for some unrelated reason."""
     r = _RESULTS[name]
     assert r.error is not None, f"{name}: expected a conversion failure, got none"
-    # The failure must trace to the masked attack construct: either the illegal move is
-    # emitted directly (G3 same-side attack; r22/r25 offense-at-non-polarity), or -- when
-    # the incoherent edge is a `connect` that is illegal in EVERY placement (G2's same-side
+    # The failure must trace to a masked construct: either the illegal move is emitted
+    # directly (G3 same-side attack; r22/r25 offense-at-non-polarity), or -- when the
+    # incoherent edge is a `connect` that is illegal in EVERY placement (G2's same-side
     # defensive_attack) -- the converter reports it as an attack edge that was never placed.
+    # G2 additionally trips the floating-root restriction FIRST (its 1NC NEG link's only
+    # parent is a later-speech BD, so that component is momentarily rootless), so "no legal
+    # root" is also an acceptable structural-legality reason.
     assert (("same-side" in r.error) or ("non-polarity" in r.error)
-            or ("never placed" in r.error and "attack" in r.error)), \
+            or ("never placed" in r.error and "attack" in r.error)
+            or ("no legal root" in r.error)), \
         f"{name}: failed for an unexpected reason: {r.error}"
+
+
+@pytest.mark.parametrize("name", sorted(UNROOTABLE_FIXTURES))
+def test_unrootable_fixtures_fail_conversion(name):
+    """A graph with a component holding neither an Advocacy nor a Framework has no legal
+    NEW root (floating-root restriction) and must fail conversion for exactly that reason."""
+    r = _RESULTS[name]
+    assert r.error is not None, f"{name}: expected a conversion failure, got none"
+    assert "no legal root" in r.error, f"{name}: failed for an unexpected reason: {r.error}"
 
 
 # --- legality of the emitted sequence (convertible fixtures only) -------------
@@ -134,16 +158,17 @@ def test_fresh_replay_reproduces_the_recorded_pairs():
 # --- judge-equivalence (ruling A) + the documented reachability gap -----------
 
 def test_verdict_equivalence_whole_corpus():
-    # The 4 masked-construct fixtures fail CONVERSION (illegal move on replay); every
-    # convertible fixture reconstructs verdict-equivalently (no verdict-mismatch gaps).
+    # The 4 masked-construct fixtures + E fail CONVERSION (illegal move on replay, or no
+    # legal root); every convertible fixture reconstructs verdict-equivalently (no
+    # verdict-mismatch gaps).
     conv_failed = {n for n, r in _RESULTS.items() if r.error is not None}
-    assert conv_failed == set(MASKED_CONSTRUCT_FIXTURES), \
+    assert conv_failed == set(_EXCLUDED), \
         f"unexpected conversion failures: {sorted(conv_failed)}"
     verdict_failed = {n for n, r in _RESULTS.items() if r.error is None and not r.ok}
     assert verdict_failed == set(KNOWN_GAP), \
         f"unexpected verdict mismatches: {sorted(verdict_failed)}"
     passed = {n for n, r in _RESULTS.items() if r.ok}
-    assert len(passed) == 42                        # 46 - 4 masked-construct fixtures
+    assert len(passed) == 42                        # 47 - 4 masked-construct - 1 unrootable
 
 
 @pytest.mark.parametrize("name", _CONVERTIBLE)

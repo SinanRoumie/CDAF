@@ -73,6 +73,14 @@ ATTACK_EDGE_TYPES = frozenset({"defensive_attack", "offensive_attack"})
 # not offense-bearing has no polarity to flip and is inert at creation.
 OFFENSE_BEARING_ROLES = frozenset({"link", "impact"})
 
+# Roles that may ROOT a connected component -- i.e. may be introduced as a floating
+# `NEW` node with no attaching edge (action_schema_spec §introduce → Floating-root
+# restriction). Every OTHER role must attach to an existing node at creation, so that
+# every connected component contains an Advocacy or a Framework. Advocacy and Framework
+# are exactly the two kinds the judge already treats as chain roots (a NEG offense
+# chain roots at an AFF Advocacy OR its own Framework -- judge_spec §2, rule 4).
+ROOT_ELIGIBLE_ROLES = frozenset({"advocacy", "framework"})
+
 # Per-speech move budget (first-iteration defaults, tunable). Sum = 52.
 SPEECH_BUDGET = {
     "1AC": 8, "1NC": 8, "2AC": 8, "2NC/1NR": 13, "1AR": 5, "2NR": 5, "2AR": 5,

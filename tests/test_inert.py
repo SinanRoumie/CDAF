@@ -189,7 +189,7 @@ def test_terminal_penalty_hook_still_works_when_coef_set():
     re-extend is penalized per side in the breakdown."""
     env = CDAFEnvironment(inert_penalty_coef=0.01)
     env.reset()
-    env.step(Introduce("x", "impact"))               # -> node n1, carried {1AC}
+    env.step(Introduce("x", "advocacy"))             # -> node n1, carried {1AC} (legal root)
     env.step(Extend("n1"))                            # no-op re-extend (n1 already carried)
     info = _drive_to_termination(env)
     bd = info["reward_breakdown"]
@@ -203,7 +203,7 @@ def test_default_coef_zero_means_no_penalty_but_still_counts():
     still counted for diagnostics and still charged its full-slot cost."""
     env = CDAFEnvironment()                           # inert_penalty_coef defaults 0.0
     env.reset()
-    env.step(Introduce("x", "impact"))
+    env.step(Introduce("x", "advocacy"))              # legal floating root
     env.step(Extend("n1"))                            # no-op re-extend
     info = _drive_to_termination(env)
     assert info["reward_breakdown"][AFF]["inert_penalty"] == pytest.approx(0.0)
