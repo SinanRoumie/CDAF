@@ -1,5 +1,9 @@
 dash>=2.16
 dash-cytoscape>=1.0.0
+# Flask>=2.0 required: Flask 1.x does `from jinja2 import escape`, which Jinja2>=3.1
+# removed -> ImportError at `import dash`. A fresh install of dash pulls a modern Flask
+# anyway; this floor guards against a stale Flask 1.x lingering in a shared/base env.
+Flask>=2.0
 
 # Phase 4 policy encoder (policy/). CPU wheel is sufficient for the cheap ~4ms
 # rollouts; a CUDA build is a drop-in swap for training at scale.

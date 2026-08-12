@@ -26,6 +26,20 @@ import json
 import os
 import re
 
+# Eagerly import orjson in the MAIN thread at startup. Dash serializes every callback
+# response via plotly's `to_json_plotly`, which lazily does `import orjson` on first use.
+# When a browser loads the page, many callbacks fire at once -> multiple Werkzeug request
+# threads trigger orjson's first import concurrently; while its .so is still loading, other
+# threads grab the partially-initialized module and hit
+#   AttributeError: partially initialized module 'orjson' has no attribute 'OPT_NON_STR_KEYS'.
+# Importing it once here (single-threaded, before the server accepts requests) makes it
+# fully available in sys.modules so the per-thread lazy import is always a no-op. Optional
+# dependency: guarded so the app still runs if orjson is absent (plotly falls back to json).
+try:
+    import orjson  # noqa: F401  (imported for its side effect: warm sys.modules pre-server)
+except ImportError:
+    pass
+
 import dash_cytoscape as cyto
 from dash import (ALL, Dash, Input, Output, State, ctx, dcc, html, no_update)
 from dash.dependencies import ClientsideFunction
