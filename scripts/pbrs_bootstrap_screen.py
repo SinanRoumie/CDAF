@@ -24,6 +24,7 @@ import json
 import os
 import random
 import sys
+from collections import Counter
 
 import torch
 
@@ -65,44 +66,98 @@ SCREEN_TAG = os.environ.get("PBRS_SCREEN_TAG", "A")
 EXPORT_CAP = int(os.environ.get("PBRS_EXPORT_CAP", "4"))     # per bucket, per seed
 
 
-def _export_round(rnd, trace, winner, found, survived, seed, u, ep, counts):
+_ATTACK_KINDS = {"defensive_attack", "offensive_attack"}
+
+
+def _analyze_dead_chains(rnd, trace):
+    """For every AFF chain the judge FOUND but did NOT credit as surviving (not
+    extended-and-in_scope-and-sign==1), return one record with WHY it died:
+      - collapse_reason: the judge's own reason (extension_fail / defensive_kill / sign_flip /
+        unresolved_sign / no_link_premise / unrooted_disad / ...), or None.
+      - cause: collapse_reason if set, else the sub-cause from the flags (not_extended /
+        out_of_scope / sign_not_positive / unknown).
+      - death_speech: the EXTENSION_FAIL missing_speech for this chain, if any.
+      - neg_contested: True iff some NEG-owned ATTACK edge lands on a member of the chain's
+        AFF same-side Support component (the crux: did a NEG argument actually hit this chain,
+        or did it die with no NEG action against it).
+      - responsible / responsible_side: the node the judge blames, and whose side it is.
+    """
+    nodes = {n.id: n for n in rnd.nodes}
+    adj = {}
+    for e in rnd.edges:
+        if getattr(e, "kind", None) == "support":
+            a, b = nodes.get(e.source), nodes.get(e.target)
+            if a is not None and b is not None and a.side == b.side == AFF:
+                adj.setdefault(e.source, set()).add(e.target)
+                adj.setdefault(e.target, set()).add(e.source)
+
+    def component(x):
+        seen, stack = {x}, [x]
+        while stack:
+            c = stack.pop()
+            for nb in adj.get(c, ()):
+                if nb not in seen:
+                    seen.add(nb); stack.append(nb)
+        return seen
+
+    extfail = {getattr(r, "chain_id", None): getattr(r, "missing_speech", None)
+               for r in trace if getattr(r, "kind", None) == "EXTENSION_FAIL"}
+    out = []
+    for r in trace:
+        if getattr(r, "kind", None) != "CHAIN" or getattr(r, "side", None) != AFF:
+            continue
+        if r.extended and r.in_scope and r.sign == 1:
+            continue                                        # survived -> not dead
+        cr = getattr(r, "collapse_reason", None)
+        cause = cr or ("not_extended" if not r.extended else
+                       "out_of_scope" if not r.in_scope else
+                       "sign_not_positive" if r.sign != 1 else "unknown")
+        chain_id = getattr(r, "chain_id", "") or ""
+        impact_id = chain_id.split(":", 1)[1] if ":" in chain_id else None
+        members = component(impact_id) if impact_id in nodes else set()
+        neg = False
+        for e in rnd.edges:
+            if getattr(e, "kind", None) in _ATTACK_KINDS:
+                sn, tn = nodes.get(e.source), nodes.get(e.target)
+                if sn and tn and ((e.source in members and tn.side == NEG)
+                                  or (e.target in members and sn.side == NEG)):
+                    neg = True
+                    break
+        resp = getattr(r, "responsible", None)
+        out.append({
+            "chain_id": chain_id, "collapse_reason": cr, "cause": cause,
+            "death_speech": extfail.get(chain_id), "neg_contested": neg,
+            "responsible": resp,
+            "responsible_side": (nodes[resp].side if resp in nodes else None)})
+    return out
+
+
+def _export_round(rnd, trace, winner, found, survived, seed, u, ep, counts, dead_analysis):
     """Save one round (oracle-format JSON) + a sidecar, if its bucket is not yet full.
     Buckets are DISJOINT: affwin (AFF won); nearmiss (AFF found offense but did NOT win);
     negwin (NEG won with no AFF offense found)."""
-    if winner == AFF:
-        bucket = "affwin"
-    elif found:
-        bucket = "nearmiss"
-    else:
-        bucket = "negwin"
+    if not EXPORT_DIR:
+        return
+    bucket = "affwin" if winner == AFF else ("nearmiss" if found else "negwin")
     if counts[bucket] >= EXPORT_CAP:
         return
     counts[bucket] += 1
     base = f"{SCREEN_TAG}_{bucket}_seed{seed}_u{u:02d}_ep{ep:03d}"
     save_round_json(rnd, os.path.join(EXPORT_DIR, base + ".json"))
-    aff_chains, ext_fails = [], []
-    for r in trace:
-        k = getattr(r, "kind", None)
-        if k == "CHAIN" and getattr(r, "side", None) == AFF:
-            aff_chains.append({
-                "chain_id": getattr(r, "chain_id", None), "extended": r.extended,
-                "in_scope": r.in_scope, "sign": r.sign, "mag": getattr(r, "mag", None),
-                "delta": getattr(r, "delta", None),
-                "collapse_reason": getattr(r, "collapse_reason", None)})
-        elif k == "EXTENSION_FAIL":
-            ext_fails.append({
-                "chain_id": getattr(r, "chain_id", None),
-                "missing_speech": getattr(r, "missing_speech", None),
-                "spine_node_id": getattr(r, "spine_node_id", None)})
-    dead = [c for c in aff_chains
-            if not (c["extended"] and c["in_scope"] and c["sign"] == 1)]
+    aff_chains = [{
+        "chain_id": getattr(r, "chain_id", None), "extended": r.extended,
+        "in_scope": r.in_scope, "sign": r.sign, "mag": getattr(r, "mag", None),
+        "delta": getattr(r, "delta", None),
+        "collapse_reason": getattr(r, "collapse_reason", None)}
+        for r in trace if getattr(r, "kind", None) == "CHAIN"
+        and getattr(r, "side", None) == AFF]
     with open(os.path.join(EXPORT_DIR, base + ".sidecar.json"), "w") as fh:
         json.dump({
             "screen": SCREEN_TAG, "bucket": bucket, "seed": seed, "update": u, "episode": ep,
             "verdict": {"winner": winner, "reason_class": _reason_class(trace)},
             "offense_found": bool(found), "offense_survived": bool(survived),
-            "aff_chains": aff_chains, "dead_aff_chains": dead,
-            "extension_fails": ext_fails}, fh, indent=2)
+            "aff_chains": aff_chains,
+            "dead_chain_analysis": dead_analysis}, fh, indent=2)
 SHARED_WARMSTART = os.path.join(ROOT, "runs", "screen_v1", "warmstart.pt")
 
 
@@ -198,6 +253,7 @@ def run_seed(seed, warmstart_path, spec, cfg):
     gl = cfg.tuning.gae_lambda
     rows = []
     export_counts = {"affwin": 0, "negwin": 0, "nearmiss": 0}
+    death_cause = Counter(); death_neg = Counter(); death_speech = Counter(); death_n = 0
     for u in range(BOOTSTRAP_UPDATES):
         ecoef = entropy_coef(u, ENTROPY_TOTAL, cfg.semantics)
         counts = {"self": 0, "pool": 0}
@@ -223,9 +279,16 @@ def run_seed(seed, warmstart_path, spec, cfg):
             rounds_found += 1 if f > 0 else 0
             rounds_ext += 1 if e > 0 else 0
             phis.extend(s.phi for s in traj.steps)
-            if EXPORT_DIR and u >= BOOTSTRAP_UPDATES - 15:
+            if u >= BOOTSTRAP_UPDATES - 15:
+                dead = _analyze_dead_chains(rnd, trace)          # WHY each found chain died
+                for d in dead:
+                    death_n += 1
+                    death_cause[d["cause"]] += 1
+                    death_neg["neg_contested" if d["neg_contested"] else "uncontested"] += 1
+                    if d["death_speech"]:
+                        death_speech[d["death_speech"]] += 1
                 _export_round(rnd, trace, traj.winner, f > 0, e > 0,
-                              seed, u, ep_idx, export_counts)
+                              seed, u, ep_idx, export_counts, dead)
         steps = flatten_steps(trajs)
         updater.update(steps, entropy_coef=ecoef, rng=rng)
         m = batch_metrics(trajs)
@@ -251,9 +314,14 @@ def run_seed(seed, warmstart_path, spec, cfg):
         probe = _probe_1ac(ac, PROBE_EPISODES, gen)
         print(f"    seed{seed} 1AC-probe: chain-by-end={probe['scoring_chain_by_end_1ac_frac']:.2f} "
               f"move2={probe['move2_roles']} move3={probe['move3_roles']}", flush=True)
+    death_stats = {"n_dead_aff_chains": death_n, "by_cause": dict(death_cause),
+                   "neg_contested_split": dict(death_neg),
+                   "by_death_speech": dict(death_speech)}
+    print(f"    seed{seed} dead-AFF-chains(last15)={death_n} by_cause={dict(death_cause)} "
+          f"neg_split={dict(death_neg)}", flush=True)
     return {"seed": seed, "last15_win": win, "last15_surv": surv, "passed": passed,
             "phi_first15": phi_first, "phi_last15": phi_last, "phi_trend": phi_trend,
-            "divergence": divergence, "probe": probe, "rows": rows}
+            "divergence": divergence, "probe": probe, "death_stats": death_stats, "rows": rows}
 
 
 def main():
@@ -264,7 +332,11 @@ def main():
                             snapshot_interval=SNAPSHOT_INTERVAL, total_updates=120, seed=0),
         semantics=SemanticsConfig(), output_dir=OUTPUT_DIR)
     spec = EncoderSpec()
-    if os.path.exists(SHARED_WARMSTART):
+    _override = os.environ.get("PBRS_WARMSTART")             # explicit warm-start path (A4 cell)
+    if _override:
+        print(f"[warmstart] using PBRS_WARMSTART override {_override}", flush=True)
+        warmstart_path = _override
+    elif os.path.exists(SHARED_WARMSTART):
         print(f"[warmstart] reusing {SHARED_WARMSTART} (shared seed-0 BC init)", flush=True)
         warmstart_path = SHARED_WARMSTART
     else:
