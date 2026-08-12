@@ -414,6 +414,9 @@ def test_fw_wash_no_extend_regression_lock():
     """BANKED ROUND (a) -- two mirror framework chains (advocacy->link->impact,
     each impact -Support-> its own Framework -Support-> its own BD); the
     frameworks are introduced but NOT maker-extended past introduction; no weigh.
+    (The NEG chain roots per rule 4: its Link support-attaches into the AFF advocacy,
+    reaching the shared premise; non-anchoring per §5.3 -- so the two chains
+    remain in separate Support components and the wash is unchanged.)
 
     v6 (updated deliberately from the pre-v6 lock -- verdict stable, PATH
     changed, per the milestone gate). The VERDICT is unchanged, (NEG,
@@ -502,7 +505,9 @@ def test_r17_framework_weigh_lockout_neg():
     weighs {F_aff, F_neg} preferring F_neg. resolve() is determinate for F_neg ->
     F_aff defeated -> live = {F_neg} -> F_neg gates -> AFF's chain is not anchored
     to it -> no in-scope AFF impact. Pre-v6 this returned AFF because selection
-    never called resolve().
+    never called resolve(). (The NEG disad roots per rule 4: its Link support-attaches
+    into the AFF advocacy, reaching the shared premise; non-anchoring per §5.3 --
+    the chains stay in separate Support components; verdict and gating unchanged.)
 
     reason_class is "NEG offense", NOT "framework lock-out" (v6, decided): the
     NEG mirror chain is anchored to the winning F_neg, so it is IN SCOPE and
@@ -566,20 +571,20 @@ def test_r19_dual_anchored_impact_survives_defeat_aff():
     assert "futil" in sel.defeated
 
 
-def test_r20_kritik_offense_independent_of_kicked_framework_neg():
-    """§11.20: framework kritik whose offense is independent of the criticized
+def test_r20_framework_arg_offense_independent_of_kicked_framework_neg():
+    """§11.20: framework argument whose offense is independent of the attacked
     framework. AFF's advantage is anchored to F_util; AFF KICKS F_util (stops
     extending it after 2AC), so F_util fails MAKER-extension at FULL σ and leaves
-    the live set. NEG's kritik offense (racism impact) is anchored to F_sv, never
-    to F_util, so it is untouched: F_sv governs, the racism impact is in scope,
+    the live set. NEG's framework-argument offense (racism impact) is anchored to F_sv,
+    never to F_util, so it is untouched: F_sv governs, the racism impact is in scope,
     delta = link × impact (the framework contributes no factor). NEG (NEG offense).
 
     Two spec assertions carry the round: σ(F_util) appears in NO chain product
     (frameworks are never spine reps, §3.6), and the verdict is INVARIANT to
-    deleting F_util entirely -- the kritik's offense depends only on its own
+    deleting F_util entirely -- the framework argument's offense depends only on its own
     anchor F_sv.
 
-    NOTE (V1 σ-regime, surfaced): §11.20's text also draws the kritik's
+    NOTE (V1 σ-regime, surfaced): §11.20's text also draws the framework argument's
     DefensiveAttack onto F_util. In V1's binary accrual a LIVE conceded defensive
     attack drives σ to 0, which would unseat F_util by σ too (that is r23) and
     blur the "at full σ" isolation this round exists for. There is no clean
@@ -591,12 +596,12 @@ def test_r20_kritik_offense_independent_of_kicked_framework_neg():
     adv = b.n(Advocacy, AFF, "1AC"); lka = b.n(Link, AFF, "1AC"); ima = b.n(Impact, AFF, "1AC")
     futil = b.n(Framework, AFF, "1AC", {"1AC": CONCEDED, "2AC": CONCEDED}, label="F_util")  # kicked
     bda = b.n(BallotDirective, AFF, "2AR")
-    klink = b.n(Link, NEG, "1NC", label="util is racist (kritik link)")
+    fwlink = b.n(Link, NEG, "1NC", label="util is racist (framework-argument link)")
     kim = b.n(Impact, NEG, "1NC", label="racism")
     fsv = b.n(Framework, NEG, "1NC", label="F_sv"); bdn = b.n(BallotDirective, NEG, "2NR")
-    core = [adv, lka, ima, futil, bda, klink, kim, fsv, bdn,
+    core = [adv, lka, ima, futil, bda, fwlink, kim, fsv, bdn,
             b.sup(adv, lka), b.sup(lka, ima), b.sup(ima, futil), b.sup(futil, bda),
-            b.sup(klink, kim), b.sup(kim, fsv), b.sup(fsv, bdn)]
+            b.sup(fwlink, kim), b.sup(kim, fsv), b.sup(fsv, bdn)]
     ballot, trace = judge(Round(elements=core, version=2))
     assert ballot == NEG
     bl = _ballot(trace)
@@ -606,7 +611,7 @@ def test_r20_kritik_offense_independent_of_kicked_framework_neg():
     ctx = _run_ctx(core)
     assert ctx.sigma[futil.id] >= 0.5 and not passes.node_extension_ok(futil)[0]
     assert all(futil.id not in ch["spine_reps"] for ch in ctx.chains)   # σ in no chain product
-    # INVARIANT to deleting F_util entirely (kritik offense depends only on F_sv):
+    # INVARIANT to deleting F_util entirely (framework-argument offense depends only on F_sv):
     without = [e for e in core if getattr(e, "id", None) not in {futil.id}
                and getattr(e, "source", None) != futil.id
                and getattr(e, "target", None) != futil.id]
@@ -614,9 +619,9 @@ def test_r20_kritik_offense_independent_of_kicked_framework_neg():
     assert b2 == NEG and _ballot(t2).reason_class == "NEG offense"
 
 
-def test_r23_kritik_unseats_framework_by_defensive_attack_neg():
+def test_r23_framework_arg_unseats_framework_by_defensive_attack_neg():
     """§11.23: as r20 but AFF KEEPS F_util extended throughout (full AFF
-    liveness); NEG's two-hat kritik LINK drives σ(F_util) below threshold via a
+    liveness); NEG's two-hat framework-argument LINK drives σ(F_util) below threshold via a
     DefensiveAttack. F_util leaves live on the σ path (not maker-extension);
     live = {F_sv} -> F_sv gates; NEG's racism offense (anchored to F_sv) is in
     scope. NEG (NEG offense). The SAME link both attacked F_util and rooted the
@@ -627,13 +632,13 @@ def test_r23_kritik_unseats_framework_by_defensive_attack_neg():
     adv = b.n(Advocacy, AFF, "1AC"); lka = b.n(Link, AFF, "1AC"); ima = b.n(Impact, AFF, "1AC")
     futil = b.n(Framework, AFF, "1AC", label="F_util")            # FULL AFF liveness
     bda = b.n(BallotDirective, AFF, "2AR")
-    klink = b.n(Link, NEG, "1NC", label="util is racist (two-hat)")
+    fwlink = b.n(Link, NEG, "1NC", label="util is racist (two-hat)")
     kim = b.n(Impact, NEG, "1NC", label="racism")
     fsv = b.n(Framework, NEG, "1NC", label="F_sv"); bdn = b.n(BallotDirective, NEG, "2NR")
-    els = [adv, lka, ima, futil, bda, klink, kim, fsv, bdn,
+    els = [adv, lka, ima, futil, bda, fwlink, kim, fsv, bdn,
            b.sup(adv, lka), b.sup(lka, ima), b.sup(ima, futil), b.sup(futil, bda),
-           b.sup(klink, kim), b.sup(kim, fsv), b.sup(fsv, bdn),
-           b.datk(klink, futil)]                                 # HAT 2: unseats σ(F_util)
+           b.sup(fwlink, kim), b.sup(kim, fsv), b.sup(fsv, bdn),
+           b.datk(fwlink, futil)]                                 # HAT 2: unseats σ(F_util)
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == NEG
     bl = _ballot(trace)
@@ -643,8 +648,8 @@ def test_r23_kritik_unseats_framework_by_defensive_attack_neg():
     assert passes.node_extension_ok(futil)[0]                    # fully extended...
     assert ctx.sigma[futil.id] < 0.5                            # ...but unseated by σ
     # two-hat: the SAME link attacked F_util AND is a spine rep of the NEG chain.
-    assert klink.id in {a for a, _e in ctx.attackers_by_target.get(futil.id, [])}
-    assert any(klink.id in ch["spine_reps"] for ch in ctx.chains)
+    assert fwlink.id in {a for a, _e in ctx.attackers_by_target.get(futil.id, [])}
+    assert any(fwlink.id in ch["spine_reps"] for ch in ctx.chains)
 
 
 def test_r22_offense_at_framework_inert_aff():
@@ -662,12 +667,20 @@ def test_r22_offense_at_framework_inert_aff():
 
 
 def test_r24_nonunique_on_link_dead_not_turned_neg():
-    """§11.24: no separate uniqueness node; NEG reads a DefensiveAttack FROM a
-    Uniqueness directly onto the AFF link (the non-unique), conceded and extended.
-    DefensiveAttack is NOT governed by turn-eligibility (§3.4), so it stays live
-    and drives the link's magnitude to 0 -- the link is DEAD, not turned: sign
-    stays +1, magnitude -> 0, emit MAGNITUDE not POLARITY_FLIP. A uniqueness can
-    mitigate a link but never manufactures offense from it. NEG.
+    """§11.24 (Ruling A, non-unique unification): no separate uniqueness node; NEG reads a
+    DefensiveAttack FROM a Uniqueness directly onto the AFF link (the non-unique), conceded
+    and extended. Under Ruling A this is a "non-unique read on the link" and goes through
+    the POISON-GATE THRESHOLD (§12.4.3), NOT the proportional magnitude discount an ordinary
+    defensive attacker applies -- the SAME all-or-nothing 0.5-threshold effect a non-unique
+    gets when it attacks a link's satellite uniqueness (route b, r33). The surviving
+    non-unique (sigma 1.0 >= 0.5) POISONS the impact and the chain zeroes. The link is DEAD,
+    not turned: sign stays +1, mag -> 0, no POLARITY_FLIP. NEG.
+
+    Ruling A leaves the VERDICT unchanged from the pre-unification proportional path (NEG,
+    'AFF structural failure', mag 0 -- the two agree at full concession), but the MECHANISM
+    differs: the non-unique is DIVERTED out of DF-QuAD accrual into `nonunique_on_link`, so
+    sigma[lk] stays 1.0 (NOT driven to 0) and there is NO proportional MAGNITUDE record on
+    the link -- the kill is the poison gate, read on the chain's `defensive_kill` collapse.
 
     reason_class is 'AFF structural failure' (an AFF chain existed and collapsed,
     §7) -- §11.24's looser word 'presumption' is the label to tighten later, the
@@ -678,14 +691,21 @@ def test_r24_nonunique_on_link_dead_not_turned_neg():
     nonuniq = b.n(Uniqueness, NEG, "1NC", label="inevitable regardless of your link")
     els = [adv, lk, im, bd, nonuniq,
            b.sup(adv, lk), b.sup(lk, im), b.sup(im, bd),
-           b.datk(nonuniq, lk)]                                 # non-unique defensively kills the link
+           b.datk(nonuniq, lk)]                                 # non-unique poisons the link (Ruling A)
     ballot, trace = judge(Round(elements=els, version=2))
     assert ballot == NEG
     assert _ballot(trace).reason_class == "AFF structural failure"
     assert not any(r.kind == "POLARITY_FLIP" and r.link_id == lk.id for r in trace)
-    assert any(r.kind == "MAGNITUDE" and r.node_id == lk.id for r in trace)
+    # Ruling A: poison-gate threshold, NOT proportional accrual -- the link's own sigma is
+    # untouched (diverted to nonunique_on_link), so no MAGNITUDE record is emitted for it.
+    ctx = _run_ctx(els)
+    assert ctx.sigma[lk.id] == 1.0                              # link sigma untouched (not lowered)
+    assert nonuniq.id in ctx.nonunique_on_link.get(lk.id, [])   # diverted to the poison gate
+    assert lk.id not in ctx.attackers_by_target                 # NOT a proportional attacker
+    assert not any(r.kind == "MAGNITUDE" and r.node_id == lk.id for r in trace)
     ch = _chains(trace)[0]
-    assert ch.sign == 1 and ch.mag < EPSILON                    # dead (sign +1, mag 0), not turned
+    assert ch.sign == 1 and ch.mag < EPSILON                    # poisoned dead (sign +1, mag 0), not turned
+    assert ch.collapse_reason == "defensive_kill"               # all-or-nothing kill via the gate
 
 
 def test_r25_offense_at_uniqueness_inert_aff():
@@ -751,8 +771,11 @@ def test_r27_advocacy_fusion_does_not_anchor_neg():
 
 
 def test_r28_aff_framework_win_aff():
-    """§5.3 / AFF-mirror of fw_weigh_lockout: AFF and NEG in SEPARATE Support
-    components (no cross-side edge), AFF weighs {F_aff, F_neg}. The weigh prefers
+    """§5.3 / AFF-mirror of fw_weigh_lockout: AFF and NEG in separate Support
+    components (union-find never merges the cross-side Shape-1 advocacy root the NEG
+    disad now carries -- the disad's "plan enacted" edge into the AFF advocacy is
+    non-anchoring per §5.3, so it does not draw the NEG chain into the AFF framework's
+    scope), AFF weighs {F_aff, F_neg}. The weigh prefers
     F_aff by the own-side rule (an AFF weigh's preferred member is its own-side
     framework), so F_neg is defeated, F_aff governs, the NEG chain (anchored only
     to F_neg) is out of scope: (AFF, "AFF offense"), N = +1. This is the coverage
@@ -943,7 +966,8 @@ def test_T4_captured_turn_washed_to_zero_floor():
     wins by presumption: (NEG, "presumption"), N = 0. This is the guard that the
     owner-side change does NOT become 'any captured turn wins' -- net offense is
     still required. Frameworkless so the two disads do not fuse through a shared
-    framework; the fusion edge (adv -> uq_n) keeps the AFF advocacy reachable."""
+    framework; each disad carries its OWN fusion edge into the advocacy (adv -> uq_n
+    and adv -> uq2) so both root in the shared plan (rule 4)."""
     b = _B()
     adv = b.n(Advocacy, AFF, "1AC")
     uq_a = b.n(Uniqueness, AFF, "1AC", {"1AC": CONCEDED, "2AC": CONCEDED})
@@ -961,6 +985,7 @@ def test_T4_captured_turn_washed_to_zero_floor():
         b.sup(adv, uq_n),                            # fusion: keeps the advocacy reachable
         b.sup(uq_n, lk_n), b.sup(lk_n, im_n), b.sup(nbd, im_n),
         b.oatk(turn, lk_n), b.cmp(w, turn), b.cmp(w, lk_n), b.sup(affbd, im_n),
+        b.sup(adv, uq2),                             # fusion: roots the 2nd disad in the plan (rule 4)
         b.sup(uq2, lk2), b.sup(lk2, im2), b.sup(nbd2, im2)], version=2))  # clean 2nd NEG disad
     assert ballot == NEG
     bl = _ballot(trace)
@@ -990,9 +1015,10 @@ def test_C_impact_pair_weigh_drops_dispreferred_chain():
     w = b.n(Weighing, AFF, "2AC", label="AFF: our impact outweighs theirs")
     ballot, trace = judge(Round(elements=[
         adv_a, uni_a, lk_a, im_a, bd_a, uni_n, lk_n, im_n, bd_n, w,
-        b.sup(adv_a, uni_a), b.sup(uni_a, lk_a), b.sup(lk_a, im_a), b.sup(im_a, bd_a),
+        b.sup(adv_a, lk_a), b.sup(uni_a, lk_a), b.sup(lk_a, im_a), b.sup(im_a, bd_a),
         b.sup(uni_n, lk_n), b.sup(lk_n, im_n), b.sup(im_n, bd_n),
         b.cmp(w, im_a), b.cmp(w, im_n)], version=2))          # weigh ranks the two IMPACTS
+        # (r27-style topology: advocacy -> link, uniqueness -> link; Ruling-4 legal)
     assert ballot == AFF
     bl = _ballot(trace)
     assert bl.reason_class == "AFF offense" and abs(bl.N - 1.0) <= EPSILON
@@ -1129,7 +1155,9 @@ def test_r36_same_side_weigh_is_descriptive_only_aff():
     """Ruling 2 regression: a SAME-SIDE weigh is descriptive-only in V1 -- zero tally
     effect. AFF weighs its own two impacts {ima, imb} with an explicit favors=imb; the
     weigh must NOT exclude ima. Both AFF advantages (separate components) contribute,
-    so aff_sum=2, neg_sum=1 (one NEG disad) -> N=+1 -> AFF.
+    so aff_sum=2, neg_sum=1 (one NEG disad) -> N=+1 -> AFF. (The NEG disad roots per rule 4:
+    its Link support-attaches into the AFF advocacy (lkn -> adv1), reaching the shared
+    premise; non-anchoring per §5.3 -- so it stays its own scored NEG component.)
 
     A verdict-only assertion is INSUFFICIENT: under Ruling 2 an inert same-side weigh
     and no weigh at all give the same N and verdict, so a verdict-only test would still
@@ -1148,6 +1176,51 @@ def test_r36_same_side_weigh_is_descriptive_only_aff():
     assert w.outcome == "symmetric"                          # inert: nothing consumed
     assert w.preferred_node is None                          # no exclusion/defeat/flip
     assert w.favors_source == "explicit"                     # preference recorded, not consumed
+
+
+def test_shape2_link_turn_disad_scores_as_neg_offense():
+    """NEG disad rooted THROUGH an AFF Link (rule 4, judge_spec §2): NEG's Link support-
+    attaches to AFF's Link, which itself roots in the shared Advocacy -- so the disad's
+    spine REACHES the AFF Advocacy over Support edges (lk_neg -> lk_aff -> adv) and roots
+    per rule 4, needing NO uniqueness of its own. It concedes AFF's causal mechanism and
+    adds a different negative terminal (nuclear power solves warming AND causes meltdown
+    risk). AFF kicks its own advantage impact (im_aff dropped), so the disad is the sole
+    surviving offense: (NEG, "NEG offense"), N = -1.
+
+    Under the corrected model this is an ORDINARY rule-4-rooted disad, not a distinct
+    mechanic (the retracted "Shape 2" framing is gone; there is no mandatory-uniqueness
+    rule to satisfy). It pins that a disad rooted via an AFF Link is valid (NOT collapsed
+    `unrooted_disad`) AND that it is DISTINGUISHABLE FROM A TURN: the disad is its OWN
+    NEG-owned chain (side=NEG, sign=+1) reached over a Support edge -- there is no polarity
+    flip of AFF's link and no attack record, unlike a turn (which flips AFF's chain to
+    owner=NEG via an Attack edge)."""
+    ballot, trace = judge(_load("shape2_link_turn.json"))
+    assert ballot == NEG
+    bl = _ballot(trace)
+    assert bl.reason_class == "NEG offense" and bl.N < -EPSILON
+    chains = {r.chain_id: r for r in _chains(trace)}
+    dz = chains["chain:im_neg"]
+    assert dz.side == NEG and dz.owner == NEG and dz.sign == 1     # independent NEG chain, not a turn
+    assert dz.collapse_reason is None                             # Shape-2 rooted, scores
+    # distinguishable from a turn: no attack / polarity-flip records anywhere
+    assert not [r for r in trace if r.kind in ("INERT_ATTACK", "POLARITY_FLIP")]
+
+
+def test_unrooted_disad_floating_neg_link_collapses():
+    """A NEG offense chain that reaches NEITHER an AFF Advocacy (disad root) NOR a Framework
+    (framework-argument root) over Support edges is a floating disad -> collapse_reason "unrooted_disad",
+    scoring 0 (rule 4, judge_spec §2). Built inline (a bare NEG uniqueness->link->impact->BD,
+    disconnected from any AFF advocacy/link and with no framework) so the collapse is
+    exercised directly, not via a banked fixture."""
+    b = _B()
+    uq = b.n(Uniqueness, NEG, "1NC"); lk = b.n(Link, NEG, "1NC")
+    im = b.n(Impact, NEG, "1NC"); bd = b.n(BallotDirective, NEG, "2NR")
+    _ballot_v, trace = judge(Round(elements=[
+        uq, lk, im, bd,
+        b.sup(uq, lk), b.sup(lk, im), b.sup(im, bd)], version=2))
+    dz = [r for r in _chains(trace) if r.chain_id == "chain:" + im.id][0]
+    assert dz.collapse_reason == "unrooted_disad"
+    assert dz.extended is False                                   # scores 0 (not a live carrier)
 
 
 # --- Divergent chains (v11): multi-terminal Support components --------------------

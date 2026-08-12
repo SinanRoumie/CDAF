@@ -39,7 +39,7 @@ These are settled. They are named constants in `judge/config.py`.
 |---|---|---|
 | Base node strength | **tau = 1.0** (presumed-true) | uncontested nodes stand at full strength; attacks erode, supports restore |
 | Evidence/analytic weight | identical base | no quality prior; any difference must be argued |
-| Link vs impact | mechanically identical | distinction is positional (see §2); "impact" = terminal node, for weighing eligibility |
+| Link vs impact | identical accrual / polarity / turn channel, but **not interchangeable for chain completeness** | a scored chain's path needs ≥1 literal `Link` node (§2, §3.3.1); the distinction is otherwise positional — "impact" = terminal node, for weighing eligibility |
 | Polarity threshold | 0.5 | a contested link's surviving magnitude >= 0.5 keeps polarity, < 0.5 flips |
 | Extension | **binary, total over spine** | an argument counts only if its spine nodes are extended through every one of its side's speeches from introduction on (see §6) |
 | Weighing | ballot-stage preference | never edits delta; preference is the weigh's explicit `favors` pointer (legacy default: own-side member cross-side, inert same-side); won weighing overrides raw delta, absent/tied falls back to raw delta |
@@ -66,16 +66,23 @@ A node's **type** encodes role, not a distinct object. Strength accrues identica
   and multiplies into magnitude (§3.3) — but it bears **no offense**: it is never turn-eligible and
   never the source or target of an effective `OffensiveAttack` (§3.4). Its only attack role is
   **defensive**: a uniqueness may defensively attack another uniqueness *or* a link — both express the
-  non-unique ("already inevitable regardless of your link"), lowering the target's magnitude, never
-  flipping it (§3.2). Competing non-uniques break by weighing (§6.5) like any clash. (This drops the
-  earlier "uniqueness clashes only with competing uniqueness" restriction: the non-unique can land on
-  the link directly when no separate uniqueness node exists.)
-- **Post-world (offense-bearing):** Link and Impact. Mechanically identical in V1. A node is an
-  **impact** for weighing purposes iff it is **terminal** — nothing chains forward out of it. A
-  mid-chain "impact" is functioning as an internal link and is treated as one. Links and impacts may
-  carry offensive and defensive relations with one another through the same magnitude channel. **They
-  are the only turn-eligible nodes** (§3.4): an effective turn requires an offense-bearing node at each
-  end.
+  non-unique ("already inevitable regardless of your link"), never flipping it (§3.2). **Both routes
+  go through the SAME poison-gate threshold (§12.4.3), not a proportional discount (Ruling A,
+  non-unique unification):** a *surviving* non-unique (σ ≥ threshold) zeroes the contested link's
+  contribution all-or-nothing — whether it lands on the link directly, or on the link's satellite
+  uniqueness (driving *that* below threshold). Competing non-uniques break by weighing (§6.5) like any
+  clash. (This drops the earlier "uniqueness clashes only with competing uniqueness" restriction: the
+  non-unique can land on the link directly when no separate uniqueness node exists.)
+- **Post-world (offense-bearing):** Link and Impact. They share one magnitude/sign/turn channel —
+  **mechanically identical for accrual, polarity, and turns** — but are **not interchangeable for
+  chain completeness**: a scored chain's path must contain **at least one literal `Link` node**
+  (`kind == "link"`). A path of impacts alone is **not a live offense carrier**; the resolver returns
+  `extended = False` with `collapse_reason = "no_link_premise"` (§3.3.1). This holds **even where a
+  mid-chain "impact" functions positionally as an internal link** — the requirement is on node
+  **kind**, not position. A node is an **impact** for weighing purposes iff it is **terminal** —
+  nothing chains forward out of it. Links and impacts may carry offensive and defensive relations with
+  one another through the same magnitude channel. **They are the only turn-eligible nodes** (§3.4): an
+  effective turn requires an offense-bearing node at each end.
 - **Framework:** a **scope instruction**. It says which offense the ballot may count (§5). It is
   **offense-inert**: it carries no polarity, contributes no magnitude factor, and cannot terminate a
   chain. Its strength σ is contested like any node's (§3.1), but σ on a framework is consumed at the
@@ -91,14 +98,14 @@ A node's **type** encodes role, not a distinct object. Strength accrues identica
   - *"Their framework is flawed"* is a `DefensiveAttack` on the framework node. It lowers σ. Drive σ
     below the threshold and the framework leaves the live set and cannot gate (§5.1). Nothing new is
     required.
-  - *"Their framework is harmful"* (the framework kritik) is **one Link node wearing two hats**, not
+  - *"Their framework is harmful"* (the framework argument) is **one Link node wearing two hats**, not
     an attack *on* the framework as such. As a **spine rep** it roots its own offense chain,
     Link → Impact, anchored to a framework the reading side can win (typically its own) — this chain
     carries magnitude through its Link and Impact and contributes to N like any disad. **Separately**,
     that same Link draws a `DefensiveAttack` onto the target framework, lowering its σ toward the
     threshold. A node that is a chain member *and* an attacker on someone else is the ordinary
-    "attack your attacker" topology of §3.1, read off type and position (§2.2); the kritik is that
-    pattern with a framework as the thing attacked. The offense stands on **its own anchor** and does
+    "attack your attacker" topology of §3.1, read off type and position (§2.2); the framework argument
+    is that pattern with a framework as the thing attacked. The offense stands on **its own anchor** and does
     **not** require the criticized framework to be live: "util is racist" generates offense under the
     reader's framework whether or not util is anywhere in the round. Anchoring the criticism to the
     framework it criticizes would be self-defeating — the criticism would share that framework's fate
@@ -128,6 +135,21 @@ A node's **type** encodes role, not a distinct object. Strength accrues identica
   you do not turn it; offense aimed at an advocacy is inert (§3.4). There is no "advantage edge" /
   "disad edge" type; advantage-vs-disad is derived, never stamped. (Full commitment:
   `extension_migration_spec.md` §2.1.)
+
+  **NEG-offense rooting is ENFORCED (rule 4), not merely described — pure reachability, no
+  mandatory-uniqueness.** A scored NEG offense chain must root in a **shared premise** reachable
+  from its spine over `Support` edges, in one of two ways matching the two kinds of NEG offense:
+  a **disad** roots in the **AFF Advocacy** (the plan both sides litigate) — reached EITHER by a
+  direct `link → advocacy` Support edge OR by the **fusion idiom** (r27) `advocacy → uniqueness →
+  link`, one hop up through the disad's satellite Uniqueness; a **framework argument** roots in a
+  **Framework** — its offense is evaluated under a framework it reads (`imn → fneg`), not a link into
+  the plan (§5.3), so the advocacy requirement does not apply to it (a framework argument is not a
+  disad). A scored NEG
+  chain reaching **neither** an AFF Advocacy nor a Framework is unrooted (floating, disconnected
+  from any premise): the resolver collapses it with `collapse_reason = "unrooted_disad"` (§3.3.1,
+  the disad analog of `no_link_premise`), scoring 0. There is **no mandatory per-Link uniqueness**
+  requirement (the former two-shape rule is retracted): a disad Link needs its own Uniqueness only
+  if the opponent chooses to **contest** it by reading a non-unique (§3.4, non-unique unification).
 - **BallotDirective:** structural anchor; BDs are the discovery roots (§4) and the validated
   contributors at the ballot (§7).
 
@@ -298,9 +320,11 @@ object:
 - **(a) Per-path liveness (extension).** Enumerate the distinct root→impact spine paths inside the
   component. Apply the extension gate (§6) **per path**: a path is *complete* iff every node on its own
   spine is extended. The **impact survives iff at least one complete path is fully extended.** A path
-  dead at any single node — a de-linked link (σ = 0), a dropped uniqueness (failed extension), a
-  non-unique — removes only **that path**; it never poisons a sibling. Extension is a property of a
-  path, not of the union of all spine nodes in the component.
+  dead at any single node — a de-linked link (σ = 0) or a dropped uniqueness (failed extension) —
+  removes only **that path**; it never poisons a sibling. Extension is a property of a path, not of
+  the union of all spine nodes in the component. (A **non-unique** is the one exception: it is a
+  claim about the shared post-world *state*, so it poisons a convergent impact across **all** live
+  paths, not just its own — §12.4.3.)
 
 - **(b) Same-sign redundancy → max, ONE chain per impact.** Among the **surviving** paths that carry
   the **same sign** into the impact, the impact's magnitude is the **maximum** of their path magnitudes
@@ -359,7 +383,12 @@ attack lowers magnitude and never flips, so it is coherent against any node that
 magnitude factor or a liveness threshold. In particular a `DefensiveAttack` on a **Framework** is
 **not** inert — it lowers σ and is exactly how a framework is unseated (§5.1, §5.4) — and a
 `DefensiveAttack` from a **Uniqueness onto a Link** is not inert — it is the non-unique (§2). The
-asymmetry is the point: a uniqueness can *mitigate* a link but can never *turn* one.
+asymmetry is the point: a uniqueness can *mitigate* a link but can never *turn* one. **Ruling A
+(non-unique unification):** a `DefensiveAttack` from a Uniqueness onto a Link does **not** apply the
+ordinary proportional DF-QuAD discount other defensive attackers apply; it is diverted into the
+poison-gate threshold (§12.4.3) so it produces the SAME all-or-nothing effect as a non-unique
+zeroing the link's satellite uniqueness. A surviving non-unique (σ ≥ threshold) zeroes the link;
+below threshold it has no effect.
 
 ### 3.5 Turn offense (v3)
 
@@ -569,10 +598,10 @@ value, and social value wins, **the impact is in scope**. Rejecting a framework 
 everything that ever touched it. Reading "util is racist" is a reason to reject util; it is not a
 reason to reject the argument that linked into util.
 
-The framework kritik does **not** depend on this. Its offense (§2) is anchored to the reader's **own**
-framework, not to the framework it criticizes, so it stands or falls on that anchor and is untouched
-by the criticized framework's fate. "Util is racist" keeps generating offense whether util is live,
-defeated, or absent — the criticism's ballot weight lives under the reader's framework. The attack on
+The framework argument does **not** depend on this. Its offense (§2) is anchored to the reader's **own**
+framework, not to the framework it attacks, so it stands or falls on that anchor and is untouched
+by the attacked framework's fate. "Util is racist" keeps generating offense whether util is live,
+defeated, or absent — the framework argument's ballot weight lives under the reader's framework. The attack on
 util is a **separate** `DefensiveAttack` on σ(util) whose only job is to unseat util from the live set
 (§5.1). Scope and unseating are two edges doing two jobs; neither is the other.
 
@@ -595,13 +624,13 @@ There is no second, union-based liveness condition for frameworks. A framework s
 role for any chain (§2): a chain reaches a framework only by support-anchoring, which is scope, and a
 framework contributes no magnitude to any chain, so there is nothing for union-liveness to keep alive.
 The only reason another side's stamp on a framework ever mattered was the discarded "rooted-at-premise"
-model; under the two-edge kritik it does not arise.
+model; under the two-edge framework argument it does not arise.
 
 The kick comes out right from the one gate plus ordinary anchoring. AFF reads `F_util`. NEG reads
-`F_sv` (its own framework) plus a framework-kritik link whose impact anchors to `F_sv` and whose
+`F_sv` (its own framework) plus a framework-argument link whose impact anchors to `F_sv` and whose
 `DefensiveAttack` targets `F_util`. AFF kicks `F_util` in the 1AR. `F_util` fails **maker**-extension,
-so it leaves `live` and gates nothing — AFF cannot keep its own gate by dropping it. NEG's kritik
-offense is anchored to `F_sv`, never to `F_util`, so it is entirely unaffected by whether `F_util` is
+so it leaves `live` and gates nothing — AFF cannot keep its own gate by dropping it. NEG's framework-
+argument offense is anchored to `F_sv`, never to `F_util`, so it is entirely unaffected by whether `F_util` is
 live, defeated, or kicked; it keeps its magnitude (`link × impact`; the framework contributes no
 factor) and generates N. AFF cannot kick out of NEG's link either — the link is a spine rep NEG
 extends. Both halves hold, and neither needs a framework-specific rule beyond the one maker-extension
@@ -1051,23 +1080,23 @@ Each isolates one clause of §5 and each asserts on `(winner, reason_class)`.
     `F_util` and `F_sv`. NEG weighs `F_sv > F_util` (determinate). `F_util` is defeated; `live = {F_sv}`;
     the AFF impact is anchored to `F_sv` → **in scope**. **AFF (AFF offense).** Rejecting a framework is
     not rejecting the argument that linked into it.
-20. **Framework kritik: offense independent of the criticized framework.** AFF reads `F_util`. NEG
-    reads `F_sv` (its own framework) and a kritik link ("util is racist") whose impact (racism) anchors
+20. **Framework argument: offense independent of the attacked framework.** AFF reads `F_util`. NEG
+    reads `F_sv` (its own framework) and a framework-argument link ("util is racist") whose impact (racism) anchors
     to `F_sv`, and whose `DefensiveAttack` targets `F_util`. AFF **kicks** `F_util` in the 1AR (stops
     extending it); NEG never drives σ(`F_util`) below threshold. `F_util` fails **maker**-extension →
     leaves `live` → gates nothing; `live = {F_sv}` → `F_sv` gates; NEG's racism impact is anchored to
     `F_sv` → in scope, δ = `link × impact` (the framework contributes no factor). **NEG (NEG offense).**
     Two assertions carry the round: σ(`F_util`) appears in **no** chain product; and the verdict is
-    **invariant to deleting `F_util` from the graph entirely** — the kritik's offense does not depend on
-    the framework it criticizes, only on its own anchor `F_sv`.
+    **invariant to deleting `F_util` from the graph entirely** — the framework argument's offense does not depend on
+    the framework it attacks, only on its own anchor `F_sv`.
 21. **Permutation determinism.** Round (17) under N random permutations of the element list. Ballot and
     `reason_class` identical across all of them. *This is currently red: `winning_framework` is chosen
     by iteration order.*
 22. **Offense aimed at a framework is inert.** An `OffensiveAttack` targeting a Framework node. Emit
     `INERT_ATTACK`; σ unchanged; no `POLARITY_FLIP`. Same treatment as offense aimed at an Advocacy
     (§3.4).
-23. **Framework kritik unseats by defensive attack.** As (20) but AFF **keeps** `F_util` extended
-    throughout (no kick), and NEG's kritik link drives σ(`F_util`) **below** `POLARITY_THRESHOLD` via
+23. **Framework argument unseats by defensive attack.** As (20) but AFF **keeps** `F_util` extended
+    throughout (no kick), and NEG's framework-argument link drives σ(`F_util`) **below** `POLARITY_THRESHOLD` via
     its `DefensiveAttack`. `F_util` leaves `live` on the **σ** path (not maker-extension); `live =
     {F_sv}` → `F_sv` gates; NEG's racism offense (anchored to `F_sv`) is in scope. **NEG (NEG
     offense).** Assert `F_util` left `live` with `FRAMEWORK_SELECT` reflecting `none_survived`-style σ
@@ -1174,6 +1203,18 @@ is unchanged; only the number of inbound contributions being joined at that node
 Cardinality ruling: one uniqueness node attaches to the joined post-world claim, not one per parent
 branch. The post-world state is singular even though multiple mechanisms feed it.
 
+**This multi-parent structure is one COMMON authoring of a disad Link, but it is no longer
+mandatory (§2, rule 4).** A satellite uniqueness on a disad Link is OPTIONAL — the author draws one
+when they want to pre-empt a non-unique, or omits it and lets the claim stand (tabula rasa) until
+the opponent contests it (§3.4). What IS enforced is only that the disad's spine REACH the shared
+AFF Advocacy over Support edges — directly (`link → advocacy`) or via the fusion idiom
+(`advocacy → uniqueness → link`). A NEG Link that instead support-attaches DIRECTLY to an AFF Link
+(e.g. "nuclear power solves warming AND causes meltdown risk": one causal chain, two terminal
+impacts) still roots per rule 4, because the AFF Link itself roots in the Advocacy — so the disad's
+spine reaches the Advocacy one hop further along. This is a **Support** edge ("builds on"),
+categorically distinct from the turn (an **Attack** edge, "refutes", §3.4/§3.5) between the same two
+Links. A scored NEG chain reaching neither an AFF Advocacy nor a Framework collapses `unrooted_disad`.
+
 ### 12.4 Evaluation order
 
 Per-node evaluation, applied in topological order down the chain:
@@ -1223,6 +1264,15 @@ chain's owning side in full — even when a parallel, independently-clean link a
 second pathway to a non-unique state does not restore the state's uniqueness (r33, r32). This is
 the one place §3.3.1's per-path OR / max aggregation does NOT apply.
 
+**Two entry points, one gate (Ruling A, non-unique unification).** A non-unique reaches this gate by
+either route, at the same threshold and with the same all-or-nothing effect: (i) attacking a link's
+(or impact's) **satellite uniqueness**, driving *that* below threshold (the wired route above); or
+(ii) attacking the **Link directly** — a `DefensiveAttack` from a Uniqueness onto a Link (§3.4,
+r24), which poisons the link iff the *attacking* non-unique **survives** (σ ≥ threshold). Route (ii)
+is diverted out of ordinary DF-QuAD accrual (it does NOT apply the proportional magnitude discount a
+non-uniqueness defensive attacker would); it is state-level exactly like route (i), so it too
+poisons a convergent impact across all live paths, subject to the same kick-out below.
+
 **Kick-out (the only escape).** The chain's owning side may neutralize a non-unique by CONCEDING A
 DELINK on the non-unique'd link, driving that link's σ→0. A severed (dead) link no longer feeds the
 impact, so its non-unique has no live carrier to the shared state; the impact is then evaluated on
@@ -1250,3 +1300,16 @@ the chain they capture. Uniqueness nodes wired to captured post-world nodes are 
 membership, so a turn capturing a chain also brings its wired uniqueness nodes into the capturing
 side's anchor set. This extends the existing fix's scope, not its logic — no modification to
 union-find or aggregation is required.
+
+## Open questions (parked; not settled here)
+
+- **Unextended-BD gating of a disad's evaluation (raised on r36, 2026-08-12).** In `r36` the NEG
+  disad's `BallotDirective` was **not extended**, yet the NEG disad is still evaluated (it loses
+  on net offense — the verdict is AFF +1.000, hand-confirmed, and is unaffected either way). A
+  **stricter judging philosophy** would hold that a disad whose ballot directive was never
+  extended should not be evaluated at all — i.e. an unextended BD should gate its own chain out of
+  the ballot, the way an unextended spine node gates the chain via §6. This is a genuine
+  judge-semantics question about whether BD validation (§7) should carry a maker-extension
+  requirement analogous to §5.4's framework-liveness gate. **Parked — the current judge does not
+  gate on it, and it changes no adjudicated verdict on the corpus. Do not implement without a
+  ruling.**

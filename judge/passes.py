@@ -49,7 +49,7 @@ from model import (
 from . import dfquad, qpn, chain as chainmod
 from . import trace as T
 from .config import (
-    TAU, POLARITY_THRESHOLD, EPSILON, AFF, NEG, SPEECH_ORDER, SPEECH_SIDE,
+    TAU, POLARITY_THRESHOLD, EPSILON, PHI_NASCENT_KAPPA, AFF, NEG, SPEECH_ORDER, SPEECH_SIDE,
 )
 
 ATTACK_TYPES = (DefensiveAttack, OffensiveAttack)
@@ -62,6 +62,15 @@ OFFENSE_BEARING = (Link, Impact)
 OFFENSE_BEARING_KINDS = frozenset({"link", "impact"})
 ATTACK_KINDS = frozenset({"defensive_attack", "offensive_attack"})
 SPINE_KINDS = frozenset({"link", "impact", "advocacy"})   # mirror SPINE_TYPES, .kind form
+# Sentinel `ext_fail_node` marking a path with no literal Link node (Ruling 1): such a
+# path is not a live offense carrier and the chain collapses with reason "no_link_premise"
+# (distinct from an ordinary extension failure). Not a real node id -- `ctx.nodes.get(...)`
+# returns None for it, and the trace-emit path guards on it.
+_NO_LINK_PREMISE = "__no_link_premise__"
+# Sentinel marking a scored NEG disad whose spine REACHES NO AFF Advocacy over Support
+# edges (rule 4) -- a floating disad disconnected from the shared premise (judge_spec §2).
+# Collapses "unrooted_disad", scoring 0. Same sentinel mechanism as `_NO_LINK_PREMISE`.
+_UNROOTED_DISAD = "__unrooted_disad__"
 # v9 uniform-uniqueness schema (§12): a post-world node is Link/Impact -- the node
 # type that carries a wired uniqueness (§12.4.3 poisoning gate reads this set).
 POSTWORLD_TYPES = (Link, Impact)
@@ -176,6 +185,12 @@ class Context:
 
     attackers_by_target: Dict[str, List[Tuple[str, Edge]]] = field(default_factory=lambda: defaultdict(list))
     offense_on: Dict[str, List[str]] = field(default_factory=lambda: defaultdict(list))
+    # Ruling A (non-unique unification): Link id -> Uniqueness ids that DEFENSIVE-attack
+    # it (a "non-unique read directly on the link"). Diverted here from
+    # attackers_by_target so it goes through the poison-gate THRESHOLD (_impact_poisoned)
+    # like the wired-uniqueness route, NOT the proportional DF-QuAD discount an ordinary
+    # defensive attacker applies. Same 0.5 threshold, same all-or-nothing outcome.
+    nonunique_on_link: Dict[str, List[str]] = field(default_factory=lambda: defaultdict(list))
 
     status: Dict[str, str] = field(default_factory=dict)          # node -> answered/dropped/unresolved
     sigma: Dict[str, float] = field(default_factory=dict)         # raw DF-QuAD surviving strength
@@ -379,6 +394,18 @@ def _classify_attacks(ctx: Context) -> None:
                 reason=f"lapsed: attack not extended by its maker (missing {maker_missing})"))
             continue
 
+        # Ruling A (non-unique unification): a DEFENSIVE attack from a Uniqueness onto a
+        # Link is a "non-unique read on the link." It must produce the SAME all-or-nothing
+        # poison-gate effect as a non-unique attacking the link's satellite uniqueness
+        # (route b), NOT the proportional magnitude discount an ordinary defensive attacker
+        # applies. Divert it out of DF-QuAD accrual into `nonunique_on_link`; the §12.4.3
+        # gate (_impact_poisoned) consumes it at the 0.5 threshold. Recorded only here --
+        # PAST the window + attacker-liveness gates -- so a dropped/lapsed non-unique still
+        # contributes nothing, exactly like route b (r12's dropped-non-unique lapses).
+        if e.kind == "defensive_attack" and attacker.kind == "uniqueness" \
+                and target.kind == "link":
+            ctx.nonunique_on_link[target.id].append(attacker.id)
+            continue
         attackers_by_target[target.id].append((attacker.id, e))
         if e.kind == "offensive_attack" and target.kind in OFFENSE_BEARING_KINDS:
             ctx.offense_on[target.id].append(attacker.id)
@@ -544,6 +571,7 @@ def pass_accrual(ctx: Context) -> None:
     ctx.eff_pol = acc.eff_pol
     ctx.attackers_by_target = acc.attackers_by_target
     ctx.offense_on = acc.offense_on
+    ctx.nonunique_on_link = acc.nonunique_on_link   # Ruling A: non-unique-on-link poison index
     ctx.weighings = acc.weighings
     ctx.weigh_pair = acc.weigh_pair
 
@@ -753,6 +781,39 @@ def _spine_paths(ctx: Context, spine_set, impact, roots) -> list:
     return out or [[impact]]                 # degenerate: impact is the whole spine
 
 
+def _neg_offense_rooted(ctx: Context, path) -> bool:
+    """Rule 4 (judge_spec §2): a scored NEG offense chain must root in a SHARED PREMISE,
+    reachable from the path over Support edges (direction-agnostic `ctx.adj`). Two valid
+    roots, matching the two kinds of NEG offense:
+      * a DISAD roots in the AFF Advocacy -- the plan both sides litigate -- reached
+        EITHER by a direct `link -> advocacy` Support edge OR by the FUSION idiom (r27):
+        `advocacy -> uniqueness -> link`, one hop up through its satellite Uniqueness;
+      * a FRAMEWORK ARGUMENT roots in a FRAMEWORK -- its offense is evaluated under a
+        framework it reads (imn -> fneg), NOT a link into the plan (§5.3). A framework
+        argument is NOT a disad, so the advocacy-rooting requirement does not apply to it;
+        its framework anchor IS its premise, and pass6 gates it by that anchor.
+    There is NO mandatory-uniqueness requirement anywhere (the retracted two-shape rule is
+    gone): a disad Link needs its own Uniqueness only if the opponent contests it (Ruling
+    A's non-unique attack). A NEG path reaching NEITHER an AFF Advocacy NOR a Framework is
+    a floating disad disconnected from any premise -> `unrooted_disad`."""
+    seen: set = set()
+    stack = list(path)
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        n = ctx.nodes.get(cur)
+        if n is not None and (
+                (n.kind == "advocacy" and n.side == AFF)     # disad: roots in the plan
+                or n.kind == "framework"):                   # framework argument: roots in its framework
+            return True
+        for nbr, e in ctx.adj.get(cur, []):
+            if e.kind == "support" and nbr not in seen:
+                stack.append(nbr)
+    return False
+
+
 def _path_stats(ctx: Context, path, side):
     """(sign, mag, extended, ext_fail_node) for ONE root->impact path (§3.3.1a).
     A turned path (composed sign favors the opponent) checks liveness side-agnostic
@@ -774,6 +835,13 @@ def _path_stats(ctx: Context, path, side):
     mag = 1.0
     for n in path:
         mag *= ctx.mag_sigma.get(n, TAU)
+    # Ruling 1: a scored path must contain >=1 literal Link node (`kind == "link"`). A path
+    # of impacts alone -- even where a mid-chain impact functions positionally as an internal
+    # link -- is NOT a live offense carrier (judge_spec §2). Labeled distinctly from an
+    # extension failure via the `_NO_LINK_PREMISE` sentinel (-> collapse_reason
+    # "no_link_premise"). Checked before rebuttal/liveness: a link-less path can never carry.
+    if not any(ctx.nodes[n].kind == "link" for n in path):
+        return sign, mag, False, _NO_LINK_PREMISE
     reb = next((n for n in ob if ctx.nodes[n].speech in REBUTTAL_SPEECHES), None)
     if reb is not None:
         return sign, mag, False, reb            # new offense introduced in a rebuttal
@@ -787,6 +855,14 @@ def _path_stats(ctx: Context, path, side):
                   else node_extension_ok(node, as_of=ctx.as_of))
         if not ok:
             return sign, mag, False, n
+    # NEG-offense rooting (judge_spec §2, rule 4), applied ONLY to an otherwise-live
+    # carrier: a scored NEG chain must root in a shared premise -- an AFF Advocacy (disad,
+    # directly or via the r27 fusion idiom) OR a Framework (framework argument) -- reachable over
+    # Support edges. No mandatory-uniqueness check (the two-shape rule is retracted). A path
+    # reaching neither is a floating disad -> "unrooted_disad". Gated on `side == NEG` and
+    # NOT `turned` (a turned chain is AFF's captured offense, favored side AFF).
+    if side == NEG and not turned and not _neg_offense_rooted(ctx, path):
+        return sign, mag, False, _UNROOTED_DISAD
     return sign, mag, True, None
 
 
@@ -811,6 +887,13 @@ def _impact_poisoned(ctx: Context, impact: str, path_links) -> bool:
         if not node_extension_ok(ctx.nodes[lid], as_of=ctx.as_of)[0]:
             continue                                   # dropped -> kicked
         if any(_zeroed(u) for u in ctx.wired_uniqueness.get(lid, [])):
+            return True
+        # Ruling A: a non-unique read DIRECTLY on this link (Uniqueness -DefensiveAttack->
+        # Link) poisons it iff the non-unique SURVIVES (sigma >= threshold) -- the mirror of
+        # the wired route above, where the link's OWN uniqueness driven BELOW threshold
+        # poisons. Same 0.5 threshold, same all-or-nothing outcome (no proportional discount).
+        if any(ctx.sigma.get(u, TAU) >= POLARITY_THRESHOLD
+               for u in ctx.nonunique_on_link.get(lid, [])):
             return True
     return False
 
@@ -970,7 +1053,7 @@ def resolve_chains(ctx: Context, *, emit_trace: bool = True) -> List[dict]:
             # "No new offense in rebuttals" (§6) is applied PER-PATH in `_path_stats`
             # (a path with an offense-bearing node introduced in a rebuttal is not a
             # live carrier), so `extended` / `ext_fail_node` already reflect it here.
-            if not extended and emit_trace:
+            if not extended and emit_trace and ext_fail_node not in (_NO_LINK_PREMISE, _UNROOTED_DISAD):
                 node = ctx.nodes.get(ext_fail_node) if ext_fail_node else None
                 if node is not None and node.speech in REBUTTAL_SPEECHES:
                     missing = node.speech       # disqualified: new offense in a rebuttal
@@ -1041,27 +1124,81 @@ def weighing_excluded(ctx: Context, chains: List[dict]) -> set:
 
 # --- mid-round potential Φ (PBRS; env exposes it, training forms the shaping) --
 
-def phi_maxdiff(ctx: Context, chains: List[dict], excluded: set) -> float:
+def _chain_still_in_window(ctx: Context, ch: dict) -> bool:
+    """True iff the chain is still within its own-side extension window -- it was extended
+    as of the PREVIOUS speech, so only the current in-progress speech's carriage is pending
+    (genuinely in-progress). False if it missed a STRICTLY-PAST own-side speech (lapsed --
+    a built-then-abandoned chain that would otherwise farm nascent Φ). Own-side check,
+    mirroring env.observation._permanent_extension_failures' `si < now` criterion, expressed
+    via the resolver's own `node_extension_ok` at the previous-slot horizon (same as_of
+    mechanism the mid-round Φ already uses; no new liveness logic, no resolver change).
+
+    Boundary: a None horizon (terminal / full-schedule -- not a nascent caller) or the very
+    first speech has no prior slot, so nothing could have lapsed yet -> in-window."""
+    as_of = getattr(ctx, "as_of", None)
+    if as_of is None:
+        return True
+    idx = _sidx(as_of)
+    if idx is None or idx == 0:
+        return True                              # first speech: nothing strictly-past to miss
+    prev = SPEECH_ORDER[idx - 1]
+    for nid in ch.get("spine_reps", ()):
+        node = ctx.nodes.get(nid)
+        if node is None:
+            continue
+        ok, _miss = node_extension_ok(node, carrying_side=node.side, as_of=prev)
+        if not ok:
+            return False                         # already unextended at the previous speech -> lapsed
+    return True
+
+
+def phi_maxdiff(ctx: Context, chains: List[dict], excluded: set, *, kappa: float = 0.0) -> float:
     """Φ_maxdiff (rl_training_spec §Reward): best AFF-favoring chain strength minus best
     NEG-favoring, over GATED chains -- extended-so-far, in-scope, resolved sign -- excluding
     chains outweighed by a determinate impact-weigh (`excluded`). Each side's max is a
     σ-product in [0,1], so Φ ∈ [-1,1]; Φ = 0 when there are no qualifying chains (e.g. the
-    empty graph). Pure function of the resolved chain state (invariance constraint 1)."""
-    best_aff = 0.0
-    best_neg = 0.0
+    empty graph). Pure function of the resolved chain state (invariance constraint 1).
+
+    NASCENT CHANNEL (`kappa` > 0, MID-ROUND Φ only; RULED κ=0.3, `PHI_NASCENT_KAPPA`): chains
+    that pass every gate EXCEPT extension -- in-scope, not excluded, resolved sign, positive
+    mag, `extended=False`, AND still within the own-side extension window (`_chain_still_in_
+    window`: extended as of the previous speech, so only the current speech's carriage is
+    pending; a chain that missed a strictly-past own-side speech is LAPSED and gets zero) --
+    accumulate a SEPARATE per-side max, added at weight `kappa`:
+        Φ = (best_aff_ext − best_neg_ext) + kappa·(best_aff_nascent − best_neg_nascent).
+    This gives Φ signal in the in-progress introduced-but-not-yet-extended state (previously a
+    flat 0, indistinguishable from the empty graph -- the collapse origin) while excluding
+    lapsed structure (which would otherwise farm nascent Φ without winning). kappa < 1 keeps
+    EXTENSION strictly rewarded: a chain going nascent->extended raises its contribution from
+    kappa·mag to 1·mag. `kappa=0.0` (the DEFAULT) is byte-identical to the extended-only Φ, so
+    the judge's terminal path -- which does not call this function at all -- and any other
+    caller are unaffected unless they opt in. Boundaries untouched: an empty graph has no
+    chains (Φ=0), and Φ(terminal)=0 is hardcoded at the potential()/apply_pbrs boundary
+    upstream. Invariance holds for any kappa (still a pure function of state)."""
+    best_aff_ext = best_neg_ext = 0.0
+    best_aff_nas = best_neg_nas = 0.0
     for ch in chains:
         if ch["id"] in excluded:
             continue
-        if not ch["extended"] or not ch.get("in_scope", True):
+        if ch.get("collapse_reason") in ("no_link_premise", "unrooted_disad"):
+            continue                    # not valid offense (link-less, or a floating NEG disad): neither channel
+        if not ch.get("in_scope", True):
             continue
         if ch["sign"] == qpn.UNRESOLVED:
             continue
         favored = ch["side"] if ch["sign"] > 0 else _opposing(ch["side"])
-        if favored == AFF:
-            best_aff = max(best_aff, ch["mag"])
-        else:
-            best_neg = max(best_neg, ch["mag"])
-    return best_aff - best_neg
+        if ch["extended"]:
+            if favored == AFF:
+                best_aff_ext = max(best_aff_ext, ch["mag"])
+            else:
+                best_neg_ext = max(best_neg_ext, ch["mag"])
+        elif (kappa > 0.0 and ch["mag"] > 0.0 and ctx is not None
+              and _chain_still_in_window(ctx, ch)):     # nascent: in-progress, not lapsed
+            if favored == AFF:
+                best_aff_nas = max(best_aff_nas, ch["mag"])
+            else:
+                best_neg_nas = max(best_neg_nas, ch["mag"])
+    return (best_aff_ext - best_neg_ext) + kappa * (best_aff_nas - best_neg_nas)
 
 
 def mid_round_potential(nodes, edges, *, as_of) -> float:
@@ -1077,13 +1214,17 @@ def mid_round_potential(nodes, edges, *, as_of) -> float:
     ctx = node_accrual(nodes, edges, as_of=as_of)
     chains = resolve_chains(ctx, emit_trace=False)
     excluded = weighing_excluded(ctx, chains)
-    return phi_maxdiff(ctx, chains, excluded)
+    return phi_maxdiff(ctx, chains, excluded, kappa=PHI_NASCENT_KAPPA)   # mid-round: nascent channel on
 
 
 def _collapse_reason(ctx, extended, ext_fail_node, sign, mag, spine_reps, unresolved):
     """Why a chain establishes no (own-side) offense, and the node most
     responsible -- descriptive only, derived from already-resolved state. None
     means the chain stands (positive own-side offense)."""
+    if ext_fail_node == _NO_LINK_PREMISE:
+        return "no_link_premise", None          # Ruling 1: path has no literal Link node
+    if ext_fail_node == _UNROOTED_DISAD:
+        return "unrooted_disad", None           # NEG disad spine reaches no AFF Advocacy (rule 4)
     if not extended:
         return "extension_fail", ext_fail_node
     if unresolved:
@@ -1150,9 +1291,9 @@ def _framework_anchors(ctx: Context, ch: dict) -> set:
     cross-side impact->framework edge (§11.26, 'I win even under their framework')
     still anchors, because it never passes through an absorbing interior node.
 
-    Only `Support` edges are followed, so a framework kritik's `DefensiveAttack`
-    onto the framework it criticizes is NEVER traversed: the kritik anchors to its
-    own framework by the direct Support edge (§5.3), never spuriously to the
+    Only `Support` edges are followed, so a framework argument's `DefensiveAttack`
+    onto the framework it attacks is NEVER traversed: the framework argument anchors
+    to its own framework by the direct Support edge (§5.3), never spuriously to the
     attacked one.
 
     SINGLE source of truth for gating: `in_scope(chain)` is `winning in

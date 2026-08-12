@@ -122,6 +122,24 @@ POLARITY_THRESHOLD = 0.5
 # noise can't manufacture an AFF win. Small and configurable.
 EPSILON = 1e-9
 
+# MID-ROUND Φ nascent-channel discount (RL PBRS shaping only). Weight on introduced-but-not-
+# yet-extended chains in the mid-round potential Φ_maxdiff. NOT used by the judge's terminal
+# ballot (that routes chain deltas directly, never through phi_maxdiff), so verdicts are
+# unaffected regardless of value; consumed ONLY by the mid-round Φ callers
+# (env.observation.potential / passes.mid_round_potential).
+#
+# NEUTRALIZED to 0.0 (2026-08-12). The nascent channel (Task A) was tried twice and refined
+# once, measured DEGRADING the bootstrap screen every time (κ=0 → 3/5 seeds; κ=0.3 → 2/5;
+# refined lapsed-gate → 1/5), and shown structurally incapable of injecting net signal under
+# PBRS invariance -- concluded a dead end with the recommendation "revert to κ=0". That revert
+# was recorded in the handoff as done ("byte-identical to pre-attempt") but was NEVER applied
+# to the working tree: κ=0.3 persisted here, uncommitted (it appears in NO commit on ANY branch
+# in history), and shipped to the pod in the 2026-08-12 Screen A run -- which is why that run's
+# 0/5 result is NOT a valid measurement. Set to 0.0 to restore the κ=0 regime the 3/5 baseline
+# used; the phi_maxdiff `kappa` branch defaults to 0.0 and is left in place, dormant (full
+# removal is optional later cleanup). See rl_training_spec §Reward and §Hyperparameters.
+PHI_NASCENT_KAPPA = 0.0
+
 # Presumption: hardcoded and uncontestable. Every indeterminate result drains here.
 PRESUMPTION = NEG
 

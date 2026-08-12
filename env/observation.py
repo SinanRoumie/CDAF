@@ -33,7 +33,8 @@ from dataclasses import dataclass
 from model import speech_index, SPEECH_ORDER
 from model.nodes import CONTESTED, CONCEDED
 from judge.passes import (response_window, side_speeches, node_accrual,
-                          resolve_chains, weighing_excluded, phi_maxdiff)
+                          resolve_chains, weighing_excluded, phi_maxdiff,
+                          PHI_NASCENT_KAPPA)
 
 from .state import RoundState
 from .actions import ROLE_TO_NODE_CLASS
@@ -140,7 +141,7 @@ def potential(state: RoundState) -> float:
     ctx = node_accrual(nodes, edges, as_of=state.current_slot)
     chains = resolve_chains(ctx, emit_trace=False)
     excluded = weighing_excluded(ctx, chains)
-    return phi_maxdiff(ctx, chains, excluded)
+    return phi_maxdiff(ctx, chains, excluded, kappa=PHI_NASCENT_KAPPA)   # mid-round: nascent channel on
 
 
 def _graph(state: RoundState) -> Dict:
