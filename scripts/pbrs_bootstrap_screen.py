@@ -36,7 +36,9 @@ from judge.config import AFF, NEG
 from training.config import TrainingConfig, TuningConfig, SemanticsConfig
 from training.checkpoint import new_actor_critic, save_checkpoint, load_checkpoint, EncoderSpec
 from training.imitation import build_warmstart_dataset, BehaviorCloning
-from training.rollout import collect_episode, apply_pbrs, compute_gae, flatten_steps, random_side
+from training.rollout import (collect_episode, apply_pbrs, compute_gae, flatten_steps,
+                              random_side, save_round_json)
+from warmstart.convert import _reason_class
 from training.ppo import PPOUpdater
 from training.pool import CheckpointPool
 from training.anneal import entropy_coef
@@ -55,6 +57,52 @@ OUTPUT_DIR = os.environ.get("PBRS_OUTDIR", os.path.join(ROOT, "runs", "pbrs_scre
 # mask; rl_training_spec §Opening curriculum). Screen A leaves it OFF (default).
 CURRICULUM = os.environ.get("PBRS_CURRICULUM", "0") == "1"
 PROBE_EPISODES = int(os.environ.get("PBRS_PROBE_EPISODES", "200"))
+# Round export (for human review in the Dash builder). When PBRS_EXPORT_DIR is set, rounds
+# from the LAST 15 updates are saved as builder-loadable oracle-format JSON + a sidecar, in
+# three disjoint buckets, capped per seed per bucket. SCREEN_TAG labels files (e.g. A / A2).
+EXPORT_DIR = os.environ.get("PBRS_EXPORT_DIR")
+SCREEN_TAG = os.environ.get("PBRS_SCREEN_TAG", "A")
+EXPORT_CAP = int(os.environ.get("PBRS_EXPORT_CAP", "4"))     # per bucket, per seed
+
+
+def _export_round(rnd, trace, winner, found, survived, seed, u, ep, counts):
+    """Save one round (oracle-format JSON) + a sidecar, if its bucket is not yet full.
+    Buckets are DISJOINT: affwin (AFF won); nearmiss (AFF found offense but did NOT win);
+    negwin (NEG won with no AFF offense found)."""
+    if winner == AFF:
+        bucket = "affwin"
+    elif found:
+        bucket = "nearmiss"
+    else:
+        bucket = "negwin"
+    if counts[bucket] >= EXPORT_CAP:
+        return
+    counts[bucket] += 1
+    base = f"{SCREEN_TAG}_{bucket}_seed{seed}_u{u:02d}_ep{ep:03d}"
+    save_round_json(rnd, os.path.join(EXPORT_DIR, base + ".json"))
+    aff_chains, ext_fails = [], []
+    for r in trace:
+        k = getattr(r, "kind", None)
+        if k == "CHAIN" and getattr(r, "side", None) == AFF:
+            aff_chains.append({
+                "chain_id": getattr(r, "chain_id", None), "extended": r.extended,
+                "in_scope": r.in_scope, "sign": r.sign, "mag": getattr(r, "mag", None),
+                "delta": getattr(r, "delta", None),
+                "collapse_reason": getattr(r, "collapse_reason", None)})
+        elif k == "EXTENSION_FAIL":
+            ext_fails.append({
+                "chain_id": getattr(r, "chain_id", None),
+                "missing_speech": getattr(r, "missing_speech", None),
+                "spine_node_id": getattr(r, "spine_node_id", None)})
+    dead = [c for c in aff_chains
+            if not (c["extended"] and c["in_scope"] and c["sign"] == 1)]
+    with open(os.path.join(EXPORT_DIR, base + ".sidecar.json"), "w") as fh:
+        json.dump({
+            "screen": SCREEN_TAG, "bucket": bucket, "seed": seed, "update": u, "episode": ep,
+            "verdict": {"winner": winner, "reason_class": _reason_class(trace)},
+            "offense_found": bool(found), "offense_survived": bool(survived),
+            "aff_chains": aff_chains, "dead_aff_chains": dead,
+            "extension_fails": ext_fails}, fh, indent=2)
 SHARED_WARMSTART = os.path.join(ROOT, "runs", "screen_v1", "warmstart.pt")
 
 
@@ -149,6 +197,7 @@ def run_seed(seed, warmstart_path, spec, cfg):
     pbrs_lambda = float(cfg.semantics.require("pbrs_lambda"))
     gl = cfg.tuning.gae_lambda
     rows = []
+    export_counts = {"affwin": 0, "negwin": 0, "nearmiss": 0}
     for u in range(BOOTSTRAP_UPDATES):
         ecoef = entropy_coef(u, ENTROPY_TOTAL, cfg.semantics)
         counts = {"self": 0, "pool": 0}
@@ -158,7 +207,7 @@ def run_seed(seed, warmstart_path, spec, cfg):
             return opp
 
         trajs = []; rounds_found = rounds_ext = 0; phis = []
-        for _ in range(E):
+        for ep_idx in range(E):
             opp = sampler(rng); side = random_side(rng)
             traj, rnd = collect_episode(ac, opp, learner_side=side, rng=rng,
                                         torch_generator=gen, capture_round=True)
@@ -174,6 +223,9 @@ def run_seed(seed, warmstart_path, spec, cfg):
             rounds_found += 1 if f > 0 else 0
             rounds_ext += 1 if e > 0 else 0
             phis.extend(s.phi for s in traj.steps)
+            if EXPORT_DIR and u >= BOOTSTRAP_UPDATES - 15:
+                _export_round(rnd, trace, traj.winner, f > 0, e > 0,
+                              seed, u, ep_idx, export_counts)
         steps = flatten_steps(trajs)
         updater.update(steps, entropy_coef=ecoef, rng=rng)
         m = batch_metrics(trajs)

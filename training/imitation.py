@@ -138,9 +138,16 @@ def build_warmstart_dataset(paths: List[str] = None, *, require_ok: bool = True,
     `include_endspeech` keeps the demonstrated `end_speech` moves as examples (they are
     genuine policy decisions); set False to train only on graph-building moves."""
     paths = paths or corpus_fixture_paths()
+    # Diagnostic isolation toggle (NOT a ruling): CDAF_SKIP_FIXTURES="E,foo" force-excludes those
+    # fixtures from the corpus regardless of convertibility -- used to hold the corpus fixed (e.g.
+    # keep E out at 42) while another toggle would otherwise change what converts. Default empty.
+    _force_skip = {n for n in os.environ.get("CDAF_SKIP_FIXTURES", "").split(",") if n}
     ds = WarmStartDataset()
     for path in paths:
         name = os.path.basename(path)[:-5]
+        if name in _force_skip:
+            ds.fixtures_skipped.append(name)
+            continue
         rnd = serialize.load(path)
         result = convert(rnd, name)
         if result.error is not None or (require_ok and not result.ok):

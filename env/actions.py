@@ -28,6 +28,7 @@ introducible (the discovery root the ballot needs), declared as role
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -80,6 +81,14 @@ OFFENSE_BEARING_ROLES = frozenset({"link", "impact"})
 # are exactly the two kinds the judge already treats as chain roots (a NEG offense
 # chain roots at an AFF Advocacy OR its own Framework -- judge_spec §2, rule 4).
 ROOT_ELIGIBLE_ROLES = frozenset({"advocacy", "framework"})
+
+# Diagnostic isolation toggle (NOT a ruling): CDAF_ROOT_ELIGIBLE_ALL=1 makes EVERY role
+# root-eligible, turning the floating-root restriction into a no-op for the whole process --
+# used to measure whether that rule is implicated in a screen result, holding everything else
+# fixed. Read once at import; each screen worker sets it (or not) in its own env. Default
+# (unset) preserves the ruled Advocacy/Framework restriction.
+if os.environ.get("CDAF_ROOT_ELIGIBLE_ALL") == "1":
+    ROOT_ELIGIBLE_ROLES = ROLES
 
 # Per-speech move budget (first-iteration defaults, tunable). Sum = 52.
 SPEECH_BUDGET = {
