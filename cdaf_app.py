@@ -1562,4 +1562,8 @@ def judge_round(_n, elements):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8050)
+    # Review tool, not a dev target: debug=True's hot-reloader watches files and force-reloads
+    # the browser on any change, which wipes the client-side graph you're reading. Disable the
+    # reloader + hot-reload so a loaded round stays put. Set CDAF_APP_DEBUG=1 to opt back in.
+    _debug = os.environ.get("CDAF_APP_DEBUG") == "1"
+    app.run(port=8050, debug=_debug, use_reloader=_debug, dev_tools_hot_reload=_debug)
