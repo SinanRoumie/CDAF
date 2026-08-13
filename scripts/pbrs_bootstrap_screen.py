@@ -389,6 +389,11 @@ def run_seed(seed, warmstart_path, spec, cfg):
 
 
 def main():
+    # Pin intra-op parallelism to 1 per worker. This workload is single-core-bound on
+    # both halves (PPO update + rollout), so >1 thread buys nothing and only introduces
+    # nondeterministic reduction order; set_num_threads(1) alongside OMP/MKL=1 gives
+    # bit-identical reproducibility, not just anti-oversubscription.
+    torch.set_num_threads(1)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     cfg = TrainingConfig(
         tuning=TuningConfig(minibatch_size=256, epochs_per_batch=3, warmstart_epochs=20,
