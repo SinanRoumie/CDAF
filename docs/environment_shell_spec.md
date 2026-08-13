@@ -37,6 +37,14 @@ The legal-action generator enforces **structural** legality and nothing else:
   framework/ballot_directive has no polarity to flip (judge §3.4)
 - a **`connect`** may not **duplicate an existing edge** (same source, target, and
   edge_type) — it would add no structure
+- a **`weigh`** may not compare **different-kind** operands (Ruling 1) — a cross-kind
+  weigh has no matching factor and the judge scores it inert in every state (judge_spec
+  §3.4/§6.5); rejected at creation. (Same-kind BD-vs-BD is descriptive/inert;
+  Uniqueness-vs-Uniqueness is consumed only when the two are competing — action_schema_spec
+  §weigh.)
+- a **cross-side `defensive_attack` whose target is a `BallotDirective`** is illegal
+  (Ruling 2 V1a) — a BD bears no magnitude any pass consumes, so the edge can never enter
+  scoring; judge-invisible in every state.
 - a node may not be introduced as a **floating root** unless its role is
   **`advocacy`** or **`framework`**: an `introduce` with `target_id = NEW` is legal
   only for `role ∈ {advocacy, framework}`; every other role must attach to an
@@ -149,6 +157,36 @@ below, so equilibrium claims can be scoped correctly.
 | ii | AFF-1AC opening curriculum (Ruling 2): progressive unlock ladder | Curriculum mask (policy `type_mask`); non-permanent — 1AC only, never NEG, off from 1NC | **No.** Every terminal graph stays reachable; the ladder constrains only opening *construction order*, which the judge is invariant to |
 
 New entries are appended here as future foreclosures are ruled.
+
+## Judge-invisible edges (Ruling 2)
+
+Cross-side edges that touch a `BallotDirective` or a weigh tower split into one
+legality-masked class and three that the judge currently reads as nothing. **Layer
+split:**
+
+- **V1a — cross-side defensive attack on a `BallotDirective` → LEGALITY MASK.**
+  Enforced in `check_legality` (a BD bears no magnitude any pass consumes, so the
+  edge is incoherent in every state). Both sides, all speeches.
+- **V1b — cross-side support-on-BD not on a consuming walk → SILENTLY UNREAD.**
+- **V2 — cross-side support off a consuming walk → SILENTLY UNREAD.**
+- **V3 — comparison edges on a weigh tower not wired to a BD → SILENTLY UNREAD.**
+
+**"Silently unread" is precise and load-bearing.** V1b/V2/V3 are NOT a "judge-time
+collapse" in the sense of an emitted `collapse_reason`: the judge never reads these
+edges, so there is **no trace entry, no collapse reason, and no diagnostic signal** —
+the offense routed only through them simply fails to anchor/rank and contributes
+nothing, indistinguishably from an edge that was never built. A future session must
+NOT go looking for a collapse path for these; **none exists by design.** Emitting a
+named reason (e.g. `judge_invisible_edge`) is a deliberate follow-up, filed in
+judge_spec §Open questions — **not a gap.**
+
+**TRAP — do NOT mask support-on-BD generally.** Same-side `Link→BD` and `Framework→BD`
+anchor, and cross-side `Impact→BD` anchors via capture. A blanket mask breaks `r6` and
+the `T1`/`T1b` capture fixtures. (Verified: `r6` relies on cross-side `Framework→BD`,
+`fw(NEG)→bd(AFF)`; `T1`/`T1b` anchor a captured cross-side `Impact→BD` through
+`anchor_members`, gated on live capture `eff_pol[target] == -1`.) The V1a mask is
+therefore narrow by construction — a cross-side *defensive_attack* whose target is a
+BD — and touches none of the anchoring routes above.
 
 ## State schema
 

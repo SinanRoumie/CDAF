@@ -26,8 +26,8 @@ machinery is introduced.
   space stays uniform; the dominance is left for self-play to discover and
   exploit on its own.
 - **Structural incoherence is illegal; only context-dependent inertness is
-  learned.** Three moves that can *never* be meaningful in any round state are
-  disallowed by the legal-action generator — masking them removes no strategic
+  learned.** Several structurally-incoherent moves that can *never* be meaningful in
+  any round state are disallowed by the legal-action generator — masking them removes no strategic
   distinction, because they were never a real option: a **same-side attack** (an
   attack edge between two nodes of the same side), an **offense at a non-polarity
   node** (an `offensive_attack` where an endpoint is not a Link or Impact), a
@@ -37,7 +37,12 @@ machinery is introduced.
   or outweigh a proposal, you never attack it or attack *from* it; judge_spec §2), and
   an **Advocacy support-attached to a non-Link node** (an Advocacy carries Support edges
   only to `Link` nodes — its premises route through a Link, never a bare Uniqueness,
-  Impact, or BallotDirective). A **no-op
+  Impact, or BallotDirective), a **cross-kind weigh** (a `weigh` whose two operands are
+  different kinds — no matching factor to rank; the judge scores a mixed-type
+  `Comparison` inert in every state, judge_spec §3.4/§6.5), and a **cross-side
+  defensive attack on a BallotDirective** (a `defensive_attack` across sides whose
+  target is a `BallotDirective` — a BD bears no consumed magnitude, so the edge is
+  judge-invisible in every state; Ruling 2 V1a). A **no-op
   re-extend** (an `extend`/`concede` on a node already carried this speech) is
   *context-dependent* — extending an uncarried node is a real, often-correct move,
   and only this specific state makes it inert — so it stays **legal** and is priced
@@ -253,6 +258,27 @@ Introduces a comparison between two existing nodes.
 - `node_a`, `node_b`: the two nodes being compared. May be owned by the same
   side (a debater prioritizing between two of their own impacts) or opposing
   sides.
+- **Same-kind operands (structural legality, enforced at creation).** `node_a`
+  and `node_b` must be the SAME kind (both Links, both Impacts, both Frameworks,
+  both Uniquenesses, both Weighings, or both BallotDirectives). A CROSS-KIND weigh
+  has no matching factor to rank — the judge already scores a `Comparison` over a
+  mixed-type pair as inert (judge_spec §3.4 table, §6.5) — so it is now rejected by
+  the legal-action generator at creation rather than sampled and scored inert
+  (environment_shell_spec §Governing principle: structural legality only). All 18
+  oracle-corpus weighs are same-kind, so no verdict changes. Two same-kind sub-cases
+  have no live consumer and are documented so they are not later mistaken for gaps:
+    - **BallotDirective vs BallotDirective — DESCRIPTIVE / INERT.** Legal, but a BD
+      bears no strength any pass consumes (judge_spec §3, node table: a BD is never
+      consumed by its own strength), so the weigh has no effect. Deliberate, not a gap.
+    - **Uniqueness vs Uniqueness — consumed ONLY when the two are COMPETING.**
+      Competing means EITHER (A) an explicit `DefensiveAttack` edge runs between the
+      two weighed uniquenesses (the r15/r16 structure — a non-unique `Uniqueness`
+      defensive-attacks the `Uniqueness` the other supports), OR (B) the
+      `nonunique_on_link` route — a non-unique `Uniqueness` defensive-attacks the
+      `Link` that the other weighed `Uniqueness` supports. Both are the same clash,
+      resolved through the all-or-nothing poison gate at the 0.5 threshold (judge_spec
+      §3.4 Ruling A, §12.4.3). Two uniquenesses with NEITHER relationship are inert —
+      nothing for `resolve` to break — legal but effectless.
 - `favors`: a pointer at one of the two compared nodes (`node_a` or
   `node_b`) — not a side/ownership flag. This is required in both the
   cross-side and own-side case, since ownership alone cannot disambiguate a

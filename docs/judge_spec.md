@@ -792,6 +792,24 @@ meta-weighing, the determinate/indeterminate split, the magnitude floor — is u
 is still the two `Comparison` targets (direction-of-`Comparison`, §6.5 `weigh_pair`), orthogonal to
 `favors`.
 
+### Same-kind is enforced at creation (Ruling 1)
+
+Weighing ranks a **same-type pair** (above); a mixed-type `Comparison` has no matching factor and the
+judge already scores it inert (§3.4). As of Ruling 1 the environment's legal-action generator rejects a
+**cross-kind weigh at creation** (environment_shell_spec §Governing principle), so the inert mixed-type
+case is never sampled. All 18 oracle-corpus weighs are same-kind, so this changes no verdict. Two
+same-kind pairs are legal but have no live consumer — documented so neither is later read as a gap:
+
+- **BallotDirective vs BallotDirective — DESCRIPTIVE / INERT.** A BD is never consumed by its own
+  strength (§3.6 table), so a weigh over two BDs ranks nothing. Legal, effectless, deliberate.
+- **Uniqueness vs Uniqueness — consumed ONLY when the two are COMPETING.** `resolve` has something to
+  break iff the pair is in a poison-gate clash: EITHER **(A)** an explicit `DefensiveAttack` runs
+  between the two weighed uniquenesses (r15/r16 — a non-unique defensive-attacks the uniqueness the
+  other supports), OR **(B)** the `nonunique_on_link` route (§3.4 Ruling A) — a non-unique
+  defensive-attacks the `Link` that the other weighed uniqueness supports. Both are the same clash,
+  decided through the all-or-nothing poison gate at the threshold (§12.4.3). Two uniquenesses with
+  neither relationship give `resolve` nothing to break and are inert.
+
 ### The three indeterminate cases are one case at different depths (illustrations)
 
 - **(a) no weigh** — the weighing layer is empty → fall to magnitude.
@@ -852,6 +870,17 @@ than assuming prior verdicts hold.
 its **anchored node(s)** are those it is incident to in the undirected graph (§2.2). A BD whose
 anchored argument resolves to `?`, or to offense favoring the opposing side, **fails and contributes
 nothing**. Emit `BD_VALIDATE`.
+
+**TRAP (Ruling 2) — support-on-BD must NOT be masked generally.** BD anchoring reads support
+incidence direction-agnostically (§2.2): same-side `Link→BD` and `Framework→BD` anchor, and a
+cross-side `Impact→BD` anchors a **captured** chain (`anchor_members`, gated on live capture
+`eff_pol[target] == −1`, §3.5). A blanket legality mask over cross-side support-on-BD would break
+`r6` (cross-side `Framework→BD`, `fw(NEG)→bd(AFF)`) and the `T1`/`T1b` capture fixtures. The only
+BD edge foreclosed at legality time is Ruling 2 **V1a** — a cross-side *defensive_attack* whose
+target is a BD (judge-invisible in every state). The judge-invisible support/comparison edges
+(V1b/V2/V3) are **silently unread** — no trace, no `collapse_reason`, no diagnostic; see
+environment_shell_spec §Judge-invisible edges and §Open questions (a named reason is a filed
+follow-up, not a gap).
 
 From surviving, extended, in-scope, BD-anchored arguments, accumulate net offense:
 
@@ -1313,3 +1342,13 @@ union-find or aggregation is required.
   requirement analogous to §5.4's framework-liveness gate. **Parked — the current judge does not
   gate on it, and it changes no adjudicated verdict on the corpus. Do not implement without a
   ruling.**
+
+- **Named `collapse_reason` for judge-invisible edges (Ruling 2 follow-up, filed 2026-08-13).**
+  V1b/V2/V3 (cross-side support-on-BD off a consuming walk; cross-side support off a consuming walk;
+  comparison edges on a weigh tower not wired to a BD) are currently **silently unread** — the judge
+  reads nothing, so there is no trace, no reason, and no per-run signal that such an edge was built.
+  The A–A5 isolation matrix measured **~⅓ of edge-creating moves producing edges the judge never
+  reads**; a named `collapse_reason` (e.g. `judge_invisible_edge`) emitted at judge time would let
+  that be **measured per run** rather than inferred. Deliberately **not** done in the Ruling-2
+  milestone (which is verdict-safe, legality-mask-only). **Belongs with the budget work** (the edge
+  economy such a counter would inform), not the judge-correctness pass. Parked; no verdict effect.
