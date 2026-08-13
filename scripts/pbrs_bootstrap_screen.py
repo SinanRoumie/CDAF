@@ -67,6 +67,62 @@ EXPORT_CAP = int(os.environ.get("PBRS_EXPORT_CAP", "4"))     # per bucket, per s
 
 
 _ATTACK_KINDS = {"defensive_attack", "offensive_attack"}
+_ACTION_NAMES = ("Introduce", "Connect", "Extend", "Concede", "Weigh", "EndSpeech")
+
+
+def _speech_spend(traj):
+    """Per LEARNER speech in this episode: what the policy spent and whether it exhausted its
+    budget. Groups the learner's decision steps by slot (each of the learner's own slots
+    appears once per episode). Returns slot -> record with the action-type counts, the
+    peak moves_used (pre-final-action), the slot budget, and whether the speech ended EARLY
+    (an explicit EndSpeech) vs ran to budget exhaustion. Action type is read off the action
+    object (`type(a).__name__`), not a string field, so it is robust to the head's labelling."""
+    by_slot = {}
+    for s in traj.steps:
+        rec = by_slot.get(s.slot)
+        if rec is None:
+            rec = by_slot[s.slot] = {"counts": Counter(), "ended_early": False,
+                                     "moves_peak": 0, "slot_budget": s.slot_budget}
+        rec["counts"][type(s.action).__name__] += 1
+        rec["moves_peak"] = max(rec["moves_peak"], s.moves_used)
+        if type(s.action).__name__ == "EndSpeech":
+            rec["ended_early"] = True
+    return by_slot
+
+
+def _accum_spend(accum, by_slot):
+    """Fold one episode's per-slot spend into a per-seed accumulator:
+    slot -> {n, ended_early, used_frac_sum, counts(Counter)}."""
+    for slot, rec in by_slot.items():
+        a = accum.get(slot)
+        if a is None:
+            a = accum[slot] = {"n": 0, "ended_early": 0, "used_frac_sum": 0.0, "counts": Counter()}
+        a["n"] += 1
+        a["ended_early"] += 1 if rec["ended_early"] else 0
+        budget = rec["slot_budget"] or 1
+        a["used_frac_sum"] += rec["moves_peak"] / budget
+        a["counts"].update(rec["counts"])
+
+
+def _summarize_spend(accum):
+    """Per-slot summary over a seed's last-15 learner speeches: mean budget-used fraction
+    (peak moves_used / slot budget -- a lower bound, pre-final-action), the exhausted rate
+    (1 - ended-early rate), and the mean per-speech action-type spend, ordered by SPEECH_ORDER."""
+    from model import SPEECH_ORDER
+    out = {}
+    for slot in SPEECH_ORDER:
+        a = accum.get(slot)
+        if not a or a["n"] == 0:
+            continue
+        n = a["n"]
+        out[slot] = {
+            "n_speeches": n,
+            "mean_budget_used_frac": round(a["used_frac_sum"] / n, 3),
+            "exhausted_rate": round(1.0 - a["ended_early"] / n, 3),
+            "mean_actions_per_speech": {k: round(a["counts"][k] / n, 2)
+                                        for k in _ACTION_NAMES if a["counts"][k]},
+        }
+    return out
 
 
 def _analyze_dead_chains(rnd, trace):
@@ -254,6 +310,7 @@ def run_seed(seed, warmstart_path, spec, cfg):
     rows = []
     export_counts = {"affwin": 0, "negwin": 0, "nearmiss": 0}
     death_cause = Counter(); death_neg = Counter(); death_speech = Counter(); death_n = 0
+    spend_accum = {}                                    # per-slot learner spend, last 15 updates
     for u in range(BOOTSTRAP_UPDATES):
         ecoef = entropy_coef(u, ENTROPY_TOTAL, cfg.semantics)
         counts = {"self": 0, "pool": 0}
@@ -287,6 +344,7 @@ def run_seed(seed, warmstart_path, spec, cfg):
                     death_neg["neg_contested" if d["neg_contested"] else "uncontested"] += 1
                     if d["death_speech"]:
                         death_speech[d["death_speech"]] += 1
+                _accum_spend(spend_accum, _speech_spend(traj))   # per-speech budget spend
                 _export_round(rnd, trace, traj.winner, f > 0, e > 0,
                               seed, u, ep_idx, export_counts, dead)
         steps = flatten_steps(trajs)
@@ -319,9 +377,15 @@ def run_seed(seed, warmstart_path, spec, cfg):
                    "by_death_speech": dict(death_speech)}
     print(f"    seed{seed} dead-AFF-chains(last15)={death_n} by_cause={dict(death_cause)} "
           f"neg_split={dict(death_neg)}", flush=True)
+    spend = _summarize_spend(spend_accum)               # per-speech budget spend (last 15)
+    for slot, sp in spend.items():
+        print(f"    seed{seed} spend[{slot}] used={sp['mean_budget_used_frac']:.2f} "
+              f"exhausted={sp['exhausted_rate']:.2f} n={sp['n_speeches']} "
+              f"acts={sp['mean_actions_per_speech']}", flush=True)
     return {"seed": seed, "last15_win": win, "last15_surv": surv, "passed": passed,
             "phi_first15": phi_first, "phi_last15": phi_last, "phi_trend": phi_trend,
-            "divergence": divergence, "probe": probe, "death_stats": death_stats, "rows": rows}
+            "divergence": divergence, "probe": probe, "death_stats": death_stats,
+            "speech_spend": spend, "rows": rows}
 
 
 def main():

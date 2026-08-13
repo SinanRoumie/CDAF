@@ -28,6 +28,7 @@ introducible (the discovery root the ballot needs), declared as role
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -90,10 +91,50 @@ ROOT_ELIGIBLE_ROLES = frozenset({"advocacy", "framework"})
 if os.environ.get("CDAF_ROOT_ELIGIBLE_ALL") == "1":
     ROOT_ELIGIBLE_ROLES = ROLES
 
-# Per-speech move budget (first-iteration defaults, tunable). Sum = 52.
-SPEECH_BUDGET = {
+# Per-speech move budget (first-iteration defaults, tunable). Default sum = 52.
+_SPEECH_BUDGET_DEFAULT = {
     "1AC": 8, "1NC": 8, "2AC": 8, "2NC/1NR": 13, "1AR": 5, "2NR": 5, "2AR": 5,
 }
+
+# Config hook (screen driver sets per run; default preserves current values so nothing
+# changes unless overridden). Mirrors the CDAF_ROOT_ELIGIBLE_ALL precedent above:
+# read ONCE at import, so a worker sets the env var in its own process before importing
+# env. Two overrides:
+#   CDAF_SPEECH_BUDGET  -- JSON object mapping SPEECH_ORDER slot -> positive int budget.
+#                          May be PARTIAL (merges over the defaults, so B4's rebuttal-only
+#                          bump is expressible) or full. Keys must be a subset of
+#                          SPEECH_ORDER; values must be positive ints.
+#   CDAF_EXTEND_COST_K  -- positive int; the extend/concede batch size K.
+# Invalid overrides raise at import (loud, not silent) -- a screen must fail fast rather
+# than train against a mis-parsed budget.
+def _load_speech_budget() -> dict:
+    budget = dict(_SPEECH_BUDGET_DEFAULT)
+    raw = os.environ.get("CDAF_SPEECH_BUDGET")
+    if raw:
+        override = json.loads(raw)                       # raises on malformed JSON
+        if not isinstance(override, dict):
+            raise ValueError(f"CDAF_SPEECH_BUDGET must be a JSON object, got {type(override).__name__}")
+        for slot, val in override.items():
+            if slot not in _SPEECH_BUDGET_DEFAULT:
+                raise ValueError(f"CDAF_SPEECH_BUDGET: unknown slot {slot!r} "
+                                 f"(expected a subset of {sorted(_SPEECH_BUDGET_DEFAULT)})")
+            if not isinstance(val, int) or isinstance(val, bool) or val < 1:
+                raise ValueError(f"CDAF_SPEECH_BUDGET[{slot!r}] must be a positive int, got {val!r}")
+        budget.update(override)
+    return budget
+
+
+def _load_extend_cost_k() -> int:
+    raw = os.environ.get("CDAF_EXTEND_COST_K")
+    if raw is None:
+        return 4
+    k = int(raw)                                         # raises on non-int
+    if k < 1:
+        raise ValueError(f"CDAF_EXTEND_COST_K must be a positive int, got {k}")
+    return k
+
+
+SPEECH_BUDGET = _load_speech_budget()
 assert set(SPEECH_BUDGET) == set(SPEECH_ORDER)
 TOTAL_BUDGET = sum(SPEECH_BUDGET.values())
 
@@ -102,8 +143,9 @@ TOTAL_BUDGET = sum(SPEECH_BUDGET.values())
 # `ceil(count / EXTEND_COST_K)` batch (count = extends_this_speech), so K carriages
 # cost one slot and keeping many nodes alive in the back half carries real budget
 # pressure while ordinary spine carriage stays cheap. Named beside SPEECH_BUDGET and
-# tunable on the same footing; first-iteration default 4.
-EXTEND_COST_K = 4
+# tunable on the same footing; first-iteration default 4, overridable via
+# CDAF_EXTEND_COST_K (above).
+EXTEND_COST_K = _load_extend_cost_k()
 
 
 # --- action types -------------------------------------------------------------

@@ -62,6 +62,12 @@ class RolloutStep:
     side: str
     slot: str
     action_type: str
+    # Budget accounting at this learner DECISION state (PRE-action): moves already spent in
+    # the current speech and the slot's total budget. Lets a driver reconstruct per-speech
+    # spend + exhaustion (budget sweep instrumentation) without re-rolling. Defaults keep any
+    # existing caller unaffected.
+    moves_used: int = 0
+    slot_budget: int = 0
     # PBRS: Φ(s) at this learner DECISION state (pre-action), stored at collection; a pure
     # function of state. `shaping` is the per-step potential-based reward, filled by
     # `apply_pbrs`. Both default 0.0 so a run without PBRS is unaffected.
@@ -130,6 +136,7 @@ def collect_episode(learner: ActorCritic, opponent: ActorCritic, *,
                     obs=obs, state=snapshot, action=sa.action,
                     old_log_prob=float(log_prob), old_value=float(value),
                     side=side, slot=env.state.current_slot, action_type=sa.action_type,
+                    moves_used=env.state.moves_used, slot_budget=env.state.slot_budget,
                     phi=phi))
             else:
                 sa = policy.sample_action(enc_out, env.state, generator=torch_generator)
