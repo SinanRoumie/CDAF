@@ -1142,7 +1142,7 @@ def cancel_modals(_c, _d, _w):
     Output("dialog-msg", "children", allow_duplicate=True),
     Output("edge-dialog", "style", allow_duplicate=True),
     Output("edit-edge-meta", "children", allow_duplicate=True),
-    Output("upload-wrapper", "children", allow_duplicate=True),
+    Output("upload-json", "contents", allow_duplicate=True),
     Input("add-node-btn", "n_clicks"),
     Input("add-edge-btn", "n_clicks"),
     Input("dialog-create", "n_clicks"),
@@ -1295,8 +1295,11 @@ def mutate(_an, _ae, _dc, _wc, _ens, _end, _ees, _eer, _eed, _rl, _clr, upload_c
         selection_out = EMPTY_SELECTION
 
     elif trigger == "upload-json" and upload_contents:
-        # Remount the Upload (fresh <input>) so the same file can be re-uploaded.
-        upload_out = make_upload()
+        # Reset the Upload's `contents` to None (NOT a remount) so the next file -- including
+        # the same one -- registers as a change and reloads. Remounting the Upload here
+        # destroyed the very Input component that triggered this callback, which broke every
+        # load after the first (the page cleared). The None-echo is ignored above (line ~1186).
+        upload_out = None
         try:
             _, content_string = upload_contents.split(",", 1)
             raw = json.loads(base64.b64decode(content_string))
@@ -1308,7 +1311,7 @@ def mutate(_an, _ae, _dc, _wc, _ens, _end, _ees, _eer, _eed, _rl, _clr, upload_c
         except Exception as exc:  # noqa: BLE001
             return (no_update, no_update, f"Could not load file: {exc}",
                     no_update, no_update, no_update, no_update, no_update, no_update,
-                    no_update, make_upload())
+                    no_update, None)
 
     posmap = {n["data"]["id"]: n["position"] for n in model if is_node(n)}
     return (repack(), posmap, msg, nt_label_out, edge_source_out, edge_target_out,
