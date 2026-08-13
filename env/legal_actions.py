@@ -92,6 +92,16 @@ def _structural_legal(state: RoundState, action) -> Tuple[bool, str]:
     if isinstance(action, (Extend, Concede)):
         if action.node_id not in state.nodes:
             return False, f"target node {action.node_id!r} does not exist"
+        # Extension carries a node FORWARD from a prior speech. A node is stamped
+        # carried={introduction_speech} at birth (state.py), so an extend/concede on a node
+        # already carried THIS speech -- including the speech it was introduced in -- is an
+        # idempotent no-op that changes no liveness while still costing a slot. Such moves are
+        # ILLEGAL (Yaz ruling): same-speech extends, and all 1AC extends, are impossible. This
+        # supersedes the former "legal-but-priced" treatment; the no-op branches in
+        # `state.action_cost` and `is_inert` are now unreachable via legal play.
+        if state.already_carried_this_speech(action.node_id):
+            return False, (f"{type(action).__name__} on {action.node_id!r}: already carried this "
+                           f"speech (extension carries a node forward from a prior speech only)")
         return True, ""
 
     if isinstance(action, Weigh):
@@ -299,14 +309,13 @@ def is_legal(state: RoundState, action) -> bool:
 
 # --- inert-action classification (REWARD ONLY -- NOT legality) -----------------
 #
-# `is_inert` is a SIBLING of `check_legality`, deliberately NOT part of it. It now
-# classifies the ONE CONTEXT-DEPENDENT inert class that stays legal: a no-op re-extend
-# (extend/concede on a node already carried this speech). Extending an UNCARRIED node is
-# a real, often-correct move -- only this specific state makes it inert -- so it is not
-# masked; it is priced via COST (a full slot; see state.action_cost) and this predicate
-# is used only for reward-side/diagnostic bookkeeping. The reward penalty coefficient is
-# currently 0.0 (dormant backstop, rl_training_spec §Reward), so at present this predicate
-# only feeds diagnostic counters.
+# `is_inert` is a SIBLING of `check_legality`, deliberately NOT part of it. It classified
+# the no-op re-extend (extend/concede on a node already carried this speech) as a legal-
+# but-inert class, priced via COST and flagged reward-side. That class is now ILLEGAL
+# (`check_legality` masks it -- Yaz ruling: extension carries forward from a PRIOR speech
+# only), so `is_inert` can no longer see it via legal play and returns (False, "") for every
+# sampled extend. It is retained as a dormant defensive predicate (reward coefficient 0.0);
+# do NOT rely on it firing. Extending an UNCARRIED node stays a real, often-correct move.
 #
 # The three STRUCTURALLY-INCOHERENT classes it used to classify -- same-side attack,
 # offense-at-non-polarity, redundant connect -- are now ILLEGAL (`check_legality` rule 6),

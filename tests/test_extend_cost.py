@@ -67,18 +67,18 @@ def test_concede_costs_the_same_as_extend():
         assert action_cost(st, Concede("a")) == action_cost(st, Extend("a"))
 
 
-def test_noop_reextend_costs_full_slot_not_batch_rate():
-    """A re-extend of a node ALREADY carried this speech is a no-op -> FULL SLOT (1),
-    bypassing the batch discount regardless of `extends_this_speech` (masking ruling). A
-    distinct carriage at the same count would be free (mid-K-group)."""
+def test_noop_reextend_is_illegal_cost_branch_is_dead_defensive():
+    """A re-extend of a node ALREADY carried this speech is now ILLEGAL (Yaz ruling:
+    extension carries forward from a PRIOR speech only). `action_cost` retains its full-slot
+    no-op branch, but it is now a dead defensive path -- no legal play reaches it."""
     st = _state_with_node()                              # 'a' from 1AC, state at 2AC (uncarried)
     st.extends_this_speech = 1                           # mid-group: a DISTINCT carriage costs 0
     assert action_cost(st, Extend("a")) == 0            # sanity: distinct carriage is free here
-    st.nodes["a"].carried.add("2AC")                     # now carried THIS speech -> re-extend = no-op
+    st.nodes["a"].carried.add("2AC")                     # now carried THIS speech -> no-op re-extend
     assert st.already_carried_this_speech("a")
-    assert action_cost(st, Extend("a")) == 1            # full slot, NOT the batch 0
-    assert action_cost(st, Concede("a")) == 1           # concede identical
-    assert is_legal(st, Extend("a"))                    # still LEGAL (priced, not masked)
+    assert not is_legal(st, Extend("a"))                # MASKED, not priced
+    assert not is_legal(st, Concede("a"))
+    assert action_cost(st, Extend("a")) == 1            # dead branch still returns full slot
 
 
 def test_non_carriage_costs_unchanged():
@@ -128,11 +128,12 @@ def test_batch_discount_is_speech_wide_across_unrelated_nodes():
 
 def test_counter_resets_each_speech():
     env = CDAFEnvironment(); env.reset()
-    # advocacy is a legal floating root (floating-root restriction); any carried node
-    # exercises the per-speech extend counter identically.
-    env.step(Introduce("", "advocacy", NEW)); nd = list(env.state.nodes)[-1]
+    # advocacy is a legal floating root (floating-root restriction). Two DISTINCT roots so
+    # both 2AC carriages are legal (a re-extend of one node would now be an illegal no-op).
+    env.step(Introduce("", "advocacy", NEW)); n1 = list(env.state.nodes)[-1]
+    env.step(Introduce("", "advocacy", NEW)); n2 = list(env.state.nodes)[-1]
     env.step(EndSpeech()); env.step(EndSpeech())              # -> 2AC
-    env.step(Extend(nd)); env.step(Extend(nd))
+    env.step(Extend(n1)); env.step(Extend(n2))               # two distinct carriages
     assert env.state.extends_this_speech == 2
     env.step(EndSpeech())                                     # -> 2NC/1NR (NEG)
     assert env.state.extends_this_speech == 0                 # reset at the boundary

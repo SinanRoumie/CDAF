@@ -109,14 +109,15 @@ def test_non_duplicate_connect_is_legal():
     assert is_legal(st, Connect(a, c, "support"))
 
 
-# --- no-op re-extend stays LEGAL, flagged by is_inert, priced via cost --------
+# --- no-op re-extend is now ILLEGAL; is_inert stays a live predicate but is unreachable
+#     via legal play (Yaz ruling). --------
 
-def test_reextend_in_introduction_speech_is_inert_and_legal():
+def test_reextend_in_introduction_speech_is_inert_predicate_but_illegal():
     st = RoundState()
     nid = st.add_node("x", AFF, "impact")            # carried = {1AC}
-    inert, kind = is_inert(st, Extend(nid))          # already carried THIS speech
+    inert, kind = is_inert(st, Extend(nid))          # predicate still detects the no-op
     assert inert and kind == INERT_NOOP_REEXTEND
-    assert is_legal(st, Extend(nid))                 # legal, not masked
+    assert not is_legal(st, Extend(nid))             # but MASKED: same-speech extend illegal
 
 
 def test_first_extend_in_a_new_speech_is_not_inert_then_reextend_is():
@@ -157,10 +158,11 @@ def test_noop_reextend_costs_full_slot_vs_distinct_batch_rate():
     # second distinct carriage: within the same K-group -> batch rate 0
     assert action_cost(st, Extend("n2")) == 0
     st.apply(Extend("n2"))                           # extends_this_speech -> 2
-    # re-extend a (already carried this speech) -> NO-OP -> FULL SLOT, not the batch 0
+    # re-extend a (already carried this speech) -> NO-OP -> now ILLEGAL (masked). The cost
+    # branch still prices it a full slot, but it is a dead defensive path.
     assert st.already_carried_this_speech("n1")
     assert action_cost(st, Extend("n1")) == 1
-    assert is_legal(st, Extend("n1"))                # still legal (priced, not masked)
+    assert not is_legal(st, Extend("n1"))            # masked, not priced-and-legal
 
 
 def test_distinct_carriages_keep_k_batch_discount():
@@ -184,27 +186,28 @@ def _drive_to_termination(env):
     return info
 
 
-def test_terminal_penalty_hook_still_works_when_coef_set():
-    """The dormant hook remains functional: with an explicit nonzero coef, a no-op
-    re-extend is penalized per side in the breakdown."""
+def test_env_rejects_noop_reextend_so_penalty_hook_is_unreachable():
+    """Post-ruling, a no-op re-extend (the sole inert class) is ILLEGAL, so the env rejects
+    it -- the inert-penalty hook can no longer be triggered by any legal play. A clean round
+    therefore carries zero inert penalty / counts even with the coef set."""
     env = CDAFEnvironment(inert_penalty_coef=0.01)
     env.reset()
     env.step(Introduce("x", "advocacy"))             # -> node n1, carried {1AC} (legal root)
-    env.step(Extend("n1"))                            # no-op re-extend (n1 already carried)
-    info = _drive_to_termination(env)
+    with pytest.raises(ValueError):
+        env.step(Extend("n1"))                        # no-op re-extend now illegal
+    info = _drive_to_termination(env)                 # remainder of the round, no inert moves
     bd = info["reward_breakdown"]
-    assert bd[AFF]["inert_penalty"] == pytest.approx(-0.01)
+    assert bd[AFF]["inert_penalty"] == pytest.approx(0.0)
     assert bd[NEG]["inert_penalty"] == pytest.approx(0.0)
-    assert info["inert_counts"].get(INERT_NOOP_REEXTEND) == 1
+    assert not info["inert_counts"]                   # nothing inert could occur
 
 
-def test_default_coef_zero_means_no_penalty_but_still_counts():
-    """Default coefficient 0.0 (dormant) is byte-identical to no penalty; the no-op is
-    still counted for diagnostics and still charged its full-slot cost."""
+def test_default_coef_clean_round_has_no_inert_penalty_or_counts():
+    """Default coefficient 0.0 (dormant); a legal round records no inert penalty or counts
+    (the only inert class, no-op re-extend, is unreachable via legal play)."""
     env = CDAFEnvironment()                           # inert_penalty_coef defaults 0.0
     env.reset()
     env.step(Introduce("x", "advocacy"))              # legal floating root
-    env.step(Extend("n1"))                            # no-op re-extend
     info = _drive_to_termination(env)
     assert info["reward_breakdown"][AFF]["inert_penalty"] == pytest.approx(0.0)
-    assert info["inert_counts"].get(INERT_NOOP_REEXTEND) == 1
+    assert not info["inert_counts"]
