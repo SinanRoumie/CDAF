@@ -162,6 +162,51 @@ def test_connect_legality():
     assert not is_legal(env.state, Connect(adv, im, "offensive_attack"))
 
 
+def test_same_kind_weigh_mask_ruling1():
+    """Ruling 1: a `weigh` is legal only between SAME-KIND operands. A cross-kind weigh
+    has no matching factor for the judge to rank (a mixed-type Comparison is inert in
+    every state, judge_spec §3.4/§6.5), so it is rejected at creation. All 18 oracle
+    weighs are same-kind, so this changes no verdict (see tests/oracle)."""
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("L", "link", adv, "support")); lk = _last(env.state)
+    env.step(Introduce("im1", "impact", lk, "support")); im1 = _last(env.state)
+    env.step(Introduce("im2", "impact", lk, "support")); im2 = _last(env.state)  # divergent
+    # SAME-KIND: impact vs impact -> legal.
+    assert is_legal(env.state, Weigh(im1, im2, im1))
+    # CROSS-KIND: link vs impact, advocacy vs link, advocacy vs impact -> all illegal.
+    assert not is_legal(env.state, Weigh(lk, im1, lk))
+    assert not is_legal(env.state, Weigh(adv, lk, adv))
+    assert not is_legal(env.state, Weigh(adv, im1, im1))
+    # the rejection is the cross-kind rule, not existence/favors (those pass first).
+    ok, reason = check_legality(env.state, Weigh(lk, im1, lk))
+    assert not ok and "cross-kind" in reason
+
+
+def test_defensive_attack_on_ballot_directive_masked_ruling2_v1a():
+    """Ruling 2 V1a: a CROSS-SIDE `defensive_attack` whose TARGET is a BallotDirective is
+    illegal (a BD bears no consumed magnitude -> judge-invisible in every state). The mask
+    is narrow BY DESIGN: support-on-BD is NOT masked (same-side Link/Framework->BD and
+    cross-side captured Impact->BD anchor -- masking them would break r6 and the capture
+    fixtures, spec TRAP)."""
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("L", "link", adv, "support")); lk = _last(env.state)
+    env.step(Introduce("im", "impact", lk, "support")); im = _last(env.state)
+    env.step(Introduce("vote aff", "ballot_directive", im, "support")); bd = _last(env.state)
+    env.step(EndSpeech())                                    # advance to 1NC (NEG's turn)
+    # V1a: NEG defensive_attack targeting the AFF BD -> ILLEGAL (introduce and connect).
+    assert not is_legal(env.state, Introduce("da on bd", "impact", bd, "defensive_attack"))
+    ok, reason = check_legality(env.state, Introduce("da on bd", "link", bd, "defensive_attack"))
+    assert not ok and "BallotDirective" in reason
+    env.step(Introduce("neg link", "link", adv, "support")); nlk = _last(env.state)
+    assert not is_legal(env.state, Connect(nlk, bd, "defensive_attack"))
+    # NOT over-masked: cross-side SUPPORT onto the BD stays legal (the capture-anchor route),
+    # and a cross-side defensive_attack on a NON-BD node (ordinary defense) stays legal.
+    assert is_legal(env.state, Introduce("neg support on bd", "impact", bd, "support"))
+    assert is_legal(env.state, Introduce("neg da on impact", "impact", im, "defensive_attack"))
+
+
 # --- observation: settled facts + node-level accrual only --------------------
 
 def test_observation_excludes_provisional_signal():

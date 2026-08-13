@@ -9,12 +9,18 @@ enforces exactly these and NOTHING else:
      compared node, distinct endpoints where required),
   4. the target/endpoint nodes exist (or target = NEW),
   5. a `connect` may not create a self-loop or close a Support cycle,
-  6. STRUCTURAL INCOHERENCE is illegal -- three moves that can never be meaningful in
-     ANY round state (so masking them removes no strategic distinction):
+  6. STRUCTURAL INCOHERENCE is illegal -- moves that can never be meaningful in ANY
+     round state (so masking them removes no strategic distinction):
        - a same-side attack (an attack edge between two nodes of the same side),
        - an offense at a non-polarity node (an offensive_attack where an endpoint is
          not offense-bearing -- not a Link or Impact),
-       - a redundant connect (a `connect` duplicating an existing edge).
+       - a redundant connect (a `connect` duplicating an existing edge),
+       - an Advocacy at either end of an attack edge / an Advocacy support-attached to
+         a non-Link node (judge_spec §2),
+       - a CROSS-KIND weigh (Ruling 1: operands of different kinds have no matching
+         factor -- a mixed-type Comparison is inert in every state, judge_spec §3.4/§6.5),
+       - a CROSS-SIDE defensive_attack whose target is a BallotDirective (Ruling 2 V1a:
+         a BD bears no consumed magnitude, so the edge is judge-invisible in every state).
 
 It does NOT enforce STRATEGIC legality -- response-window compliance, whether an
 extension will count, whether a rebuttal-introduced chain can establish offense,
@@ -96,6 +102,19 @@ def _structural_legal(state: RoundState, action) -> Tuple[bool, str]:
             return False, "weigh compares a node with itself"
         if action.favors not in (action.node_a, action.node_b):
             return False, "favors must point at node_a or node_b"
+        # Rule 6 (Ruling 1): a weigh ranks a SAME-KIND pair. A cross-kind weigh has no
+        # matching factor for the judge to rank -- a `Comparison` over a mixed-type pair is
+        # inert in every state (judge_spec §3.4 table, §6.5) -- so it is rejected at creation
+        # rather than sampled and scored inert. All 18 oracle-corpus weighs are same-kind, so
+        # this changes no verdict. `role` is the env's kind field ("weighing" for a weigh
+        # node, so a meta-weigh over two Weighings is admitted; r11). Two same-kind pairs are
+        # legal but have no live consumer -- BD-vs-BD (descriptive/inert) and an UNRELATED
+        # Uniqueness-vs-Uniqueness (only a COMPETING pair is consumed) -- see action_schema_spec
+        # §weigh; the env does not distinguish them (both same-kind, both legal).
+        if state.nodes[action.node_a].role != state.nodes[action.node_b].role:
+            return False, (f"cross-kind weigh: operands are "
+                           f"{state.nodes[action.node_a].role!r} and "
+                           f"{state.nodes[action.node_b].role!r} (must be same kind)")
         return True, ""
 
     if isinstance(action, Connect):
@@ -193,6 +212,18 @@ def _incoherent_attack(a_side: str, a_role: str, b_side: str, b_role: str,
                 "target of an attack edge (defensive or offensive) (judge_spec §2)")
     if a_side == b_side:
         return "same-side attack (incoherent): attack edge between two same-side nodes"
+    # Ruling 2 V1a: a CROSS-SIDE `defensive_attack` whose TARGET is a BallotDirective is
+    # incoherent -- a BD bears no magnitude any pass consumes (judge_spec §3.6/§7), so the
+    # attack is judge-invisible in EVERY state (the same category as a same-side attack, not
+    # a strategic outcome). Reaches here only cross-side (same-side caught above); the target
+    # is endpoint B by both callers' convention (introduce: new node attacks `target`; connect:
+    # `source` attacks `target`). The OFFENSIVE case on a BD is already caught below (a BD is
+    # not offense-bearing), so this adds only the defensive case. Support/comparison edges that
+    # a BD never reads are NOT masked -- they are silently unread (Ruling 2 V1b/V2/V3), and
+    # masking support-on-BD generally would break r6 + the capture fixtures (see spec TRAP).
+    if edge_type == "defensive_attack" and b_role == "ballot_directive":
+        return ("defensive attack on a BallotDirective (Ruling 2 V1a): a BD bears no "
+                "consumed magnitude, so the attack is judge-invisible in every state")
     if edge_type == "offensive_attack" and not (
             a_role in OFFENSE_BEARING_ROLES and b_role in OFFENSE_BEARING_ROLES):
         return ("offense at a non-polarity node: offensive_attack requires "
