@@ -38,8 +38,11 @@ from fuzz_env_shell import sample_legal
 
 # --- fixtures: states/observations at varying node counts --------------------
 
-def _collect(lo=10, hi=40, seeds=range(200)):
-    """{node_count: (state, obs)} spanning [lo, hi], one representative per count."""
+def _collect(lo=10, hi=40, seeds=range(2000)):
+    """{node_count: (state, obs)} spanning [lo, hi], one representative per count.
+
+    Post Ruling 1&2 the random-legal ceiling dropped from ~33 to ~31, so the break
+    targets 30 (not 33) and scans more seeds to reach it."""
     want = set(range(lo, hi + 1))
     pool = {}
     for s in seeds:
@@ -54,7 +57,7 @@ def _collect(lo=10, hi=40, seeds=range(200)):
             n = len(env.state.nodes)
             if n in want and n not in pool:
                 pool[n] = (copy.deepcopy(env.state), observe(env.state))
-        if len(pool) >= 12 and max(pool) >= 33:
+        if len(pool) >= 12 and max(pool) >= 30:
             break
     return pool
 
@@ -150,11 +153,15 @@ def test_weigh_second_target_excludes_self():
     # any state with >= 2 nodes
     state, obs = _POOL[_SIZES[0]]
     mask = LegalActionMask(state)
-    a_idx = 0
+    # Ruling 1 (same-kind weigh) makes an arbitrary pair need not be legal, so anchor on a
+    # node that HAS at least one legal (same-kind) partner rather than assuming node 0/1 do.
+    a_idx = next(i for i in range(len(mask.node_ids))
+                 if any(mask.weigh_b_mask(mask.node_ids[i])))
     a_id = mask.node_ids[a_idx]
     bmask = mask.weigh_b_mask(a_id)
     assert not bmask[a_idx]                    # cannot weigh a node against itself
-    assert is_legal(state, Weigh(a_id, mask.node_ids[1], a_id))   # some pair IS legal
+    b_idx = next(k for k, legal in enumerate(bmask) if legal)     # a legal same-kind partner
+    assert is_legal(state, Weigh(a_id, mask.node_ids[b_idx], a_id))   # some pair IS legal
     with torch.no_grad():
         out = ac.evaluate(obs)
         q = ac._q("weigh_b", out.graph_embedding)

@@ -56,19 +56,24 @@ def _snapshots(seed, targets):
     return out
 
 
-def _build_pool(lo=10, hi=40, seeds=range(200)):
+def _build_pool(lo=10, hi=40, seeds=range(2000)):
     """Scan random-legal rounds, capturing one observation per distinct node count in
     [lo, hi]. Node count grows by exactly one per node-creating action, so a round of
     final size F contributes every count up to F; high counts (mostly-introduce play)
     are rare under uniform-random sampling, so we scan many seeds and stop once we have
-    a broad spread. Returns {node_count: obs}."""
+    a broad spread. Returns {node_count: obs}.
+
+    The Ruling 1&2 legality masks (same-kind weigh; cross-side defensive-attack on a
+    BallotDirective) shrank the random-legal branching, lowering the ceiling reachable
+    under uniform play from ~33 to ~31, so the break targets 30 (not 33) and scans more
+    seeds to hit it. See docs/judge_spec.md (Ruling 1 & 2)."""
     want = set(range(lo, hi + 1))
     pool = {}
     for s in seeds:
         for n, obs in _snapshots(s, want).items():
             pool.setdefault(n, obs)
-        # Enough coverage: a wide spread reaching well into the realistic 30-40 band.
-        if len(pool) >= 12 and max(pool) >= 33:
+        # Enough coverage: a wide spread reaching into the (post-ruling) realistic band.
+        if len(pool) >= 12 and max(pool) >= 30:
             break
     return pool
 
