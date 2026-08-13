@@ -90,24 +90,59 @@ def _speech_spend(traj):
     return by_slot
 
 
+def _quantiles(xs):
+    """[min, q1, median, q3, max] by linear interpolation (dependency-free)."""
+    if not xs:
+        return [0.0, 0.0, 0.0, 0.0, 0.0]
+    s = sorted(xs); n = len(s)
+    def q(p):
+        if n == 1:
+            return s[0]
+        i = p * (n - 1); lo = int(i); frac = i - lo
+        return s[lo] if lo + 1 >= n else s[lo] * (1 - frac) + s[lo + 1] * frac
+    return [round(s[0], 3), round(q(0.25), 3), round(q(0.5), 3), round(q(0.75), 3), round(s[-1], 3)]
+
+
+_UTIL_EDGES = [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]
+_UTIL_LABELS = ["<0.1", "0.1-0.25", "0.25-0.5", "0.5-0.75", "0.75-1.0", ">=1.0"]
+
+
+def _util_hist(xs):
+    """Histogram of budget-used fractions over fixed bins -- surfaces bimodality (some
+    speeches near-empty, some full) that a mean conceals."""
+    h = {lbl: 0 for lbl in _UTIL_LABELS}
+    for x in xs:
+        for i in range(len(_UTIL_EDGES) - 1, -1, -1):
+            if x >= _UTIL_EDGES[i]:
+                h[_UTIL_LABELS[i]] += 1
+                break
+    return h
+
+
 def _accum_spend(accum, by_slot):
-    """Fold one episode's per-slot spend into a per-seed accumulator:
-    slot -> {n, ended_early, used_frac_sum, counts(Counter)}."""
+    """Fold one episode's per-slot spend into a per-seed accumulator, keeping per-speech
+    SAMPLES (not just sums) so the summary can report the distribution:
+    slot -> {n, ended_early, counts, util[], moves_before_end[]}."""
     for slot, rec in by_slot.items():
         a = accum.get(slot)
         if a is None:
-            a = accum[slot] = {"n": 0, "ended_early": 0, "used_frac_sum": 0.0, "counts": Counter()}
+            a = accum[slot] = {"n": 0, "ended_early": 0, "counts": Counter(),
+                               "util": [], "moves_before_end": []}
         a["n"] += 1
         a["ended_early"] += 1 if rec["ended_early"] else 0
         budget = rec["slot_budget"] or 1
-        a["used_frac_sum"] += rec["moves_peak"] / budget
+        a["util"].append(rec["moves_peak"] / budget)
+        # moves BEFORE end_speech = all decisions this speech minus the terminal EndSpeech.
+        a["moves_before_end"].append(sum(rec["counts"].values()) - rec["counts"].get("EndSpeech", 0))
         a["counts"].update(rec["counts"])
 
 
 def _summarize_spend(accum):
-    """Per-slot summary over a seed's last-15 learner speeches: mean budget-used fraction
-    (peak moves_used / slot budget -- a lower bound, pre-final-action), the exhausted rate
-    (1 - ended-early rate), and the mean per-speech action-type spend, ordered by SPEECH_ORDER."""
+    """Per-slot DISTRIBUTION summary over a seed's last-15 learner speeches, ordered by
+    SPEECH_ORDER: budget-used fraction (peak moves_used / slot budget -- a pre-final-action
+    lower bound) as mean + quartiles + a fixed-bin histogram (to expose bimodality), the
+    distribution of moves-before-end_speech, the exhausted rate (1 - ended-early), and the
+    mean per-speech action-type spend (what the budget is used ON)."""
     from model import SPEECH_ORDER
     out = {}
     for slot in SPEECH_ORDER:
@@ -117,7 +152,11 @@ def _summarize_spend(accum):
         n = a["n"]
         out[slot] = {
             "n_speeches": n,
-            "mean_budget_used_frac": round(a["used_frac_sum"] / n, 3),
+            "mean_budget_used_frac": round(sum(a["util"]) / n, 3),
+            "util_quartiles": _quantiles(a["util"]),
+            "util_hist": _util_hist(a["util"]),
+            "moves_before_end_mean": round(sum(a["moves_before_end"]) / n, 2),
+            "moves_before_end_hist": dict(sorted(Counter(a["moves_before_end"]).items())),
             "exhausted_rate": round(1.0 - a["ended_early"] / n, 3),
             "mean_actions_per_speech": {k: round(a["counts"][k] / n, 2)
                                         for k in _ACTION_NAMES if a["counts"][k]},
@@ -380,7 +419,8 @@ def run_seed(seed, warmstart_path, spec, cfg):
     spend = _summarize_spend(spend_accum)               # per-speech budget spend (last 15)
     for slot, sp in spend.items():
         print(f"    seed{seed} spend[{slot}] used={sp['mean_budget_used_frac']:.2f} "
-              f"exhausted={sp['exhausted_rate']:.2f} n={sp['n_speeches']} "
+              f"q={sp['util_quartiles']} exhausted={sp['exhausted_rate']:.2f} "
+              f"mbe_mean={sp['moves_before_end_mean']} n={sp['n_speeches']} "
               f"acts={sp['mean_actions_per_speech']}", flush=True)
     return {"seed": seed, "last15_win": win, "last15_surv": surv, "passed": passed,
             "phi_first15": phi_first, "phi_last15": phi_last, "phi_trend": phi_trend,

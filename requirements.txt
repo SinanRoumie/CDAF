@@ -8,3 +8,10 @@ Flask>=2.0
 # Phase 4 policy encoder (policy/). CPU wheel is sufficient for the cheap ~4ms
 # rollouts; a CUDA build is a drop-in swap for training at scale.
 torch>=2.2
+# numpy is a direct runtime import (policy/features.py) and is not reliably pulled by the
+# torch CPU wheel; pin it explicitly so a clean pod install has it.
+numpy>=1.24
+
+# pytest: the on-pod transfer-verify gate runs the suite. Not a runtime dep of the app,
+# but required wherever the gate runs (kept here so a clean clone can self-verify).
+pytest>=7.0

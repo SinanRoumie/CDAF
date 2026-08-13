@@ -45,6 +45,9 @@ from env import NEW
 from env.actions import Introduce, Extend, Concede, Weigh, Connect, EndSpeech
 from .encoder import GraphEncoder, EncoderOutput
 from .curriculum import CurriculumLegalActionMask
+from .min_spend import (
+    MinSpendLegalActionMask, MinSpendCurriculumLegalActionMask, min_spend_binds,
+)
 from .masking import (
     LegalActionMask, ACTION_TYPES, ACTION_ROLE_ORDER, EDGE_TYPE_ORDER,
 )
@@ -216,7 +219,15 @@ class ActorCritic(nn.Module):
         node_emb = enc_out.node_embeddings          # (N, d)
         g = enc_out.graph_embedding                  # (graph_dim,)
         node_ids = enc_out.node_ids
-        mask = CurriculumLegalActionMask(state) if self.curriculum else LegalActionMask(state)
+        # Mask class = env legality, optionally AND-composed with the opening curriculum
+        # and/or the end-speech min-spend foreclosure (both policy-layer scaffolds). Chosen
+        # here in _walk so sample_action and evaluate_action (which both route through _walk)
+        # stay consistent.
+        if self.curriculum:
+            mask = (MinSpendCurriculumLegalActionMask if min_spend_binds()
+                    else CurriculumLegalActionMask)(state)
+        else:
+            mask = (MinSpendLegalActionMask if min_spend_binds() else LegalActionMask)(state)
         assert node_ids == mask.node_ids, "encoder node order must match mask node order"
 
         records: dict = {}
