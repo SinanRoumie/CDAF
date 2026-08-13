@@ -89,6 +89,17 @@ to the training discount (0.999). The environment exposes Φ(s); the training lo
   `PHI_NASCENT_KAPPA` is now 0.0; the `phi_maxdiff` `kappa` branch defaults to 0.0 and is left
   dormant (full removal is optional cleanup). At κ = 0, Φ is byte-identical to the extended-only
   potential and all four PBRS correctness constraints hold trivially.
+- **Extension incentive (Ruling 3) — CLOSED, no code change (2026-08-13).** The incentive to
+  extend the best offense rather than drop and rebuild it fresh is ALREADY implemented on both
+  halves: (1) new offense first introduced in a **rebuttal** (1AR/2NR/2AR) is penalised at the
+  ballot AND in Φ, above the horizon check, with Advocacy roots exempt; (2) a constructive chain
+  must be carried through **every own-side speech** (from its introduction) to score — at the
+  ballot and in the extended-so-far Φ gate. PBRS invariance (Φ(terminal) = 0) **forbids** any Φ
+  change from adding NET incentive — it could only reshape signal timing — and the maturity-
+  weighting that would attempt it is exactly the neutralised **nascent channel** (dead end,
+  above). The elevated `extension_fail` rate is therefore a **learning problem** (the policy has
+  not yet learned an incentive that already exists), addressed by longer training, **not** a rules
+  change. Do not reopen as a Φ or legality change.
 - **Policy-invariant.** Under the four correctness constraints (environment_shell_spec
   §step()), PBRS provably does not change the optimal policy — it only speeds learning (dense,
   low-variance critic target + shaped advantage structure). This is the key difference from
