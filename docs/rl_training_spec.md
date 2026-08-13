@@ -100,6 +100,21 @@ to the training discount (0.999). The environment exposes Φ(s); the training lo
   above). The elevated `extension_fail` rate is therefore a **learning problem** (the policy has
   not yet learned an incentive that already exists), addressed by longer training, **not** a rules
   change. Do not reopen as a Φ or legality change.
+- **End-speech min-spend mask (Phase 1.5) — CLOSED dead end (2026-08-13).** To counter
+  policies ending speeches early with budget unused, a policy-layer mask (like the opening
+  curriculum, not an env rule) foreclosed `end_speech` until `ceil(frac·slot_budget)` was
+  spent, swept over frac ∈ {0.25, 0.5, 0.75, 1.0} on the B4 budget with an unmasked control
+  (M0), 5 seeds each. It **raised the spend floor mechanically but produced padding, not
+  argument**: real construction collapsed, `no_link_premise` fragment-deaths surged (7% →
+  up to 73%), and win/survival fell monotonically below the M0 control (M0 1/5 win 0.140;
+  every masked cell 0/5, win ≤ 0.015). The floor was largely satisfied by **no-op 1AC
+  extends**, which the sweep exposed as a legality bug — now fixed (extension carries
+  forward only; environment_shell_spec §Liveness stamping). **Nothing was adopted: the
+  deliberate-foreclosure list (environment_shell_spec §Governing principle) is unchanged.**
+  Like the nascent channel, forcing a surface statistic (budget spent) cannot manufacture
+  the underlying behavior (real extension) — a learning problem, not a maskable one. Do not
+  reopen without a mechanism that forces *productive* spend. (Measurement caveat for prior
+  extension metrics: environment_shell_spec §Liveness stamping.)
 - **Policy-invariant.** Under the four correctness constraints (environment_shell_spec
   §step()), PBRS provably does not change the optimal policy — it only speeds learning (dense,
   low-variance critic target + shaped advantage structure). This is the key difference from

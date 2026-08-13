@@ -61,8 +61,10 @@ time. The three structural checks above are **not** strategic: they forbid moves
 that are *logically incoherent in every round state* (no possible continuation makes
 a same-side attack, an offense at a non-polarity node, or a duplicate edge
 meaningful), so disallowing them removes no strategic distinction. Context-dependent
-inertness stays learnable: a **no-op re-extend** is legal (priced via cost, §Liveness
-stamping), and window/maker-lapsed inertness stays a judge outcome.
+inertness stays learnable: window/maker-lapsed inertness stays a judge outcome. (The
+**no-op re-extend** was formerly the one legal-but-priced inert class; as of the
+2026-08-13 ruling it is ILLEGAL — extension carries forward from a prior speech only,
+§Liveness stamping.)
 
 **The Advocacy/Framework-root rule is redundancy elimination for rooted
 components, and a bounded foreclosure for rootless ones.** Unlike the
@@ -408,22 +410,37 @@ K carriages are on one chain or scattered across unrelated arguments. `contested
 `conceded` status is still derived structurally at materialization (below), never
 from the verb or the named node.
 
-**No-op re-extend costs a full slot.** A carriage of a node **already carried this
-speech** changes nothing (the stamp is an idempotent set-add). It stays legal but is
-charged a **full slot (cost 1)**, bypassing the `ceil(count/K)` batch discount, and
-still increments `extends_this_speech`. Only **distinct** carriages — a node not yet
-carried this speech — earn the `1-slot-per-K` rate. Detection reuses the same
-"already carried this speech" predicate the inert classifier uses. This prices inert
-re-extension at its true opportunity cost (a wasted move) instead of letting the
-batch discount make it near-free — the v2 diagnostic showed the near-free case
-producing tens of no-op re-extends per episode.
+**No-op re-extend is ILLEGAL — extension carries forward from a prior speech only
+(2026-08-13 ruling).** A carriage of a node **already carried this speech** changes
+nothing (the liveness stamp is an idempotent set-add). Because a node is stamped
+`carried={introduction_speech}` at birth (`state.py`), "already carried this speech"
+covers BOTH a re-extend within a later speech AND **every extend in the speech a node was
+introduced** — so *all 1AC extends are illegal*. `check_legality` masks the whole class:
+`Extend`/`Concede` requires the target to be carried in a **strictly prior** speech and
+not yet this speech. Only **distinct** carriages exist, and they earn the `1-slot-per-K`
+batch discount (`ceil(count/K)`). `state.action_cost` retains its full-slot no-op price
+and `is_inert` still detects the case, but both are now **dead defensive paths** —
+unreachable via legal play; `is_inert`'s sole class (`noop_reextend`) can no longer be
+sampled, so the `inert_penalty_coef` reward hook is **vestigial** (retained dormant;
+remove-or-keep is a follow-up).
 
-**Slack-budget caveat (intentional, not a gap).** A no-op re-extend pays the full
-slot even in a speech with unused budget, exactly as any move does — there is no
-rebate for "there was budget to spare." The one case this does not strongly deter —
-a no-op late in a speech the agent would otherwise end with slack — is deliberately
-left to the dormant `inert_penalty_coef` reward backstop (rl_training_spec §Reward),
-to be enabled only on evidence it matters, rather than complicating the cost model.
+*Why it changed.* No-op re-extends were formerly **legal but priced** at a full slot (a
+"wasted move" the batch discount must not make near-free). That still let a policy burn a
+budget slot changing nothing, and the **Phase-1.5 min-spend sweep** (rl_training_spec
+§Reward) showed it being abused: forced to spend, policies padded the budget floor with
+no-op 1AC extends (up to ~4 `Extend`+`Concede` per 1AC, *all* no-ops), collapsing real
+construction into `no_link_premise` fragments. Ruled illegal rather than priced.
+
+*Measurement caveat.* A no-op re-extend never touched `carried`/liveness, so it never
+changed a **verdict**, an **`extension_fail`** classification, or **Φ** — those are
+unaffected by this ruling and need **no re-measurement** (this includes the Phase-1.5
+per-cell verdict/death-cause results and the Phase-1 pass counts). Only **per-speech spend
+/ extend-count** metrics counted no-op extends as extends (every 1AC "extend" was a no-op;
+later speeches partly so), inflating extends-per-speech and budget-utilisation figures —
+including the Phase-1 budget sweep's extension magnitudes (e.g. 1AR extends "3.3 → 11.2").
+The sweep's **verdict-based core finding survives** (rebuttal budget binding; B4 best rests
+on win/survival/`extension_fail`), but the extension *magnitudes* were inflated by an
+unknown no-op fraction and are re-measured by the post-fix **B4 verification screen**.
 
 Rationale: the same graph must produce the same verdict regardless of how it
 was built. If status were a function of action history, an env-built round and
