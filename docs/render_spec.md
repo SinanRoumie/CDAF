@@ -1,6 +1,14 @@
-# CDAF Render Spec v1 (draft)
+# CDAF Render Spec v1.4
 
-Status: **accepted**. All semantic rulings closed. No code written against this document yet.
+Status: **accepted, v1.4**. All semantic rulings closed. M0 built and committed at v1.3.
+
+v1.1 amended RS10, RS11, RS13, RS16, RS27, and O3 after a code survey found RS10 described a function the judge does not have.
+
+v1.2 amended RS10, RS11, RS13, retired RS11b, and closed O2 and O4 after a corpus survey found the v1.1 register predicate structurally incapable of classifying cross-side-rooted NEG offense.
+
+v1.3 restated RS10c, split RS13, added RS13c, and closed O5 after the RS10c check caught a judge-internal inconsistency about whether a BallotDirective conducts.
+
+v1.4 retires RS13 and RS13b entirely after the v1.3 assert fired on a legal post-mask round. Corrections are marked inline as *correction notes* rather than silently overwritten.
 
 Rule IDs are prefixed `RS` to avoid collision with judge spec rules (`r6`, `r26`, `r27`, …). Sub-rules use the `a`/`b`/`c` suffix convention established in `RULINGS_v9.md` (V1a/V1b).
 
@@ -62,20 +70,75 @@ Rationale: a transcript that leaks the result cannot be read as a round. Judge r
 
 Content domain is determined by anchoring, not by type.
 
-**RS10.** A chain's register is derived from its anchor component. Anchor membership is the judge's existing union-find from the impact terminal over Support paths whose interior nodes are never Advocacy or BallotDirective (both absorbing, not traversable). The renderer performs no independent graph analysis.
+**RS10.** The renderer performs no *duplicate* analysis: it never recomputes anything the judge computes. Where the judge has no corresponding concept, the renderer may walk the graph, but only by borrowing an existing judge traversal's semantics exactly.
 
-**RS11.** Two registers:
+Register derivation is three reads:
 
-| Anchor | Register |
+1. **Component** — `resolve_chains` (`judge/passes.py:957`). Union-find over same-side Support edges. Advocacy and BallotDirective are ordinary traversable members here; the union unions *through* them. Chains are grouped into components by shared union-find root (see RS16b).
+2. **Framework reach** — `_framework_anchors` (`judge/passes.py:1277`). Directed walk seeded from the component's impact terminals in which Advocacy and BallotDirective are absorbing — arrived at, not expanded through. Returns reachable Framework node ids.
+3. **Advocacy reach** — RS10b. Not a judge concept; computed by the renderer.
+
+**RS10b.** Advocacy reach is `_framework_anchors`' traversal with the collector changed. Identical seeding (component impact terminals), identical absorption (Advocacy and BallotDirective arrived at, not expanded through), identical side-agnosticism. It collects reachable **Advocacy** node ids instead of Framework node ids. Nothing else differs.
+
+*Why not `_neg_offense_rooted`.* `_neg_offense_rooted` (`passes.py:784`) closes the RS13 rooted-at-all question exactly, but cannot do RS11 for two independent reasons. It conflates advocacy-rooting with framework-rooting into one boolean, and it is asymmetric by construction — it searches for an *AFF* advocacy specifically, so AFF components cannot use it. Deriving advocacy-reach as `rooted=True AND frameworks=empty` would work on the present corpus and fail on shapes not yet generated: the two walks have different semantics, and a NEG Advocacy is traversable in `_neg_offense_rooted` but absorbing in `_framework_anchors`.
+
+**RS10c.** RS10b must mirror `_framework_anchors` exactly — identical seeding, identical absorption, identical side-agnosticism, differing only in what it collects. Divergence from `_framework_anchors` is drift and is a hard failure.
+
+Divergence from `_neg_offense_rooted` is **expected, not a failure**, and is recorded rather than corrected.
+
+**BallotDirective absorbs for register.** A BallotDirective is a ballot instruction, not an inferential link. Reasoning *through* one treats "vote NEG" as a premise. This follows the BD-trap precedent, which already ruled BD absorbing for anchoring purposes.
+
+*Correction note.* v1.2's RS10c required `advocacy_reach ∪ framework_reach` to agree with `_neg_offense_rooted` for NEG components, and made disagreement a hard failure. Corpus survey found 3 disagreements, all traced to two structural differences intrinsic to the judge rather than to renderer drift: `_framework_anchors` absorbs at BallotDirective while `_neg_offense_rooted` walks through it, and RS10b seeds from terminal impacts while `_neg_offense_rooted` seeds from all members. The check did its job — it surfaced that two judge traversals disagree about whether a BD conducts — but the failure it detected was not the renderer's.
+
+The seed-set difference is downstream of the same ruling: under absorption, a root reachable only through a non-terminal BD member is correctly not reachable.
+
+*Judge-side finding, out of scope for rendering.* `_neg_offense_rooted` (`passes.py:784`) treats BallotDirective as a conductor, which appears inconsistent with the BD-trap precedent. This affects `unrooted_disad` collapse decisions and is logged here for the judge workstream. It is not addressed by this spec and no judge file is modified on its account.
+
+*Correction note.* Earlier drafts of RS10 described a single union-find "from the impact terminal over Support paths whose interior nodes are never Advocacy or BallotDirective." That rule is real but governs **BallotDirective anchoring**, not register. It was misapplied here. No single judge function performs it for register purposes, and none should be written; register requires both steps above plus the precedence rule in RS11.
+
+**RS11.** Register keys on **reachability**, not membership, and is side-agnostic. Advocacy takes precedence.
+
+| Condition on component | Register |
 |---|---|
-| Advocacy | Substantive offense about the advocacy's consequences |
-| Framework | Reason to prefer that framework |
+| Advocacy reach (RS10b) non-empty | Substantive offense about the advocacy's consequences |
+| Advocacy reach empty, framework reach non-empty | Reason to prefer that framework |
+| Both empty | — (RS13 assert) |
+
+One rule, both sides, no special-casing. AFF components reach their own advocacy directly. NEG offense reaches the AFF advocacy through a cross-side Support edge. A component reaching both renders substantive; a component reaching only a framework renders as an advantage of reading that framework.
+
+Register is total: every legal component derives exactly one register.
+
+*Correction note.* v1.1 keyed register on "Advocacy in the component's `members`." Membership comes from a same-side union-find, and a disad is NEG offense *about the AFF's advocacy*, so the advocacy a disad roots into is always cross-side and never in its own component. The v1.1 predicate was therefore structurally incapable of classifying a NEG disad correctly — not merely inaccurate at the margin. Corpus survey confirmed: `r36` and `shape2_link_turn` are scored by the judge as live rooted NEG offense (`collapse_reason=None`, extended, sign +1, magnitude 1.0) while v1.1 classified them unanchored. 32 of 178 post-mask run exports carry the same shape.
+
+This is a correction to the implementation of Ruling 4, not a change to it. Ruling 4 holds that a chain not connected to the advocacy is not a disad to the advocacy. These chains *are* connected, via cross-side Support. RS11 v1.1 failed to see the connection; the ruling always covered them.
+
+**RS11b.** *Retired in v1.2.* RS11b held that a NEG component must not acquire substantive register by unioning into the shared Advocacy. That is backwards: cross-side rooting into the advocacy is precisely what makes NEG offense substantive. The property it guarded was the wrong one. Superseded by RS10c, which checks the renderer's walk against judge semantics rather than forbidding a legitimate shape.
+
+The survey result RS11b prompted remains valid on its own terms: zero components span both sides across 47 fixtures, confirming the same-side union gate at `passes.py:980`.
 
 **RS12.** Framework-anchored offense is available to both sides and is not a disadvantage to the framework's own proponent. It is a warrant to prefer. A link supporting a framework without connecting to an advocacy renders as an advantage to reading that framework.
 
-**RS13.** Unanchored chains are illegal in the action space as of current runs. The renderer therefore has no unanchored register and no fallback branch. Encountering an unanchored chain is an **assertion failure**, not a render path.
+**RS13.** *Retired in v1.4.* There is no assert. Every component that derives no register renders under RS13c.
 
-Rationale for RS13 as an assert rather than a render: older fixtures predate the legality mask, and hand-authored graphs enter through the builder. A loud failure identifies stale input. A silent one fabricates content the semantics say cannot exist.
+*Correction note.* RS13 was specified three times and fired on legal output every time. v1.1 keyed on same-side membership and fired on legal cross-side-rooted disads (`r36`, `shape2_link_turn`). v1.2 fired on 55 legal unfinished arguments. v1.3 reserved the assert for rounds containing no Advocacy anywhere and fired on `B4post_negwin_seed1_u25_ep000`, a legal post-mask round the policy actually produced.
+
+The root error was constant across all three: the assert was trying to encode *"this input is stale."* Staleness is provenance, not structure, and the renderer sees only structure. `E.json` and `B4post_negwin_seed1_u25_ep000` are structurally identical; only their origin differs. No structural predicate can separate them — which is the same reason O5 could not be closed by survey.
+
+Retiring the assert is therefore not a relaxation. It is the recognition that the renderer was never in a position to make the judgment the assert claimed to make.
+
+**RS13b.** *Retired in v1.4.* Survey-before-enforcement existed to protect a wired assert. With no assert, there is nothing to enforce and nothing to survey against.
+
+**RS13c.** Every component with no derivable register renders with an incomplete marker — advocacy reach empty and framework reach empty, regardless of what the rest of the round contains.
+
+Such a component is a legal, unfinished argument. The mask governs legality at the moment a move is made; it does not guarantee that every terminal-impact component is anchored at round end. A debater may read an impact and never link it. Under RS21c, chains built across speeches are already legal; a component unanchored at round end is simply one the debater started and never finished.
+
+A round containing no Advocacy at all renders as a round in which the AFF never advocated. That is readable and diagnostic. It is not a crash.
+
+The renderer emits the component's claim and marks it as never connected. It does not invent a register, and it does not halt on any input.
+
+Rationale: asserting would halt on legal rounds; skipping silently would hide them. Marking makes "the policy built 23 impacts it never linked" visible in prose — the same diagnostic value as RS27. Expect roughly a fifth of rendered components to carry this marker on the pre-W1a corpus (58 of 262). That is ugly, and it is an accurate picture of those rounds.
+
+*Training-workstream finding, out of scope for rendering.* `B4post_negwin_seed1_u25_ep000` contains no Advocacy node. If the first move is always an advocacy, then either that invariant is not enforced in the action space or the AFF no-op'd every speech. Both are findings for the training workstream. The second would be a stronger statement of AFF collapse than anything currently in the diagnostics.
 
 ---
 
@@ -87,11 +150,17 @@ Rationale for RS13 as an assert rather than a render: older fixtures predate the
 
 **RS16.** Per-speech rendering procedure:
 
-1. Compute anchor components over the full graph.
+1. Obtain components per RS16b.
 2. Walk components in established flow order.
 3. Within each component, render all new material touching it: new nodes, new edges, extensions.
-4. Within a component, traverse anchor outward to terminal.
+4. Within a component, traverse anchor outward to terminal per RS16c.
 5. Tie-break on node id.
+
+**RS16b.** *Component* (spec) is not *chain* (code). Since the v11 divergence, `resolve_chains` emits one chain per terminal impact, and several chains may share one `members` component (`passes.py:1027-1044`). The renderer's component is the grouping of chains by shared union-find root.
+
+A divergent multi-terminal component renders as **one flow section with multiple terminals**, not one section per terminal. One advantage with two impact scenarios is read under one heading.
+
+**RS16c.** Multi-terminal traversal: DFS from the anchor, node-id ordered, each node rendered exactly once. The shared spine renders once and then branches. This is what a debater does and it prevents duplicate rendering of shared links.
 
 **RS17.** Cross-side attacks render inside the target's component, not in a section of their own. A NEG defensive attack on an AFF link appears within the discussion of that AFF chain. Line-by-line structure falls out of the partition; no separate rule is required.
 
@@ -162,9 +231,18 @@ Consequence: a rebuttal introducing no new nodes still renders. A 2AR extending 
 
 ## 7. Diagnostics
 
-**RS27.** Judge-invisible edges render. A debater made the move; it merely did not land. The edge is rendered and marked invisible with its named reason.
+**RS27.** Judge-invisible edges render. A debater made the move; it merely did not land. The edge is rendered and marked with its judge-emitted reason.
 
-Rationale: this makes the transcript a direct readout of the edge-waste workstream (~33% of edge-creating moves produce edges the judge never reads). The prose shows what the policy believes it is doing; the marker shows what the judge reads.
+**RS27b.** The renderer never computes visibility. It consumes only invisibility records the judge already emits, and marks exactly those. A renderer-side visibility analysis would be a second implementation drifting from the judge — the same failure that RS10 guards against, one layer up.
+
+Current vocabulary is therefore exactly what the trace names:
+
+- `InertAttack(edge_id, reason)` — `judge/trace.py:95`
+- `WindowClosed(edge_id, …)` — `judge/trace.py:104`
+
+Both are attack-edge reasons. Visibility is computed, not stored on edges, and there is no canonical judge record enumerating every invisible edge with a name.
+
+*Correction note.* Earlier drafts implied RS27 would surface the full ~33% of edge-creating moves producing edges the judge never reads. It cannot. That set includes Support edges — same-speech zero-budget edges, cross-side fusion never traversed, edges into dead components — for which no named judge record exists. Producing that readout requires a **judge-side invisibility enumerator**, which is work on judge code and a separate workstream. It is not started while pod experiments are running against the tree.
 
 **RS28.** Cross-application prose that visibly strains is signal, not failure. A renderer struggling to justify a late edge indicates a move that scores structurally while meaning nothing.
 
@@ -247,9 +325,15 @@ Rationale: debate transcripts in training data are saturated with `Smith '19`. A
 
 **O1.** Whether 50 words suffices for a warrant carrying a long chain's inferential load. Unknowable before M1 output exists.
 
-**O2.** Whether a digest mode (~200–300 words/speech) survives contact with the node-count budget. A dense 1NC may exceed it substantially. M0 yields node counts per speech and answers this cheaply.
+**O2.** ~~Whether a digest mode (~200–300 words/speech) survives contact with the node-count budget.~~ **Closed by ruling.** It does not, and this is accepted. A 7-node 1NC at ~350 words is fine. Variable speech length is fine and expected. There is no digest-mode cap and no length trimming. Corpus node counts per speech: 1AC=237, 1NC=83, 2AC=19, 2NC/1NR=11, 1AR=2, 2NR=16, 2AR=34 (oracle corpus totals) — rebuttals are thin, so rebuttal length is almost entirely RS26 extension lines.
 
-**O3.** Whether rendering makes any additional edge-legality gap visible that the current mask does not cover. RS27 is the instrument.
+**O3.** ~~Whether rendering surfaces edge-legality gaps the current mask does not cover.~~ **Rescoped by RS27b.** Rendering can only surface gaps the judge already names, so RS27 is an instrument for `InertAttack` and `WindowClosed` only. The broader edge-waste readout is blocked on a judge-side invisibility enumerator and is not an M0 or M1 question.
+
+**O4.** ~~Whether any component acquires the wrong register via cross-side fusion through the shared Advocacy (RS11b).~~ **Closed.** Surveyed at zero across 47 fixtures, but the question was malformed — see retired RS11b. The real defect ran the other way and is fixed in RS10b/RS11.
+
+**O5.** ~~Whether the post-mask export set is genuinely post-mask, resolved by surveying asserts across the exports.~~ **Closed as unresolvable by this instrument.** The survey returned 58 no-register components across 262. Under RS13c that count is consistent with the mask being live — unfinished arguments are legal — but consistency is not demonstration. A legal unfinished argument and a pre-mask floating root are structurally indistinguishable at round end. Mask verification requires a run-config record, not a corpus survey. Do not re-attempt via survey.
+
+**O6.** Whether M1 readability tuning is contaminated by edge soup. Every available export predates the edge-soup fix (`5c87129`), with up to 2.4× redundant cross-side edges per pair. Under RS25 each redundant edge draws a full 50-word cross-application, so a soup-heavy round renders as the same cross-application restated repeatedly. Accepted for M0, where repetition is visible at zero cost and arguably demonstrates RS28. Revisited before M1 **if** exports can be regenerated from saved checkpoints without new pod time; if regeneration requires new runs, the diagnostic reading stands and M1 proceeds on the existing corpus.
 
 ---
 
