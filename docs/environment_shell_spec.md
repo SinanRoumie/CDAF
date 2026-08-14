@@ -35,8 +35,15 @@ The legal-action generator enforces **structural** legality and nothing else:
 - an **`offensive_attack`** may not touch a **non-polarity** node — both endpoints
   must be offense-bearing (Link or Impact); offense at a uniqueness/advocacy/
   framework/ballot_directive has no polarity to flip (judge §3.4)
-- a **`connect`** may not **duplicate an existing edge** (same source, target, and
-  edge_type) — it would add no structure
+- a **`connect`** may not add a **second edge over a pair that already shares one** —
+  **at most one edge per unordered pair** (2026-08-13 edge-soup fix). Rejected whether
+  the second edge is an exact duplicate, a *reversed* duplicate (`b→a` when `a→b`
+  exists), or a *contradictory* type (an attack over a pair already joined by a
+  support, and vice versa). The judge is direction-agnostic and reads **one**
+  relationship per pair, so any second same-pair edge adds no distinguishable structure
+  and can corrupt accrual — see §Edge soup below. (Generalizes the former
+  exact-`(source, target, edge_type)` duplicate check.) Only `connect` can reach this
+  state; an attaching `introduce` mints a fresh source node, so its pair is always new.
 - a **`weigh`** may not compare **different-kind** operands (Ruling 1) — a cross-kind
   weigh has no matching factor and the judge scores it inert in every state (judge_spec
   §3.4/§6.5); rejected at creation. (Same-kind BD-vs-BD is descriptive/inert;
@@ -59,8 +66,8 @@ offense, whether a spike into a conceded-but-uncontested node is inert — all o
 these remain outcomes computed by the judge, not prohibitions enforced at action
 time. The three structural checks above are **not** strategic: they forbid moves
 that are *logically incoherent in every round state* (no possible continuation makes
-a same-side attack, an offense at a non-polarity node, or a duplicate edge
-meaningful), so disallowing them removes no strategic distinction. Context-dependent
+a same-side attack, an offense at a non-polarity node, or a second edge over an
+already-joined pair meaningful), so disallowing them removes no strategic distinction. Context-dependent
 inertness stays learnable: window/maker-lapsed inertness stays a judge outcome. (The
 **no-op re-extend** was formerly the one legal-but-priced inert class; as of the
 2026-08-13 ruling it is ILLEGAL — extension carries forward from a prior speech only,
@@ -101,8 +108,8 @@ each scored as its own chain (State schema → Divergence) — so the former
 "Fence A" is retired from both the generator and `validate_round`. That also
 removed the generator's per-action deepcopy probe, so legality checks are now
 near-O(1) structural predicates; the non-local ones are the `connect` Support-cycle
-test (a cheap reachability query) and the redundant-`connect` duplicate-edge scan (a
-cheap O(edges) check). Same-side-attack, offense-at-non-polarity, and
+test (a cheap reachability query) and the redundant-`connect` one-edge-per-pair scan
+(a cheap O(edges) set compare). Same-side-attack, offense-at-non-polarity, and
 no-op-re-extend detection are all O(1) local predicates. `validate_round` at termination
 is now the off-vocab-speech check (Fence G) only — still an assertion, satisfied
 by construction because the env stamps every node's speech from the current slot.
@@ -237,6 +244,54 @@ undirected cycle but a directed DAG (all edges orient acyclically toward the
 shared impact). So convergence/divergence structures stay buildable; only genuine
 circular support (`a → … → a`) is refused. Forbidding cycles also keeps the
 degenerate no-terminal-impact component unreachable.
+
+**Edge soup: at most one edge per unordered pair (2026-08-13 fix).** A `connect`
+is refused if the unordered pair `{source, target}` **already carries any edge**,
+regardless of that edge's direction or `edge_type`. This generalizes the earlier
+guard, which rejected only an exact `(source, target, edge_type)` triple and so
+admitted three kinds of parallel edge: a *reversed* duplicate (`b→a` while `a→b`
+exists), and a *contradictory* pair — a `support` and an attack, or an
+`offensive_attack` and a `defensive_attack`, over the same two nodes. **Mechanism:**
+the predicate is a set compare `{e.source, e.target} == {source, target}` over
+`state.edges` (O(edges); self-loops are already refused, so the compare is
+unambiguous). It sits in `check_legality` *before* the incoherence checks, so the
+pair reason fires first. **Why it is structural, not strategic:** the judge is
+**direction-agnostic** and reads **one** relationship per pair (judge_spec §2), so a
+second same-pair edge produces a graph the judge cannot distinguish from having only
+one of them — it adds no reachable terminal distinction, the same *judge-redundant*
+category as the duplicate it replaces. The ban therefore removes no strategy; it
+removes a class of graphs on which accrual is **ill-defined** (below).
+
+Only `connect` can reach a soup state: both its endpoints pre-exist, so a pair can
+already carry an edge. An attaching `introduce` mints a **fresh** source node before
+adding its edge (`state.apply`), so its pair is *always* new — no `introduce` guard
+is added (a check that can never fire would violate §Governing principle's "and
+NOTHING else"). Two nodes attacking or supporting a *shared* target remain fully
+legal: those are **distinct** pairs (`{x,t}` and `{y,t}`), the convergence structures
+`connect` exists to build — the ban is per pair, not per node.
+
+> **Measurement caveat — did edge soup corrupt accrual in prior runs? (own assessment.)**
+> The stated motivating case is *one node that both supports and attacks the same
+> target* (`x→t support` **and** `x→t attack`). Structurally that is two edges over
+> `{x,t}`, and a direction-agnostic judge that consumes one relationship per pair has
+> **no defined resolution** for it: depending on edge-iteration order it may count the
+> support (raising σ into `t`) or the attack (entering an attacker set against `t`),
+> so the same graph could accrue differently across runs — a non-determinism the judge
+> is otherwise built to exclude. My assessment: **the corruption was real but bounded
+> in the runs to date.** It was reachable *only* by `connect` (agents overwhelmingly
+> build by attaching `introduce`; `connect` is a minority action), and *only* by a
+> `connect` onto a pair already joined — a narrow slice of `connect`'s own usage. So
+> the corrupted-accrual rounds were a small fraction, not a pervasive bias; the B4post
+> baseline (`runs_verify/B4post/`, 3/5, mean win 0.222) was trained under the old rule
+> and is a *valid* pre-fix anchor, not an artifact of soup. But the effect on a
+> corrupted round is **order-dependent and therefore silent** — it never raised an
+> error, it just scored some rounds under a coin-flip resolution — which is exactly why
+> it warranted closing. The post-fix verification screen quantifies the residual: any
+> shift there over B4post is what the soup was costing. (Note: this caveat concerns the
+> *same-source* case in the rationale; the fix additionally closes the *cross-side
+> mutual* case — `b→a support` with `a→b attack` between two different nodes — which the
+> direction-agnostic judge reads as the same contradictory one-relationship-per-pair
+> soup. See §Governing principle bullet.)
 
 **Divergence.** A same-side Support component may have **more than one terminal
 impact** — a shared trunk fanning out to several impacts. Each terminal impact
@@ -441,6 +496,26 @@ including the Phase-1 budget sweep's extension magnitudes (e.g. 1AR extends "3.3
 The sweep's **verdict-based core finding survives** (rebuttal budget binding; B4 best rests
 on win/survival/`extension_fail`), but the extension *magnitudes* were inflated by an
 unknown no-op fraction and are re-measured by the post-fix **B4 verification screen**.
+
+*Known open gap — empty / underbuilt opening constructives (debate-semantic, unruled).*
+With no-op re-extends now illegal AND the min-spend foreclosure left **off**
+(`CDAF_ENDSPEECH_MIN_FRAC=0.0`), nothing forces a non-empty **1AC/1NC**: `EndSpeech` costs 0
+and is always legal, so a policy may open a speech and immediately end it. Because
+`introduce` is legal in *any* speech and the judge scores offense by graph structure (not by
+authoring speech), a policy can **skip 1AC entirely and build its whole case in 2AC**, extend
+it forward, and win on legitimate-looking "AFF offense". Observed in the B4edge verification
+screen: collapsed seed4 has **median 1AC spend 0.0** (`EndSpeech` rate 0.82), and **7/30**
+exports carry no 1AC node (vs 2/27 pre-fix B4post — present before the edge fix, worsened by
+the seed-2/4 collapse, not caused by it). This is **legal under current rules** and **not an
+env/export defect** (materialization and export are faithful). It is a divergence from
+debate semantics — in policy debate the 1AC *is* the affirmative case; a new case in a later
+constructive is illegitimate — and it is exactly what the Phase-1.5 min-spend foreclosure
+targeted before that approach was closed as a dead end (it padded 1AC with no-op extends
+instead of forcing real construction). **Left unruled deliberately (Yaz, 2026-08-13):**
+recorded here as a known gap; a consequence is that a share of collapsed-seed wins are
+debate-illegitimate (skip-1AC rounds), a *second* inflation mechanism alongside the edge
+soup. Any future foreclosure that forces opening-constructive spend goes in the
+§Governing-principle foreclosure list.
 
 Rationale: the same graph must produce the same verdict regardless of how it
 was built. If status were a function of action history, an env-built round and

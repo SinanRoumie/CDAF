@@ -109,6 +109,46 @@ def test_non_duplicate_connect_is_legal():
     assert is_legal(st, Connect(a, c, "support"))
 
 
+# --- edge soup: AT MOST ONE edge per unordered pair (2026-08-13 generalization) -------
+# The former guard rejected only an exact (source, target, edge_type) triple. It is now a
+# >=1-edge-per-pair ban: any second edge over an existing unordered pair -- reversed,
+# or a contradictory type -- is illegal, because the direction-agnostic judge reads one
+# relationship per pair and a parallel support+attack corrupts accrual. The pair check
+# precedes the incoherence checks, so it fires regardless of side or edge_type.
+
+def test_contradictory_type_connect_illegal():
+    """A support edge already spans a->b; a second edge of a CONTRADICTORY type over the
+    same pair (the support+attack that corrupted accrual) is rejected."""
+    st = RoundState()
+    a = st.add_node("a", AFF, "link")
+    b = st.add_node("b", AFF, "impact")
+    st.add_edge(a, b, "support")
+    ok, reason = check_legality(st, Connect(a, b, "offensive_attack"))
+    assert not ok and "pair" in reason
+
+
+def test_bidirectional_connect_illegal():
+    """The ban is on the UNORDERED pair: a reversed b->a edge is rejected even though no
+    (source, target, edge_type) triple matches -- the old exact-duplicate check missed this.
+    Uses a CROSS-SIDE attack pair so neither the same-side nor the Support-cycle rule (which
+    would each also reject a support reversal, masking the pair reason) confounds the test."""
+    st = RoundState()
+    a = st.add_node("a", AFF, "link")
+    b = st.add_node("b", NEG, "link")                # cross-side, offense-bearing
+    st.add_edge(a, b, "defensive_attack")            # a -> b already
+    ok, reason = check_legality(st, Connect(b, a, "defensive_attack"))   # reversed b -> a
+    assert not ok and "pair" in reason
+
+
+def test_single_edge_between_pair_is_legal():
+    """The FIRST edge over a pair with no existing edge is legal -- the ban is on the
+    second, not the first."""
+    st = RoundState()
+    a = st.add_node("a", AFF, "link")
+    b = st.add_node("b", AFF, "impact")
+    assert is_legal(st, Connect(a, b, "support"))
+
+
 # --- no-op re-extend is now ILLEGAL; is_inert stays a live predicate but is unreachable
 #     via legal play (Yaz ruling). --------
 

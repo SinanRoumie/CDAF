@@ -139,10 +139,19 @@ def _structural_legal(state: RoundState, action) -> Tuple[bool, str]:
         if action.edge_type == "support" and _closes_support_cycle(
                 state, action.source_id, action.target_id):
             return False, "connect would close a Support cycle"
-        # Rule 6: redundant connect (duplicates an existing edge -- adds no structure).
-        if _duplicate_edge(state, action.source_id, action.target_id, action.edge_type):
-            return False, ("redundant connect: an edge (same source, target, edge_type) "
-                           "already exists")
+        # Rule 6: edge soup -- AT MOST ONE edge per unordered pair. A `connect` between two
+        # nodes that already share an edge (ANY direction, ANY edge_type) is rejected: the
+        # judge is direction-agnostic and consumes one relationship per pair, so a second
+        # edge -- an exact duplicate, a reversed duplicate, or a contradictory support+attack
+        # over the same pair -- adds no distinguishable structure and can corrupt accrual (a
+        # node that both supports and attacks the same target). Generalizes the former
+        # exact-(source,target,edge_type) duplicate check; see environment_shell_spec §edge
+        # soup. Only `connect` can reach this state (both endpoints pre-exist); an attaching
+        # `introduce` mints a FRESH source node (state.apply), so its pair is always new and
+        # needs no such guard.
+        if _edge_exists_between(state, action.source_id, action.target_id):
+            return False, ("redundant connect: an edge already exists between this "
+                           "unordered pair (at most one edge per pair)")
         # Rule 6: structural incoherence of an attack edge between two existing nodes.
         src, tgt = state.nodes[action.source_id], state.nodes[action.target_id]
         reason = _incoherent_attack(src.owner, src.role, tgt.owner, tgt.role,
@@ -259,12 +268,16 @@ def _incoherent_support(a_role: str, b_role: str, edge_type: Optional[str]) -> O
     return None
 
 
-def _duplicate_edge(state: RoundState, source: str, target: str,
-                    edge_type: str) -> bool:
-    """True iff an edge with the same source, target, AND edge_type already exists -- a
-    redundant `connect` that would add no structure. O(edges) scan."""
-    return any(e.source == source and e.target == target and e.edge_type == edge_type
-               for e in state.edges)
+def _edge_exists_between(state: RoundState, u: str, v: str) -> bool:
+    """True iff ANY edge already connects the unordered pair {u, v}, regardless of
+    direction or edge_type. Enforces the >=1-edge-per-pair ban (edge soup): because the
+    judge is direction-agnostic and reads at most one relationship per pair, a second
+    same-pair edge -- exact duplicate, reversed duplicate, or a contradictory
+    support+attack -- adds no distinguishable structure and can corrupt accrual. Self-loops
+    (u == v) are already refused upstream, so the set compare is unambiguous. O(edges)
+    scan. (Generalizes the former exact-(source,target,edge_type) `_duplicate_edge`.)"""
+    pair = {u, v}
+    return any({e.source, e.target} == pair for e in state.edges)
 
 
 def _closes_support_cycle(state: RoundState, source: str, target: str) -> bool:

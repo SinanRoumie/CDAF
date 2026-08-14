@@ -174,22 +174,31 @@ def test_weigh_second_target_excludes_self():
 
 
 def _build_cross_side_support_cycle():
-    """An AFF link `a`, then a NEG link `b` supporting it (b -> a; cross-side support is
-    legal). A `support` connect a -> b would close the directed cycle a -> b -> a and is
-    illegal, while the ATTACK edge_types between this CROSS-SIDE, offense-bearing pair stay
-    legal -- so `connect_edge_mask(a, b)` is [support=masked, defensive=legal, offensive=
-    legal]. (A same-side pair would have all three edge_types masked after the masking
-    ruling, so a cross-side pair is required to isolate the cycle rule.)"""
+    """A THREE-node support path s <- m <- t so that a `support` connect s -> t would close
+    the directed cycle s -> t -> m -> s and is illegal, while the ATTACK edge_types between
+    the CROSS-SIDE, offense-bearing endpoints s (AFF) and t (NEG) stay legal -- so
+    `connect_edge_mask(s, t)` is [support=masked, defensive=legal, offensive=legal].
+
+    The extra middle node `m` is deliberate: after the >=1-edge-per-unordered-pair ban
+    (2026-08-13 edge-soup fix), a DIRECT s<->t edge would make the attack connects illegal
+    too (the pair already carries an edge), collapsing the mask to all-False and hiding the
+    cycle rule. Routing the cycle through `m` leaves the pair {s, t} edge-free, so this test
+    isolates the Support-cycle rule exactly as before. (A same-side pair would have all three
+    edge_types masked by the same-side rule, so a cross-side pair is still required.)"""
     env = CDAFEnvironment()
     env.reset()                                          # 1AC (AFF), budget 8
     env.step(Introduce("", "advocacy", NEW, None))       # AFF advocacy (legal root)
     adv = list(env.state.nodes)[-1]
-    env.step(Introduce("", "link", adv, "support"))      # a = AFF link, attached to the advocacy
-    a = list(env.state.nodes)[-1]
+    env.step(Introduce("", "link", adv, "support"))      # s = AFF link, attached to the advocacy
+    s = list(env.state.nodes)[-1]
+    env.step(Introduce("", "link", s, "support"))        # m = AFF link supports s: m -> s
+    m = list(env.state.nodes)[-1]
     env.step(EndSpeech())                                # -> 1NC (NEG)
-    env.step(Introduce("", "link", a, "support"))        # b = NEG link supports a: b -> a
-    b = list(env.state.nodes)[-1]
-    return env, a, b
+    env.step(Introduce("", "link", m, "support"))        # t = NEG link supports m: t -> m
+    t = list(env.state.nodes)[-1]
+    # t -> m -> s exists; connect s -> t (support) would close s -> t -> m -> s. No direct
+    # s<->t edge, so the attack edge_types stay legal under the pair ban.
+    return env, s, t
 
 
 def test_connect_support_cycle_masked():

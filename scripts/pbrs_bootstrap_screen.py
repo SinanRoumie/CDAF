@@ -63,7 +63,14 @@ PROBE_EPISODES = int(os.environ.get("PBRS_PROBE_EPISODES", "200"))
 # three disjoint buckets, capped per seed per bucket. SCREEN_TAG labels files (e.g. A / A2).
 EXPORT_DIR = os.environ.get("PBRS_EXPORT_DIR")
 SCREEN_TAG = os.environ.get("PBRS_SCREEN_TAG", "A")
-EXPORT_CAP = int(os.environ.get("PBRS_EXPORT_CAP", "4"))     # per bucket, per seed
+EXPORT_CAP = int(os.environ.get("PBRS_EXPORT_CAP", "4"))     # per bucket, per EXPORT WINDOW
+# --- Phase-2 harvest instrumentation (Step-3) knobs ---
+CKPT_EVERY = int(os.environ.get("PBRS_CKPT_EVERY", "25"))      # retain learner ckpt every N updates + at exit
+EXPORT_EVERY = int(os.environ.get("PBRS_EXPORT_EVERY", "25"))  # export rounds at these checkpoints (not only last-15)
+# NOTE: episode-level parallelization was ABANDONED (2026-08-13). RoundState carries an
+# unpicklable nested-lambda defaultdict and PPO needs the per-step snapshot to rebuild the
+# legal-action mask, so trajectories cannot cross a process boundary; making RoundState
+# picklable is an env-layer change and out of bounds. Collection stays serial (1 core/seed).
 
 
 _ATTACK_KINDS = {"defensive_attack", "offensive_attack"}
@@ -227,6 +234,62 @@ def _analyze_dead_chains(rnd, trace):
     return out
 
 
+def _round_contested(rnd):
+    """(loose, strict) contested flags for a terminal round -- pure structural, no judge pass.
+      loose  = any cross-side (AFF<->NEG) attack edge exists (comparable to the 33% baseline).
+      strict = a NEG-owned attack lands on a node in an AFF Support component that reaches an
+               AFF impact -- i.e. NEG actually hit the AFF chain (the co-evolution measure)."""
+    nodes = {n.id: n for n in rnd.nodes}
+    loose = False
+    for e in rnd.edges:
+        if getattr(e, "kind", None) in _ATTACK_KINDS:
+            a, b = nodes.get(e.source), nodes.get(e.target)
+            if a is not None and b is not None and a.side != b.side:
+                loose = True
+                break
+    adj = {}
+    for e in rnd.edges:
+        if getattr(e, "kind", None) == "support":
+            a, b = nodes.get(e.source), nodes.get(e.target)
+            if a is not None and b is not None and a.side == b.side == AFF:
+                adj.setdefault(e.source, set()).add(e.target)
+                adj.setdefault(e.target, set()).add(e.source)
+    members = set()
+    for nid, n in nodes.items():
+        if n.side == AFF and getattr(n, "kind", None) == "impact" and nid not in members:
+            stack, comp = [nid], {nid}
+            while stack:
+                c = stack.pop()
+                for nb in adj.get(c, ()):
+                    if nb not in comp:
+                        comp.add(nb); stack.append(nb)
+            members |= comp
+    strict = False
+    for e in rnd.edges:
+        if getattr(e, "kind", None) in _ATTACK_KINDS:
+            a, b = nodes.get(e.source), nodes.get(e.target)
+            if a is None or b is None:
+                continue
+            if (a.side == NEG and e.target in members) or (b.side == NEG and e.source in members):
+                strict = True
+                break
+    return loose, strict
+
+
+def _dphi_stats(trajs):
+    """Shaping-payment (per-move ΔΦ) distribution over all learner steps in the batch. The
+    stored `step.shaping` = λ(γΦ(s') − Φ(s)); we report the fraction paying ~0 (how many moves
+    the shaping is silent on -- the metric of interest), plus mean and mean-abs magnitude."""
+    vals = [s.shaping for t in trajs for s in t.steps]
+    n = len(vals)
+    if not n:
+        return {"n_moves": 0, "zero_frac": 0.0, "mean": 0.0, "abs_mean": 0.0}
+    z = sum(1 for v in vals if abs(v) < 1e-9)
+    return {"n_moves": n, "zero_frac": round(z / n, 4),
+            "mean": round(sum(vals) / n, 6),
+            "abs_mean": round(sum(abs(v) for v in vals) / n, 6)}
+
+
 def _export_round(rnd, trace, winner, found, survived, seed, u, ep, counts, dead_analysis):
     """Save one round (oracle-format JSON) + a sidecar, if its bucket is not yet full.
     Buckets are DISJOINT: affwin (AFF won); nearmiss (AFF found offense but did NOT win);
@@ -358,7 +421,13 @@ def run_seed(seed, warmstart_path, spec, cfg):
             opp = _pool.sample_opponent(_ac, r); _c["self" if opp is _ac else "pool"] += 1
             return opp
 
+        # periodic round exports (early/mid/late), plus the last-15 window; per-window caps
+        export_now = bool(EXPORT_DIR) and ((u % EXPORT_EVERY == 0) or (u >= BOOTSTRAP_UPDATES - 15))
+        if export_now:
+            export_counts = {"affwin": 0, "negwin": 0, "nearmiss": 0}   # reset caps per window
+
         trajs = []; rounds_found = rounds_ext = 0; phis = []
+        du_death = Counter(); du_found = 0; du_ext_fail = 0; du_loose = 0; du_strict = 0
         for ep_idx in range(E):
             opp = sampler(rng); side = random_side(rng)
             traj, rnd = collect_episode(ac, opp, learner_side=side, rng=rng,
@@ -375,8 +444,20 @@ def run_seed(seed, warmstart_path, spec, cfg):
             rounds_found += 1 if f > 0 else 0
             rounds_ext += 1 if e > 0 else 0
             phis.extend(s.phi for s in traj.steps)
+
+            # --- per-UPDATE trend instrumentation (EVERY update, not only last-15) ---
+            dead = _analyze_dead_chains(rnd, trace)              # WHY each found chain died
+            for d in dead:
+                du_death[d["cause"]] += 1
+                if d["cause"] == "extension_fail":
+                    du_ext_fail += 1
+            du_found += f
+            loose, strict = _round_contested(rnd)                # contested rate, both defs
+            du_loose += 1 if loose else 0
+            du_strict += 1 if strict else 0
+
+            # --- last-15 SUMMARY accumulation (PASS/FAIL bar + final death_stats + spend) ---
             if u >= BOOTSTRAP_UPDATES - 15:
-                dead = _analyze_dead_chains(rnd, trace)          # WHY each found chain died
                 for d in dead:
                     death_n += 1
                     death_cause[d["cause"]] += 1
@@ -384,17 +465,29 @@ def run_seed(seed, warmstart_path, spec, cfg):
                     if d["death_speech"]:
                         death_speech[d["death_speech"]] += 1
                 _accum_spend(spend_accum, _speech_spend(traj))   # per-speech budget spend
+            if export_now:
                 _export_round(rnd, trace, traj.winner, f > 0, e > 0,
                               seed, u, ep_idx, export_counts, dead)
         steps = flatten_steps(trajs)
         updater.update(steps, entropy_coef=ecoef, rng=rng)
         m = batch_metrics(trajs)
+        dphi = _dphi_stats(trajs)
         rows.append({"u": u, "win": m["ballot_win_rate_aff"], "surv": rounds_ext / E,
-                     "found": rounds_found / E, "phi_mean": _mean(phis)})
+                     "found": rounds_found / E, "phi_mean": _mean(phis),
+                     "contested_loose": du_loose / E, "contested_strict": du_strict / E,
+                     "extfail_share": (du_ext_fail / du_found) if du_found else 0.0,
+                     "death_cause": dict(du_death), "dphi": dphi})
+
+        # --- checkpoint retention: periodic + at exit. No run ends without a checkpoint. ---
+        if u % CKPT_EVERY == 0 or u == BOOTSTRAP_UPDATES - 1:
+            save_checkpoint(os.path.join(OUTPUT_DIR, f"ckpt_u{u:04d}.pt"),
+                            ac, encoder_spec=spec, meta={"seed": seed, "update": u})
+
         if u % 10 == 0 or u == BOOTSTRAP_UPDATES - 1:
             print(f"    seed{seed} u{u:02d} win={rows[-1]['win']:.2f} surv={rows[-1]['surv']:.2f} "
-                  f"found={rows[-1]['found']:.2f} phi_mean={rows[-1]['phi_mean']:+.3f} ent={ecoef:.4f}",
-                  flush=True)
+                  f"found={rows[-1]['found']:.2f} cont(L/S)={rows[-1]['contested_loose']:.2f}/"
+                  f"{rows[-1]['contested_strict']:.2f} dphi0={dphi['zero_frac']:.2f} "
+                  f"phi={rows[-1]['phi_mean']:+.3f} ent={ecoef:.4f}", flush=True)
 
     last15 = rows[-15:]; first15 = rows[:15]
     win = _mean(r["win"] for r in last15); surv = _mean(r["surv"] for r in last15)
