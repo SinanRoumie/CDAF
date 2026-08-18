@@ -1152,6 +1152,40 @@ def _chain_still_in_window(ctx: Context, ch: dict) -> bool:
     return True
 
 
+def best_extended_chain_by_side(ctx: Context, chains: List[dict],
+                                excluded: set) -> Dict[str, Optional[dict]]:
+    """The single strongest GATED chain FAVORING each side -- the chain Φ_maxdiff reads
+    per side on the extended channel (rl_training_spec §Reward; "Φ reads only the best
+    chain"). "Gated" is the same predicate `phi_maxdiff` applied inline: not
+    weighing-excluded, not a link-less / unrooted-disad collapse, in scope, resolved
+    sign, and EXTENDED. Returns {AFF: chain|None, NEG: chain|None}; None where no
+    qualifying chain favors that side (its channel contributes 0).
+
+    Factored out of `phi_maxdiff` (previously inlined) so the post-hoc materiality /
+    highlight pass can reuse the EXACT same per-side selection without a second
+    implementation. `phi_maxdiff` reads only `.mag` off the result, so its scalar stays
+    byte-identical to the prior inline `max`; this helper additionally exposes WHICH
+    chain won -- the datum the highlight pass needs. Ties resolve to the first chain
+    encountered (strict `>`), which the scalar is invariant to."""
+    best: Dict[str, Optional[dict]] = {AFF: None, NEG: None}
+    for ch in chains:
+        if ch["id"] in excluded:
+            continue
+        if ch.get("collapse_reason") in ("no_link_premise", "unrooted_disad"):
+            continue                    # not valid offense (link-less, or a floating NEG disad)
+        if not ch.get("in_scope", True):
+            continue
+        if ch["sign"] == qpn.UNRESOLVED:
+            continue
+        if not ch["extended"]:
+            continue
+        favored = ch["side"] if ch["sign"] > 0 else _opposing(ch["side"])
+        cur = best[favored]
+        if cur is None or ch["mag"] > cur["mag"]:
+            best[favored] = ch
+    return best
+
+
 def phi_maxdiff(ctx: Context, chains: List[dict], excluded: set, *, kappa: float = 0.0) -> float:
     """Φ_maxdiff (rl_training_spec §Reward): best AFF-favoring chain strength minus best
     NEG-favoring, over GATED chains -- extended-so-far, in-scope, resolved sign -- excluding
@@ -1175,7 +1209,11 @@ def phi_maxdiff(ctx: Context, chains: List[dict], excluded: set, *, kappa: float
     caller are unaffected unless they opt in. Boundaries untouched: an empty graph has no
     chains (Φ=0), and Φ(terminal)=0 is hardcoded at the potential()/apply_pbrs boundary
     upstream. Invariance holds for any kappa (still a pure function of state)."""
-    best_aff_ext = best_neg_ext = 0.0
+    # Extended channel: the strongest gated chain per side (shared selection).
+    best_ext = best_extended_chain_by_side(ctx, chains, excluded)
+    best_aff_ext = best_ext[AFF]["mag"] if best_ext[AFF] is not None else 0.0
+    best_neg_ext = best_ext[NEG]["mag"] if best_ext[NEG] is not None else 0.0
+    # Nascent channel: same gates minus extension, weighted kappa (mid-round Φ only).
     best_aff_nas = best_neg_nas = 0.0
     for ch in chains:
         if ch["id"] in excluded:
@@ -1186,14 +1224,11 @@ def phi_maxdiff(ctx: Context, chains: List[dict], excluded: set, *, kappa: float
             continue
         if ch["sign"] == qpn.UNRESOLVED:
             continue
-        favored = ch["side"] if ch["sign"] > 0 else _opposing(ch["side"])
         if ch["extended"]:
-            if favored == AFF:
-                best_aff_ext = max(best_aff_ext, ch["mag"])
-            else:
-                best_neg_ext = max(best_neg_ext, ch["mag"])
-        elif (kappa > 0.0 and ch["mag"] > 0.0 and ctx is not None
-              and _chain_still_in_window(ctx, ch)):     # nascent: in-progress, not lapsed
+            continue                    # extended chains are handled by best_extended_chain_by_side above
+        favored = ch["side"] if ch["sign"] > 0 else _opposing(ch["side"])
+        if (kappa > 0.0 and ch["mag"] > 0.0 and ctx is not None
+                and _chain_still_in_window(ctx, ch)):    # nascent: in-progress, not lapsed
             if favored == AFF:
                 best_aff_nas = max(best_aff_nas, ch["mag"])
             else:
