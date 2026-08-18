@@ -1616,38 +1616,41 @@ def _materiality_map(round_elements):
     prevent_initial_call=True,
 )
 def toggle_materiality(_n, elements, store):
-    """Flip the materiality highlight. ON: stamp `dimmed=True` on every immaterial
-    element (the `[?dimmed]` stylesheet rule renders it translucent); material
-    elements keep full opacity. OFF: drop `dimmed` from every element so full opacity
-    is restored. `dimmed` is a render-only data flag -- from_dict ignores it, so it
-    never reaches the judge or a saved file."""
-    els = elements or []
-    turning_on = not (store or {}).get("on", False)
+    """Flip the materiality highlight. ON: set `dimmed=True` on every immaterial
+    element (the `[?dimmed]` stylesheet rule renders it translucent) and `dimmed=False`
+    on material ones. OFF: set `dimmed=False` on every element so full opacity returns.
 
-    if not turning_on:
-        for el in els:
-            el["data"].pop("dimmed", None)   # cleared -> [?dimmed] stops matching -> opacity 1.0
+    We ALWAYS write an explicit True/False and NEVER delete the key: dash-cytoscape
+    merges element updates into the live graph (the same reason repairEdges exists), so
+    a *removed* data key does not propagate -- only a changed VALUE does. Removing
+    `dimmed` on the off-path is exactly why the toggle would not turn off. On/off is
+    derived from the elements themselves (any element still dimmed => currently on), so
+    the toggle is correct even if the store fails to round-trip. `dimmed` is render-only
+    -- from_dict ignores it, so it never reaches the judge or a saved file."""
+    els = elements or []
+    user = [el for el in els if not is_bg(el)]
+    currently_on = any(el["data"].get("dimmed") for el in user)
+
+    if currently_on:
+        for el in user:
+            el["data"]["dimmed"] = False     # explicit False -> value change propagates -> opacity 1.0
         return els, {"on": False}, "◐ Highlight material", "btn", ""
 
     try:
         material = _materiality_map(model_elements(els))
     except Exception as exc:  # noqa: BLE001 -- never crash the app on a bad graph
-        for el in els:
-            el["data"].pop("dimmed", None)
+        for el in user:
+            el["data"]["dimmed"] = False
         return (els, {"on": False}, "◐ Highlight material", "btn",
                 html.Span(f"Could not compute materiality: {exc}",
                           style={"color": "#C0392B"}))
 
-    n_mat = n_total = 0
-    for el in els:
-        if is_bg(el):
-            continue
-        n_total += 1
-        if material.get(el["data"].get("id"), True):
-            el["data"].pop("dimmed", None)
-            n_mat += 1
-        else:
-            el["data"]["dimmed"] = True
+    n_mat = 0
+    for el in user:
+        is_material = bool(material.get(el["data"].get("id"), True))
+        el["data"]["dimmed"] = not is_material
+        n_mat += int(is_material)
+    n_total = len(user)
     msg = html.Span(f"{n_mat}/{n_total} material — {n_total - n_mat} dimmed translucent.")
     return els, {"on": True}, "◐ Highlight material (on)", "btn primary", msg
 
