@@ -55,6 +55,10 @@ from model.speeches import SPEECH_ORDER   # single source of the 7-speech order
 from judge import judge as run_judge
 from judge import rfd as judge_rfd
 
+# Post-hoc, read-only materiality/highlight pass (reruns the judge on single-element
+# deletions). App depends on analysis; not vice versa.
+from analysis import materiality as mat
+
 # ---------------------------------------------------------------------------
 # Domain model
 # ---------------------------------------------------------------------------
@@ -97,6 +101,7 @@ GLOW_COLOR = "#FF9E2C"
 # Interaction highlights (transient; shown while authoring, explained in the legend).
 TRACE_COLOR = "#7C3AED"    # violet ring on the traced root-to-impact spine
 SELECT_COLOR = "#FFD400"   # yellow overlay on the selected node(s) / edge
+DIM_OPACITY = 0.2          # translucency for immaterial elements under the materiality toggle
 
 # UI style per edge type, keyed by the on-disk etype string (names + order from model/).
 _EDGE_STYLE = {
@@ -586,6 +591,14 @@ def build_stylesheet():
             style["source-arrow-shape"] = arrow
         sheet.append({"selector": f'edge[etype="{name}"]', "style": style})
 
+    # Materiality highlight (analysis/materiality.py): when the toggle is on, the
+    # toggle callback stamps `dimmed=True` onto every element the judge found
+    # IMMATERIAL (deleting it neither flips the winner nor moves N). Those go
+    # translucent; material elements keep full opacity. Cleared (dimmed=False, so
+    # `[?dimmed]` no longer matches) when the toggle is off.
+    sheet.append({"selector": "node[?dimmed]", "style": {"opacity": DIM_OPACITY}})
+    sheet.append({"selector": "edge[?dimmed]", "style": {"opacity": DIM_OPACITY}})
+
     return sheet
 
 
@@ -785,9 +798,19 @@ judge_panel = section("Judge round", [
                                className="hint small")),
 ])
 
+materiality_panel = section("Materiality highlight", [
+    html.Div("Dims every element the judge finds immaterial — deleting it would "
+             "neither flip the winner nor move the net offense N. Material structure "
+             "stays full opacity; the inert scaffolding goes translucent.",
+             className="hint small"),
+    html.Button("◐ Highlight material", id="materiality-btn", className="btn"),
+    html.Div(id="materiality-msg", className="msg"),
+])
+
 left_panel = html.Div([
     html.H2("CDAF Builder", className="app-title"),
     add_node_panel, add_edge_panel, extend_panel, file_panel, judge_panel,
+    materiality_panel,
 ], className="left-panel")
 
 
@@ -951,6 +974,7 @@ app.layout = html.Div([
     dcc.Store(id="applysel-dummy", data=""),
     dcc.Store(id="applypos-dummy", data=""),
     dcc.Store(id="edgerepair-dummy", data=""),
+    dcc.Store(id="materiality-store", data={"on": False}),
     left_panel, graph_area, inspector, choose_modal, edge_dialog, weighing_dialog,
 ], className="app-root")
 
@@ -1562,6 +1586,70 @@ def judge_round(_n, elements):
         return html.Div(f"Could not judge this graph: {exc}",
                         style={"color": "#C0392B", "fontSize": "12px",
                                "whiteSpace": "pre-wrap"})
+
+
+# ---------------------------------------------------------------------------
+# Materiality highlight toggle  (dim immaterial elements; click-only, on/off)
+# ---------------------------------------------------------------------------
+
+def _materiality_map(round_elements):
+    """id -> is_material for the current graph. Reruns the judge on single-element
+    deletions (analysis/materiality). Uses the SAME elements->Round path as Judge and
+    Save, and reads the flags straight off annotate_elements(), so the n*/e* id scheme
+    is untouched. Step 3 will front this with a cached-sidecar lookup; this live
+    compute (~7 ms/element) stays as the fallback for uncached rounds."""
+    rnd = mser.from_dict({"version": SCHEMA_VERSION, "elements": round_elements})
+    res = mat.compute_materiality(rnd)
+    annotated = mat.annotate_elements(rnd, res)
+    return {el["data"]["id"]: el["data"]["material"] for el in annotated}
+
+
+@app.callback(
+    Output("cytoscape", "elements", allow_duplicate=True),
+    Output("materiality-store", "data"),
+    Output("materiality-btn", "children"),
+    Output("materiality-btn", "className"),
+    Output("materiality-msg", "children"),
+    Input("materiality-btn", "n_clicks"),
+    State("cytoscape", "elements"),
+    State("materiality-store", "data"),
+    prevent_initial_call=True,
+)
+def toggle_materiality(_n, elements, store):
+    """Flip the materiality highlight. ON: stamp `dimmed=True` on every immaterial
+    element (the `[?dimmed]` stylesheet rule renders it translucent); material
+    elements keep full opacity. OFF: drop `dimmed` from every element so full opacity
+    is restored. `dimmed` is a render-only data flag -- from_dict ignores it, so it
+    never reaches the judge or a saved file."""
+    els = elements or []
+    turning_on = not (store or {}).get("on", False)
+
+    if not turning_on:
+        for el in els:
+            el["data"].pop("dimmed", None)   # cleared -> [?dimmed] stops matching -> opacity 1.0
+        return els, {"on": False}, "◐ Highlight material", "btn", ""
+
+    try:
+        material = _materiality_map(model_elements(els))
+    except Exception as exc:  # noqa: BLE001 -- never crash the app on a bad graph
+        for el in els:
+            el["data"].pop("dimmed", None)
+        return (els, {"on": False}, "◐ Highlight material", "btn",
+                html.Span(f"Could not compute materiality: {exc}",
+                          style={"color": "#C0392B"}))
+
+    n_mat = n_total = 0
+    for el in els:
+        if is_bg(el):
+            continue
+        n_total += 1
+        if material.get(el["data"].get("id"), True):
+            el["data"].pop("dimmed", None)
+            n_mat += 1
+        else:
+            el["data"]["dimmed"] = True
+    msg = html.Span(f"{n_mat}/{n_total} material — {n_total - n_mat} dimmed translucent.")
+    return els, {"on": True}, "◐ Highlight material (on)", "btn primary", msg
 
 
 if __name__ == "__main__":
