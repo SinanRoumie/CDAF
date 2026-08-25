@@ -1,6 +1,6 @@
-# CDAF Render Spec v1.4
+# CDAF Render Spec v1.5
 
-Status: **accepted, v1.4**. All semantic rulings closed. M0 built and committed at v1.3.
+Status: **accepted, v1.5**. All semantic rulings closed. M0 built and committed at v1.3; M1 built and validated at v1.5.
 
 v1.1 amended RS10, RS11, RS13, RS16, RS27, and O3 after a code survey found RS10 described a function the judge does not have.
 
@@ -8,7 +8,9 @@ v1.2 amended RS10, RS11, RS13, retired RS11b, and closed O2 and O4 after a corpu
 
 v1.3 restated RS10c, split RS13, added RS13c, and closed O5 after the RS10c check caught a judge-internal inconsistency about whether a BallotDirective conducts.
 
-v1.4 retires RS13 and RS13b entirely after the v1.3 assert fired on a legal post-mask round. Corrections are marked inline as *correction notes* rather than silently overwritten.
+v1.4 retired RS13 and RS13b entirely after the v1.3 assert fired on a legal post-mask round.
+
+v1.5 adds RS5b (advocacy polarity), rules impactless material flat (RS16d), and closes O1 after M1 produced readable prose across three resolutions. Corrections are marked inline as *correction notes* rather than silently overwritten.
 
 Rule IDs are prefixed `RS` to avoid collision with judge spec rules (`r6`, `r26`, `r27`, …). Sub-rules use the `a`/`b`/`c` suffix convention established in `RULINGS_v9.md` (V1a/V1b).
 
@@ -49,6 +51,12 @@ The renderer converts a completed or partial CDAF graph into a readable round tr
 - frozen content of prior speeches
 
 **RS5.** The renderer receives no argument-type label. There is no "kritik" flag, no "theory" flag, no "disadvantage" flag. Type blindness is load-bearing for the structural unity claim: if a type-blind renderer produces text a coach would recognize as a kritik versus a policy disad, that is evidence *for* structural unity. If the renderer requires the label to produce recognizable output, that is evidence *against*, and the negative result is itself worth reporting.
+
+**RS5b.** Advocacy polarity is derived from side, and side alone. An Advocacy node on AFF affirms the resolution; an Advocacy node on NEG opposes it. This is stated explicitly in the render prompt, not left to inference.
+
+A NEG Advocacy is a legitimate move — a counterplan or an alternative. The node is legal; only its polarity is constrained.
+
+Rationale: side is already a permitted renderer input under RS4, so this adds no information channel and no type label. M1 v1 left polarity to inference and got it wrong inconsistently: in one round a NEG orphan advocacy rendered as advocating the AFF's position. Policy resolutions mask the defect because "advocacy" defaults to "the plan," a shared referent both sides can point at. A value resolution removes the default, and an unanchored NEG advocacy must then be derived from side alone.
 
 **RS6.** Spec and code use *offense anchored to X*. The terms "disadvantage", "advantage", "kritik", and "theory shell" do not appear as structural identifiers. They are emergent descriptions of rendered output, not properties of the graph.
 
@@ -162,6 +170,12 @@ A divergent multi-terminal component renders as **one flow section with multiple
 
 **RS16c.** Multi-terminal traversal: DFS from the anchor, node-id ordered, each node rendered exactly once. The shared spine renders once and then branches. This is what a debater does and it prevents duplicate rendering of shared links.
 
+**RS16d.** Impactless material renders flat. Nodes carrying no terminal impact form no chain — `resolve_chains` skips them — so they are not components and derive no register. They render in a single unattached bucket, ungrouped.
+
+Grouping them by argument would require re-running the same-side union-find in the renderer, which RS10 forbids. More importantly, material with no impact is not an argument, and rendering it as though it were would misrepresent the graph.
+
+Validated at M1: a round with zero components (12 frameworks, 4 weighing, 10 uniqueness, 2 orphan impacts, 1 BD) rendered as fluent but hollow framework prose — an abstract debate about how to weigh, with nothing to weigh. Mechanical in places, notably eight weighing nodes rendered as an enumerated list, but legible throughout. A round with no substantive spine reading as one is the faithful outcome.
+
 **RS17.** Cross-side attacks render inside the target's component, not in a section of their own. A NEG defensive attack on an AFF link appears within the discussion of that AFF chain. Line-by-line structure falls out of the partition; no separate rule is required.
 
 **RS18.** Extensions attach to the component they extend.
@@ -174,6 +188,17 @@ A divergent multi-terminal component renders as **one flow section with multiple
 
 - **claim** — the tag. Short, frozen at creation, restated on every extension.
 - **warrant** — the explanation of the claim. Generated once, never restated.
+
+*Correction note (pending fix).* "The tag ... restated on every extension" carries an unstated premise the M0/M1 implementation breaks: a node's claim is **its own** and a restatement happens **only on an explicit extension**. Surfaced on `W2_B4_nearmiss_seed3_u240_ep002` (three Advocacy nodes `n1`, `n8`, `n35`; `n1` and `n8` chained through shared link `n2`), where the M1 renderer collapsed two distinct 1AC advocacies into one. This is a topology misrepresentation — the one failure the render layer exists to prevent. Two causes, one per layer.
+
+**Cause A — template layer (`templates.py:_NODE_STEM`): one mechanism, two faces.** The stem maps a node *kind* to a single canned string, and that string is wrong in two ways at once, both repaired by the same edit:
+
+- *It does not vary across nodes.* Every Advocacy node emits the identical claim "we advocate the plan," so two structurally distinct advocacies — plan and second plank, plan and counterplan, plan and alternative — are textually indistinguishable in the prompt. Distinct node ids are distinct commitments and must render as distinct commitments; the claim slot must be **per-node**. The fix realizes this as a per-node discriminator scoped **per side per speech**, phrased as parallel rather than ranked — advocacy nodes in a component are unordered, so "one advocacy" / "a separate advocacy" / "a third, distinct advocacy", never a "first"/"second" that invites the model to read the later node as derivative — and internal node ids never surface in prose.
+- *The string it produces is wrong on its face.* "we advocate the plan" names a policy plan, so a NEG advocacy — a counterplan or alternative (RS5b) — or any advocacy under a value resolution is misrendered even when the round has exactly one advocacy node. The stem must be **type-neutral with polarity from side**: AFF advocacy affirms, NEG advocacy is a competing advocacy — RS5b restated at the stem, no new channel. Conditioning further on *register* to name a framework-register advocacy an "interpretation" is **rejected**. Register is a judge-side gating property; reading a claim's content-type off it would place semantic inference in the render layer. RS5b's side-based polarity is defensible precisely because side is a structural fact about who submitted the node — register is not that kind of fact. ("Interpretation" is additionally an emergent argument-type in the class RS5/RS6 forbid.) The framework case stays neutral; if a future round needs interpretations to read as interpretations, that is a content-authoring problem, not a template one. The framework-advocacy case is near-empty besides: across the 2327-round corpus, of 332 framework-register components exactly **1** (in `W2_B4_nearmiss_seed2_u236_ep001`, 3 Advocacy members) contains any Advocacy member at all, and even there advocacy reach is empty — consistent with RS11 (framework register ⟺ empty advocacy reach). Verified against the corpus, not inferred from the spec.
+
+**Cause B — prompt layer (system-prompt rule 6): independent of the stem.** Rule 6 lets the model infer "restatement" when two claims read alike; that inference is available for every same-kind node pair, not only advocacies, and it would survive a correct stem. The skeleton already carries extensions as their own event type. The prompt must state that distinct node ids are distinct commitments and that **only an explicit extension event** licenses treating a claim as a restatement of a prior one. This is the general fix; Cause A's per-node stem is the local one.
+
+*Scope (unverified surface).* Blast radius (2327-round corpus): **55.8%** of rounds carry >1 Advocacy node; **82.0%** carry some component with >1 node of a single kind. The 82.0% is an **unverified surface** — the set of sites where the restatement inference is *available* — not a measured collapse rate. Collapse is confirmed only for advocacy, observed directly on the round above. For other kinds (two impacts, two frameworks in one component) the firing rate is **unmeasured**: their edge wiring may carry enough distinguishing context that the model keeps them apart. Measuring the non-advocacy firing rate is logged as a follow-up; no claim is made here that the collapse fires at that rate.
 
 **RS20.** The warrant explains the claim. It does not explain the edge. Inter-node inference is carried by chain sequence: link → link → impact reads as an argument without connective prose.
 
@@ -323,7 +348,9 @@ Rationale: debate transcripts in training data are saturated with `Smith '19`. A
 
 ## 12. Open — empirical, resolved by reading M1 output
 
-**O1.** Whether 50 words suffices for a warrant carrying a long chain's inferential load. Unknowable before M1 output exists.
+**O1.** ~~Whether 50 words suffices for a warrant carrying a long chain's inferential load.~~ **Closed at M1.** The failure mode cannot arise as specified: every node carries its own 35-word warrant, so inferential load distributes across the topology rather than concentrating in one warrant. This confirms the RS21 forward-generation rationale empirically. Budget-as-target also holds — measured speech lengths landed at 415/400, 653/615, 911/880 against their targets, with neither padding nor truncation.
+
+*Caveat recorded.* W1a produces no chains of 5+ serial links, so the extreme case is untested. The argument that it cannot bite is structural, not measured.
 
 **O2.** ~~Whether a digest mode (~200–300 words/speech) survives contact with the node-count budget.~~ **Closed by ruling.** It does not, and this is accepted. A 7-node 1NC at ~350 words is fine. Variable speech length is fine and expected. There is no digest-mode cap and no length trimming. Corpus node counts per speech: 1AC=237, 1NC=83, 2AC=19, 2NC/1NR=11, 1AR=2, 2NR=16, 2AR=34 (oracle corpus totals) — rebuttals are thin, so rebuttal length is almost entirely RS26 extension lines.
 
