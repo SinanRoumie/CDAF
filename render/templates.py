@@ -22,25 +22,57 @@ BUDGET_EDGE_COMPARE = 0     # Comparison (weighing wiring): syntax only
 BUDGET_EXTENSION = 15       # RS26: claim restatement only, no warrant
 
 # Canned per-kind claim stems (RS19 claim slot). Warrant is a fixed 35-word slot.
+#
+# 'advocacy' is intentionally absent: its claim stem is per-node, not per-kind
+# (RS19 correction note). A single per-kind string collapses two structurally
+# distinct advocacies into one and hardcodes a policy plan. The advocacy stem is
+# built by advocacy_stem() below, keyed on side (RS5b polarity) plus a per-side-
+# per-speech parallel discriminator; linearize passes the result via stem_override.
 _NODE_STEM = {
     "uniqueness": "the status quo holds",
     "link": "this causes the next step",
     "impact": "and that outcome matters",
-    "advocacy": "we advocate the plan",
     "framework": "evaluate the round this way",
     "weighing": "prefer this consideration",
     "ballot_directive": "vote here",
 }
 _WARRANT = "[warrant ×35w: reasoning-only placeholder, no card, no cite]"
 
+# Parallel (NOT ranked) discriminators for the 2nd+ same-side advocacy in one
+# speech. "first"/"second" would invite the model to read a later advocacy as
+# derivative; advocacy nodes in a component are unordered (RS19 correction note).
+_ADV_DISTINCT = {
+    2: "a separate", 3: "a third, distinct", 4: "a fourth, distinct",
+    5: "a fifth, distinct", 6: "a sixth, distinct", 7: "a seventh, distinct",
+}
+
+
+def advocacy_stem(side: str, ordinal: int) -> str:
+    """RS19 correction / RS5b: the advocacy claim stem.
+
+    Polarity from side alone — an AFF advocacy affirms the resolution, a NEG
+    advocacy is a competing advocacy (counterplan or alternative), never "the plan".
+    Type-neutral: no argument-type name, no policy-vs-value assumption. `ordinal`
+    (1-based, scoped per side per speech) disambiguates multiple advocacies in one
+    speech with a parallel, non-ranked phrase so two distinct advocacies never
+    render as one; ordinal 1 carries no discriminator.
+    """
+    noun = "advocacy" if side == "AFF" else "competing advocacy"
+    if ordinal <= 1:
+        return "we advance our advocacy" if side == "AFF" else "we advance a competing advocacy"
+    disc = _ADV_DISTINCT.get(ordinal, f"a {ordinal}th, distinct")
+    return f"we advance {disc} {noun}"
+
 
 def _tag(node) -> str:
     return f"{node.kind}:{node.id}"
 
 
-def node_line(node) -> Tuple[str, int]:
-    """RS23 new node: 50 words (claim 15 / warrant 35)."""
-    stem = _NODE_STEM.get(node.kind, node.kind)
+def node_line(node, *, stem_override: Optional[str] = None) -> Tuple[str, int]:
+    """RS23 new node: 50 words (claim 15 / warrant 35). `stem_override` carries a
+    per-node claim stem (advocacy — RS19 correction note); absent it, the per-kind
+    stem is used."""
+    stem = stem_override if stem_override is not None else _NODE_STEM.get(node.kind, node.kind)
     claim = f"[claim: {_tag(node)} — {stem}]"
     return f"{claim} {_WARRANT}", BUDGET_NODE
 
@@ -78,9 +110,11 @@ def edge_compare_line(edge, src, tgt) -> Tuple[str, int]:
     return (f"[weigh-link: compare {src.id}↔{tgt.id}, syntax only]", BUDGET_EDGE_COMPARE)
 
 
-def extension_line(node) -> Tuple[str, int]:
-    """RS26 extension: ~15 words, claim restated in full every time, no decay."""
-    stem = _NODE_STEM.get(node.kind, node.kind)
+def extension_line(node, *, stem_override: Optional[str] = None) -> Tuple[str, int]:
+    """RS26 extension: ~15 words, claim restated in full every time, no decay. An
+    extended advocacy restates its own per-node stem (`stem_override`), so the
+    discriminator that keeps it distinct at introduction persists on extension."""
+    stem = stem_override if stem_override is not None else _NODE_STEM.get(node.kind, node.kind)
     return f"[extend {_tag(node)} — {stem}]", BUDGET_EXTENSION
 
 

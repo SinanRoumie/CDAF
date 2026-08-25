@@ -92,15 +92,21 @@ def _component_label(comp: Component, flow_idx: int) -> str:
     return label
 
 
-def render(analysis: Analysis, rnd: Round, name: str = "round") -> str:
-    ctx = analysis.ctx
+@dataclass
+class SpeechBlock:
+    """One speech's M0 skeleton — the unit M1 turns into prose (one call/speech)."""
+    speech: str
+    side: str
+    lines: List[str]      # component headers + typed placeholder/event lines
+    budget: int           # RS23 budget sum for this speech
 
-    # v1.4: no assert. Every no-register component renders as RS13c INCOMPLETE;
-    # the renderer does not halt on any input.
+
+def _speech_blocks(analysis: Analysis, rnd: Round) -> List[SpeechBlock]:
+    """Bucket the graph into per-speech M0 skeletons (v1.4: no assert)."""
+    ctx = analysis.ctx
     comp_index = {id(c): i + 1 for i, c in enumerate(analysis.components)}
     owner = analysis.node2comp
 
-    # Bucket every event by (speech, component-or-None).
     # nodes: introduced in node.speech; extensions: each later liveness speech.
     new_nodes: Dict[Tuple[str, Optional[int]], List[str]] = defaultdict(list)
     extensions: Dict[Tuple[str, Optional[int]], List[str]] = defaultdict(list)
@@ -117,34 +123,29 @@ def render(analysis: Analysis, rnd: Round, name: str = "round") -> str:
     for e in rnd.edges:
         if e.source not in ctx.nodes or e.target not in ctx.nodes:
             continue
-        sp = _edge_speech(e, ctx)
-        oid = _edge_owner_id(e, ctx)
-        comp = owner.get(oid)
-        edges_by[(sp, id(comp) if comp else None)].append(e)
+        edges_by[(_edge_speech(e, ctx), _bucket_key(e, ctx, owner))].append(e)
 
-    # RS16c order lookup per component (member id -> rank).
     order_rank: Dict[int, Dict[str, int]] = {
         id(c): {nid: i for i, nid in enumerate(c.order)} for c in analysis.components}
 
-    out: List[str] = []
-    stats_words: Dict[str, int] = {}
-    out.append("=" * 72)
-    out.append(f"ROUND: {name}   |   {len(rnd.nodes)} nodes, {len(rnd.edges)} edges, "
-               f"{len(analysis.components)} components")
-    out.append("=" * 72)
+    # RS19 correction note: per-node advocacy claim stems. The disambiguating
+    # ordinal is scoped per side per speech (each speech is single-side, so this is
+    # per-speech) — NOT globally per round, which would make NEG's first advocacy
+    # read as "a separate advocacy" merely because AFF already used one. Computed
+    # once here so an extension in a later speech restates the same stem (RS26).
+    adv_by_speech: Dict[str, List[str]] = defaultdict(list)
+    for n in rnd.nodes:
+        if n.kind == "advocacy":
+            adv_by_speech[n.speech].append(n.id)
+    adv_stem: Dict[str, str] = {}
+    for ids in adv_by_speech.values():
+        for ordv, nid in enumerate(sorted(ids), start=1):
+            adv_stem[nid] = T.advocacy_stem(ctx.nodes[nid].side, ordv)
 
+    blocks: List[SpeechBlock] = []
     for speech in SPEECH_ORDER:
-        # Does this speech have any events at all?
-        keys = [(speech, id(c)) for c in analysis.components] + [(speech, None)]
-        has = any(new_nodes.get(k) or extensions.get(k) or edges_by.get(k) for k in keys)
-        if not has:
-            continue
-
-        out.append("")
-        out.append(f"--- {speech} ({SPEECH_SIDE.get(speech, '?')}) ---")
-        speech_budget = 0
-
-        # Components in fixed flow order (RS15), then the unattached bucket.
+        lines: List[str] = []
+        budget = 0
         buckets: List[Tuple[Optional[Component], Optional[int]]] = \
             [(c, id(c)) for c in analysis.components] + [(None, None)]
         for comp, ckey in buckets:
@@ -153,39 +154,62 @@ def render(analysis: Analysis, rnd: Round, name: str = "round") -> str:
             eg = edges_by.get((speech, ckey), [])
             if not (nn or ex or eg):
                 continue
-
             if comp is not None:
-                out.append("")
-                out.append(_component_label(comp, comp_index[ckey]))
+                lines.append(_component_label(comp, comp_index[ckey]))
                 rank = order_rank[ckey]
                 nn = sorted(nn, key=lambda x: (rank.get(x, 1 << 30), x))
                 ex = sorted(ex, key=lambda x: (rank.get(x, 1 << 30), x))
             else:
-                out.append("")
-                out.append("[unattached — no impact-bearing component]")
-                nn = sorted(nn)
-                ex = sorted(ex)
+                lines.append("[unattached — no impact-bearing component]")
+                nn, ex = sorted(nn), sorted(ex)
 
             for nid in nn:
-                text, b = T.node_line(ctx.nodes[nid])
-                out.append("    " + text)
-                speech_budget += b
+                text, b = T.node_line(ctx.nodes[nid], stem_override=adv_stem.get(nid))
+                lines.append("    " + text)
+                budget += b
             for e in sorted(eg, key=lambda x: _edge_sort_key(x, ctx)):
                 text, b = _edge_line(e, ctx)
-                out.append("    " + text)
-                speech_budget += b
+                lines.append("    " + text)
+                budget += b
                 if e.id in analysis.invisible_edges:
                     kind, reason = analysis.invisible_edges[e.id]
-                    out.append(T.invis_marker(kind, reason))
+                    lines.append(T.invis_marker(kind, reason))
             for nid in ex:
-                text, b = T.extension_line(ctx.nodes[nid])
-                out.append("    " + text)
-                speech_budget += b
+                text, b = T.extension_line(ctx.nodes[nid], stem_override=adv_stem.get(nid))
+                lines.append("    " + text)
+                budget += b
+        if lines:
+            blocks.append(SpeechBlock(
+                speech=speech, side=SPEECH_SIDE.get(speech, "?"), lines=lines, budget=budget))
+    return blocks
 
-        stats_words[speech] = speech_budget
+
+def _bucket_key(e, ctx, owner) -> Optional[int]:
+    comp = owner.get(_edge_owner_id(e, ctx))
+    return id(comp) if comp else None
+
+
+def speech_skeletons(analysis: Analysis, rnd: Round) -> List[SpeechBlock]:
+    """Public: the per-speech M0 skeletons, in forward speech order. This is the
+    M1 prompt unit — one call per block (render/llm.py)."""
+    return _speech_blocks(analysis, rnd)
+
+
+def render(analysis: Analysis, rnd: Round, name: str = "round") -> str:
+    out: List[str] = ["=" * 72,
+                      f"ROUND: {name}   |   {len(rnd.nodes)} nodes, {len(rnd.edges)} edges, "
+                      f"{len(analysis.components)} components",
+                      "=" * 72]
+    for blk in _speech_blocks(analysis, rnd):
         out.append("")
-        out.append(f"    [speech budget: {speech_budget} words]")
-
+        out.append(f"--- {blk.speech} ({blk.side}) ---")
+        # blank line before the first component header, matching prior layout
+        for ln in blk.lines:
+            if not ln.startswith("    ") and not ln.startswith("  ⟨"):
+                out.append("")
+            out.append(ln)
+        out.append("")
+        out.append(f"    [speech budget: {blk.budget} words]")
     return "\n".join(out)
 
 
