@@ -31,8 +31,9 @@ MODEL_ID = "claude-sonnet-4-6"
 TEMPERATURE = 0
 MAX_TOKENS = 2000                     # generous per-speech ceiling; budgets are targets
 RENDER_MODE = "M1"
-PROMPT_TEMPLATE_VERSION = "m1-v3"     # bump on ANY prompt change (RS30 guard); v2 adds RS5b;
-                                      # v3: per-node advocacy stem + rule-6 distinct-ids (RS19 note)
+PROMPT_TEMPLATE_VERSION = "m1-v4"     # bump on ANY prompt change (RS30 guard); v2 adds RS5b;
+                                      # v3: per-node advocacy stem + rule-6 distinct-ids (RS19 note);
+                                      # v4: advocacy ordinal scope per side per ROUND (was per speech)
 
 # --- resolutions (the shared motion; NOT an argument-type label) -------------
 RESOLUTIONS: Dict[str, str] = {

@@ -129,18 +129,21 @@ def _speech_blocks(analysis: Analysis, rnd: Round) -> List[SpeechBlock]:
         id(c): {nid: i for i, nid in enumerate(c.order)} for c in analysis.components}
 
     # RS19 correction note: per-node advocacy claim stems. The disambiguating
-    # ordinal is scoped per side per speech (each speech is single-side, so this is
-    # per-speech) — NOT globally per round, which would make NEG's first advocacy
-    # read as "a separate advocacy" merely because AFF already used one. Computed
-    # once here so an extension in a later speech restates the same stem (RS26).
-    adv_by_speech: Dict[str, List[str]] = defaultdict(list)
+    # ordinal is scoped per side, per ROUND — an advocacy is a commitment in the
+    # round, not the speech, so a 2AC advocacy is as distinct from the 1AC ones as
+    # they are from each other (the boundary is temporal, not structural). Per side,
+    # not global, so NEG's first advocacy does not inherit AFF's count. Ordered by
+    # round appearance (speech, then id). Computed once so an extension in a later
+    # speech restates the same stem (RS26).
+    adv_by_side: Dict[str, List[str]] = defaultdict(list)
     for n in rnd.nodes:
         if n.kind == "advocacy":
-            adv_by_speech[n.speech].append(n.id)
+            adv_by_side[n.side].append(n.id)
     adv_stem: Dict[str, str] = {}
-    for ids in adv_by_speech.values():
-        for ordv, nid in enumerate(sorted(ids), start=1):
-            adv_stem[nid] = T.advocacy_stem(ctx.nodes[nid].side, ordv)
+    for side, ids in adv_by_side.items():
+        ordered = sorted(ids, key=lambda i: (speech_index(ctx.nodes[i].speech), i))
+        for ordv, nid in enumerate(ordered, start=1):
+            adv_stem[nid] = T.advocacy_stem(side, ordv)
 
     blocks: List[SpeechBlock] = []
     for speech in SPEECH_ORDER:
