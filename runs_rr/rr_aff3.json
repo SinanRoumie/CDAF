@@ -1,0 +1,88 @@
+{
+  "aff_seed": 3,
+  "neg_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "n": 1000,
+  "ckpt_template": "runs_phase2/W3_B4/seed{seed}/ckpt_u0499.pt",
+  "aff_meta": {
+    "seed": 3,
+    "update": 499
+  },
+  "results": {
+    "0": {
+      "n": 1000,
+      "aff_wins": 3,
+      "aff_win_rate": 0.003,
+      "reason_class_counts": {
+        "presumption": 487,
+        "NEG offense": 234,
+        "framework lock-out": 245,
+        "AFF structural failure": 31,
+        "AFF offense": 3
+      },
+      "mean_N": -0.451,
+      "cell_seed": 20263826
+    },
+    "1": {
+      "n": 1000,
+      "aff_wins": 2,
+      "aff_win_rate": 0.002,
+      "reason_class_counts": {
+        "presumption": 897,
+        "framework lock-out": 98,
+        "AFF structural failure": 3,
+        "AFF offense": 2
+      },
+      "mean_N": 0.002,
+      "cell_seed": 20263827
+    },
+    "2": {
+      "n": 1000,
+      "aff_wins": 54,
+      "aff_win_rate": 0.054,
+      "reason_class_counts": {
+        "framework lock-out": 132,
+        "AFF offense": 54,
+        "presumption": 798,
+        "AFF structural failure": 15,
+        "NEG offense": 1
+      },
+      "mean_N": 0.093,
+      "cell_seed": 20263828
+    },
+    "3": {
+      "n": 1000,
+      "aff_wins": 36,
+      "aff_win_rate": 0.036,
+      "reason_class_counts": {
+        "framework lock-out": 215,
+        "presumption": 686,
+        "AFF offense": 36,
+        "NEG offense": 42,
+        "AFF structural failure": 21
+      },
+      "mean_N": -0.019,
+      "cell_seed": 20263829
+    },
+    "4": {
+      "n": 1000,
+      "aff_wins": 2,
+      "aff_win_rate": 0.002,
+      "reason_class_counts": {
+        "framework lock-out": 184,
+        "presumption": 641,
+        "AFF structural failure": 44,
+        "NEG offense": 129,
+        "AFF offense": 2
+      },
+      "mean_N": -0.357,
+      "cell_seed": 20263830
+    }
+  },
+  "wall_seconds": 2199.596960544586
+}

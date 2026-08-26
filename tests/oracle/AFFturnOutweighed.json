@@ -1,0 +1,355 @@
+{
+ "version": 2,
+ "elements": [
+  {
+   "data": {
+    "id": "n4",
+    "label": "AFF advocacy (plan)",
+    "ntype": "Advocacy",
+    "side": "AFF",
+    "speech": "1AC",
+    "liveness": {
+     "1AC": "conceded",
+     "2AC": "conceded",
+     "1AR": "conceded",
+     "2AR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n2",
+    "label": "AFF link (dropped after 2AC)",
+    "ntype": "Link",
+    "side": "AFF",
+    "speech": "1AC",
+    "liveness": {
+     "1AC": "conceded",
+     "2AC": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n3",
+    "label": "AFF impact (dropped)",
+    "ntype": "Impact",
+    "side": "AFF",
+    "speech": "1AC",
+    "liveness": {
+     "1AC": "conceded",
+     "2AC": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n8",
+    "label": "AFF link uniqueness",
+    "ntype": "Uniqueness",
+    "side": "AFF",
+    "speech": "1AC",
+    "liveness": {
+     "1AC": "conceded",
+     "2AC": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "u3a",
+    "label": "AFF impact uniqueness (added)",
+    "ntype": "Uniqueness",
+    "side": "AFF",
+    "speech": "1AC",
+    "liveness": {
+     "1AC": "conceded",
+     "2AC": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n9",
+    "label": "NEG uniqueness-of-trend",
+    "ntype": "Uniqueness",
+    "side": "NEG",
+    "speech": "1NC",
+    "liveness": {
+     "1NC": "conceded",
+     "2NC/1NR": "conceded",
+     "2NR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n10",
+    "label": "NEG disad link",
+    "ntype": "Link",
+    "side": "NEG",
+    "speech": "1NC",
+    "liveness": {
+     "1NC": "conceded",
+     "2NC/1NR": "conceded",
+     "2NR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n11",
+    "label": "NEG disad impact",
+    "ntype": "Impact",
+    "side": "NEG",
+    "speech": "1NC",
+    "liveness": {
+     "1NC": "conceded",
+     "2NC/1NR": "conceded",
+     "2NR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "u11",
+    "label": "NEG impact uniqueness (added)",
+    "ntype": "Uniqueness",
+    "side": "NEG",
+    "speech": "1NC",
+    "liveness": {
+     "1NC": "conceded",
+     "2NC/1NR": "conceded",
+     "2NR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n12",
+    "label": "NEG framework",
+    "ntype": "Framework",
+    "side": "NEG",
+    "speech": "1NC",
+    "liveness": {
+     "1NC": "conceded",
+     "2NC/1NR": "conceded",
+     "2NR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n16",
+    "label": "AFF turn link",
+    "ntype": "Link",
+    "side": "AFF",
+    "speech": "2AC",
+    "liveness": {
+     "2AC": "conceded",
+     "1AR": "conceded",
+     "2AR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n17",
+    "label": "NEG weigh: disad link > turn",
+    "ntype": "Weighing",
+    "side": "NEG",
+    "speech": "2NC/1NR",
+    "liveness": {
+     "2NC/1NR": "conceded",
+     "2NR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n18",
+    "label": "AFF ballot",
+    "ntype": "BallotDirective",
+    "side": "AFF",
+    "speech": "2AC",
+    "liveness": {
+     "2AC": "conceded",
+     "1AR": "conceded",
+     "2AR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "n19",
+    "label": "NEG ballot",
+    "ntype": "BallotDirective",
+    "side": "NEG",
+    "speech": "1NC",
+    "liveness": {
+     "1NC": "conceded",
+     "2NC/1NR": "conceded",
+     "2NR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "e1",
+    "source": "n2",
+    "target": "n3",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e2",
+    "source": "n2",
+    "target": "n8",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "lkrec1",
+    "label": "lkrec1",
+    "ntype": "Link",
+    "side": "AFF",
+    "speech": "1AC",
+    "liveness": {
+     "1AC": "conceded",
+     "2AC": "conceded",
+     "1AR": "conceded",
+     "2AR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "e3a",
+    "source": "n8",
+    "target": "lkrec1",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e3b",
+    "source": "lkrec1",
+    "target": "n4",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e4",
+    "source": "u3a",
+    "target": "n3",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "lkrec2",
+    "label": "lkrec2",
+    "ntype": "Link",
+    "side": "AFF",
+    "speech": "1AC",
+    "liveness": {
+     "1AC": "conceded",
+     "2AC": "conceded",
+     "1AR": "conceded",
+     "2AR": "conceded"
+    }
+   }
+  },
+  {
+   "data": {
+    "id": "e5a",
+    "source": "n4",
+    "target": "lkrec2",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e5b",
+    "source": "lkrec2",
+    "target": "n9",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e6",
+    "source": "n9",
+    "target": "n10",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e7",
+    "source": "n10",
+    "target": "n11",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e8",
+    "source": "u11",
+    "target": "n11",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e9",
+    "source": "n11",
+    "target": "n12",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e10",
+    "source": "n17",
+    "target": "n16",
+    "etype": "ComparisonEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e11",
+    "source": "n17",
+    "target": "n10",
+    "etype": "ComparisonEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e12",
+    "source": "n18",
+    "target": "n11",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e13",
+    "source": "n19",
+    "target": "n11",
+    "etype": "SupportEdge"
+   }
+  },
+  {
+   "data": {
+    "id": "e14",
+    "source": "n16",
+    "target": "n10",
+    "etype": "OffensiveAttackEdge"
+   }
+  }
+ ]
+}

@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 .DS_Store
+# Validation / training run outputs -- diagnostic artifacts, never committed
+# (checkpoints, rounds, metrics, resolved configs). Flagged in the Run 2 handoff.
+runs/
+# Generated sample-round outputs (training/sample_round.py); regenerable, not tracked.
+samples/

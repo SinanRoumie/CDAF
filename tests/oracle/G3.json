@@ -1,0 +1,131 @@
+{
+  "version": 2,
+  "elements": [
+    {
+      "data": {
+        "id": "adv",
+        "label": "Advocacy",
+        "ntype": "Advocacy",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "uni",
+        "label": "Link uniqueness",
+        "ntype": "Uniqueness",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "lk",
+        "label": "Link",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "im",
+        "label": "Impact",
+        "ntype": "Impact",
+        "side": "AFF",
+        "speech": "1AC",
+        "liveness": {
+          "1AC": "conceded",
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "bd",
+        "label": "Ballot",
+        "ntype": "BallotDirective",
+        "side": "AFF",
+        "speech": "2AR",
+        "liveness": {
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "na",
+        "label": "AFF na",
+        "ntype": "Link",
+        "side": "AFF",
+        "speech": "2AC",
+        "liveness": {
+          "2AC": "conceded",
+          "1AR": "conceded",
+          "2AR": "conceded"
+        }
+      }
+    },
+    {
+      "data": {
+        "id": "e1",
+        "source": "adv",
+        "target": "lk",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e2",
+        "source": "uni",
+        "target": "lk",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e3",
+        "source": "lk",
+        "target": "im",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e4",
+        "source": "im",
+        "target": "bd",
+        "etype": "SupportEdge"
+      }
+    },
+    {
+      "data": {
+        "id": "e5",
+        "source": "na",
+        "target": "lk",
+        "etype": "DefensiveAttackEdge"
+      }
+    }
+  ]
+}

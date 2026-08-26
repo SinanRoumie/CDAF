@@ -1,0 +1,359 @@
+"""Phase-1 environment shell tests: state schema, structural legality (incl. the
+ruled local Fence-A rule), the monotonic-settled-facts observation, and the
+reset()/step() contract with a single judge call at termination.
+
+These pin the shell's CONTRACT, not the judge's semantics (the judge is exercised by
+the oracle suite). The load-bearing assertions: strategic-illegal-but-structural moves
+are ADMITTED (not filtered), Fence A is enforced locally without deferred repair, the
+observation carries no provisional/verdict signal, and termination runs the judge
+exactly once and maps its ballot to a binary reward.
+"""
+
+from env import (
+    CDAFEnvironment, RoundState,
+    Introduce, Extend, Concede, Weigh, Connect, EndSpeech,
+    check_legality, is_legal, NEW, SPEECH_BUDGET, TOTAL_BUDGET,
+)
+from judge.config import AFF, NEG
+
+
+def _last(state):
+    return list(state.nodes)[-1]
+
+
+def _drive(env, actions):
+    out = None
+    for a in actions:
+        ok, why = check_legality(env.state, a)
+        assert ok, f"expected legal, got {why}: {a}"
+        out = env.step(a)
+    return out
+
+
+# --- reset / sequence --------------------------------------------------------
+
+def test_reset_empty_graph_at_1AC():
+    env = CDAFEnvironment()
+    obs = env.reset()
+    assert obs["graph"]["nodes"] == [] and obs["graph"]["edges"] == []
+    assert obs["sequence"]["slot"] == "1AC"
+    assert obs["sequence"]["side"] == AFF
+    assert obs["sequence"]["remaining_budget"] == SPEECH_BUDGET["1AC"]
+    assert TOTAL_BUDGET == 52
+
+
+def test_end_speech_advances_side_and_slot():
+    env = CDAFEnvironment(); env.reset()
+    obs, r, done, info = env.step(EndSpeech())
+    assert not done and r == 0.0
+    assert obs["sequence"]["slot"] == "1NC" and obs["sequence"]["side"] == NEG
+
+
+def test_budget_exhaustion_auto_advances():
+    env = CDAFEnvironment(); env.reset()
+    for _ in range(SPEECH_BUDGET["1AC"]):
+        obs, r, done, info = env.step(Introduce("x", "advocacy", NEW))   # advocacy = legal root
+    # after the budget-th move the speech auto-advances to 1NC
+    assert obs["sequence"]["slot"] == "1NC"
+    assert obs["sequence"]["moves_used"] == 0
+
+
+# --- structural legality: well-formedness ------------------------------------
+
+def test_illegal_params_and_targets_rejected():
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("a", "advocacy", NEW))
+    nid = _last(env.state)
+    # bad role
+    assert not is_legal(env.state, Introduce("x", "not_a_role", NEW))
+    # NEW must not carry an edge_type
+    assert not is_legal(env.state, Introduce("x", "link", NEW, "support"))
+    # attach to missing target
+    assert not is_legal(env.state, Introduce("x", "link", "n999", "support"))
+    # bad edge_type on attach
+    assert not is_legal(env.state, Introduce("x", "link", nid, "bogus"))
+    # extend/weigh on missing node
+    assert not is_legal(env.state, Extend("n999"))
+    assert not is_legal(env.state, Weigh("n999", nid, nid))
+    # weigh self / favors mismatch
+    assert not is_legal(env.state, Weigh(nid, nid, nid))
+    assert not is_legal(env.state, Weigh(nid, "n999", "n42"))
+    # legal: attach a valid relationship, including own-side targeting (shared node)
+    assert is_legal(env.state, Introduce("x", "link", nid, "support"))
+    # ILLEGAL (masking ruling): an offensive_attack onto an own-side (and non-polarity)
+    # advocacy is BOTH a same-side attack and offense-at-non-polarity -- structurally
+    # incoherent, so masked out of the action space.
+    assert not is_legal(env.state, Introduce("x", "impact", nid, "offensive_attack"))
+
+
+def test_illegal_action_raises_in_step():
+    env = CDAFEnvironment(); env.reset()
+    try:
+        env.step(Extend("n999"))
+        assert False, "expected ValueError on illegal action"
+    except ValueError:
+        pass
+
+
+# --- structural legality: strategic moves are NOT filtered -------------------
+
+def test_strategic_illegal_but_structural_is_admitted():
+    """A brand-new chain introduced in a rebuttal, and a CROSS-SIDE attack drawn in the
+    'wrong' (late) window, are STRATEGICALLY weak (the judge scores them inert / unresolved)
+    but STRUCTURALLY legal. The generator must admit them so the agent gets the learning
+    signal (spec §Governing principle). Contrast: a same-side attack or an offense at a
+    non-polarity node is structurally INCOHERENT and IS refused (see test_connect_legality
+    and test_inert) -- that is a different boundary."""
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("plan", "advocacy", NEW)); adv = _last(env.state)          # 1AC advocacy root
+    env.step(Introduce("aff link", "link", adv, "support")); lk = _last(env.state)   # 1AC AFF link
+    # jump to 2NR (a NEG speech) without answering anything: 1AC -> ... -> 2NR is 5 advances
+    for _ in range(5):
+        env.step(EndSpeech())
+    assert env.state.current_slot == "2NR"
+    # a fresh structure (a NEW framework root -- links/impacts must attach, but a framework
+    # roots a component) first introduced in a rebuttal: structurally legal (judge rules it inert)
+    assert is_legal(env.state, Introduce("late framework", "framework", NEW))
+    # a cross-side offense on the AFF link, drawn far past its response window: offense-
+    # bearing endpoints on opposite sides -> structurally legal, though strategically inert.
+    assert is_legal(env.state, Introduce("late turn", "impact", lk, "offensive_attack"))
+
+
+# --- divergence is legal (Fence A retired, v11) ------------------------------
+
+def test_divergent_second_terminal_impact_admitted():
+    """As of v11 a link diverging to a second terminal impact is FIRST-CLASS (scored
+    per branch, summed) -- no longer refused. Both introduces are admitted."""
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("link", "link", adv, "support")); lk = _last(env.state)
+    env.step(Introduce("imp1", "impact", lk, "support"))
+    env.step(Introduce("vote", "ballot_directive", lk, "support"))     # BD below the divergence
+    assert is_legal(env.state, Introduce("imp2", "impact", lk, "support"))
+
+
+# --- connect: edge between two existing nodes --------------------------------
+
+def test_connect_legality():
+    """connect(source, target, edge_type): both must exist, distinct, valid edge_type,
+    and no Support cycle. It is what makes convergence (a diamond onto a shared node)
+    buildable -- introduce alone can only grow a forest."""
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("L1", "link", adv, "support")); l1 = _last(env.state)
+    env.step(Introduce("L2", "link", adv, "support")); l2 = _last(env.state)
+    env.step(Introduce("im", "impact", l1, "support")); im = _last(env.state)
+    # missing endpoint / self-loop / bad edge_type
+    assert not is_legal(env.state, Connect(im, "n999", "support"))
+    assert not is_legal(env.state, Connect(im, im, "support"))
+    assert not is_legal(env.state, Connect(im, l2, "bogus"))
+    # DIAMOND (convergence): connect L2 -> im. Authored support runs child->parent
+    # (im->L1->adv), so im does not reach L2; adding L2->im creates no directed cycle
+    # -> ADMITTED (this is the whole point of connect -- a second path onto im).
+    assert is_legal(env.state, Connect(l2, im, "support"))
+    env.step(Connect(l2, im, "support"))
+    # a support connect that WOULD close a directed cycle is rejected: target im already
+    # reaches source adv (im->L1->adv), so adding adv->im closes the loop adv->im->L1->adv.
+    assert not is_legal(env.state, Connect(adv, im, "support"))
+    # an attack-type connect is NOT subject to the Support-cycle rule -- but adv & im are
+    # SAME-SIDE (both AFF), so an attack between them is now refused as a same-side attack
+    # (masking ruling), not for any cycle reason. (Cross-side attack connects bypassing the
+    # cycle rule are covered by test_action_heads.test_connect_support_cycle_masked.)
+    assert not is_legal(env.state, Connect(adv, im, "offensive_attack"))
+
+
+def test_same_kind_weigh_mask_ruling1():
+    """Ruling 1: a `weigh` is legal only between SAME-KIND operands. A cross-kind weigh
+    has no matching factor for the judge to rank (a mixed-type Comparison is inert in
+    every state, judge_spec §3.4/§6.5), so it is rejected at creation. All 18 oracle
+    weighs are same-kind, so this changes no verdict (see tests/oracle)."""
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("L", "link", adv, "support")); lk = _last(env.state)
+    env.step(Introduce("im1", "impact", lk, "support")); im1 = _last(env.state)
+    env.step(Introduce("im2", "impact", lk, "support")); im2 = _last(env.state)  # divergent
+    # SAME-KIND: impact vs impact -> legal.
+    assert is_legal(env.state, Weigh(im1, im2, im1))
+    # CROSS-KIND: link vs impact, advocacy vs link, advocacy vs impact -> all illegal.
+    assert not is_legal(env.state, Weigh(lk, im1, lk))
+    assert not is_legal(env.state, Weigh(adv, lk, adv))
+    assert not is_legal(env.state, Weigh(adv, im1, im1))
+    # the rejection is the cross-kind rule, not existence/favors (those pass first).
+    ok, reason = check_legality(env.state, Weigh(lk, im1, lk))
+    assert not ok and "cross-kind" in reason
+
+
+def test_defensive_attack_on_ballot_directive_masked_ruling2_v1a():
+    """Ruling 2 V1a: a CROSS-SIDE `defensive_attack` whose TARGET is a BallotDirective is
+    illegal (a BD bears no consumed magnitude -> judge-invisible in every state). The mask
+    is narrow BY DESIGN: support-on-BD is NOT masked (same-side Link/Framework->BD and
+    cross-side captured Impact->BD anchor -- masking them would break r6 and the capture
+    fixtures, spec TRAP)."""
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("L", "link", adv, "support")); lk = _last(env.state)
+    env.step(Introduce("im", "impact", lk, "support")); im = _last(env.state)
+    env.step(Introduce("vote aff", "ballot_directive", im, "support")); bd = _last(env.state)
+    env.step(EndSpeech())                                    # advance to 1NC (NEG's turn)
+    # V1a: NEG defensive_attack targeting the AFF BD -> ILLEGAL (introduce and connect).
+    assert not is_legal(env.state, Introduce("da on bd", "impact", bd, "defensive_attack"))
+    ok, reason = check_legality(env.state, Introduce("da on bd", "link", bd, "defensive_attack"))
+    assert not ok and "BallotDirective" in reason
+    env.step(Introduce("neg link", "link", adv, "support")); nlk = _last(env.state)
+    assert not is_legal(env.state, Connect(nlk, bd, "defensive_attack"))
+    # NOT over-masked: cross-side SUPPORT onto the BD stays legal (the capture-anchor route),
+    # and a cross-side defensive_attack on a NON-BD node (ordinary defense) stays legal.
+    assert is_legal(env.state, Introduce("neg support on bd", "impact", bd, "support"))
+    assert is_legal(env.state, Introduce("neg da on impact", "impact", im, "defensive_attack"))
+
+
+# --- observation: settled facts + node-level accrual only --------------------
+
+def test_observation_excludes_provisional_signal():
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    obs = env.step(Introduce("lk", "link", adv, "support"))[0]
+    keys = set(obs)
+    assert keys == {"graph", "closed_window_drops", "permanent_extension_failures",
+                    "reachability", "accrual", "sequence"}
+    # node-level accrual (sigma + propagated sign) IS exposed; but NO chain-level or
+    # whole-round leakage -- no chain magnitude, running tally, verdict, or eligibility.
+    assert set(obs["accrual"]) == {"sigma", "eff_pol"}
+    flat = repr({k: v for k, v in obs.items() if k != "accrual"}).lower()
+    for banned in ("magnitude", "verdict", "winner", "reward", "delta", "tally", "eligib"):
+        assert banned not in flat, f"observation leaked provisional field: {banned}"
+
+
+def test_closed_window_drop_is_settled_and_reachability():
+    env = CDAFEnvironment(); env.reset()
+    # 1AC: advocacy + link + impact + BD (reachable chain); plus an orphan root
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("lk", "link", adv, "support")); lk = _last(env.state)
+    env.step(Introduce("im", "impact", lk, "support")); im = _last(env.state)
+    env.step(Introduce("vote", "ballot_directive", im, "support"))
+    # a non-impact node disconnected from any impact is orphaned (an impact would
+    # trivially "route to an impact" -- itself). Under the floating-root restriction only
+    # an Advocacy/Framework may float, so use a floating advocacy -- still a reachability
+    # orphan (non-impact, no path to any impact).
+    env.step(Introduce("floating", "advocacy", NEW)); orphan = _last(env.state)
+    # advance past 1NC (the link's response window) with no NEG clash
+    env.step(EndSpeech())                    # -> 1NC
+    env.step(EndSpeech())                    # -> 2AC ; now 1NC window has passed
+    obs = env.reset() if False else __import__("env").observe(env.state)
+    assert lk in obs["closed_window_drops"]  # window passed, no opposing clash -> settled
+    assert obs["reachability"][lk] is True and obs["reachability"][im] is True
+    assert obs["reachability"][orphan] is False
+
+
+# --- termination: judge called once, binary reward ---------------------------
+
+def test_empty_round_terminates_to_presumption_NEG():
+    env = CDAFEnvironment(); env.reset()
+    done = False; info = None; r = None
+    for _ in range(len(SPEECH_BUDGET)):
+        obs, r, done, info = env.step(EndSpeech())
+    assert done is True
+    assert info["winner"] == NEG            # no AFF offense -> presumption
+    assert info["rewards"] == {AFF: 0.0, NEG: 1.0}
+    assert r == 0.0                          # AFF-perspective reward
+
+
+def test_liveness_status_is_derived_structurally_not_from_verb():
+    """`to_round` stamps contested/conceded from graph structure (convert-faithful),
+    never from extend-vs-concede. A cross-side attack contests the target's instance
+    that was live when the opponent spoke; every other carried speech is conceded."""
+    from model.nodes import CONTESTED, CONCEDED
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("adv", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("lk", "link", adv, "support")); lk = _last(env.state)
+    env.step(Introduce("im", "impact", lk, "support"))
+    env.step(Introduce("vote", "ballot_directive", _last(env.state), "support"))
+    env.step(EndSpeech())                              # -> 1NC (NEG)
+    # NEG attacks the AFF link in 1NC (the link's response window)
+    env.step(Introduce("no link", "link", lk, "offensive_attack"))
+    env.step(EndSpeech())                              # -> 2AC
+    env.step(Extend(lk))                               # AFF carries the link
+    env.step(EndSpeech())
+    for _ in range(4):                                 # 2NC/1NR, 1AR, 2NR, 2AR ... terminate
+        if not env.state.terminated:
+            env.step(EndSpeech())
+    # materialize the link node and inspect its stamped liveness
+    materialized = {n.id: n for n in env.state.to_round().nodes}
+    live = materialized[lk].liveness
+    assert live.get("1AC") == CONTESTED     # link was live & answered by the 1NC attack
+    assert live.get("2AC") == CONCEDED      # carried later, unanswered that speech
+
+
+def test_full_conceded_aff_chain_wins_aff():
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("plan", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("link", "link", adv, "support")); lk = _last(env.state)       # advocacy -> link (r27-style)
+    env.step(Introduce("uq", "uniqueness", lk, "support")); uni = _last(env.state)    # uniqueness -> link
+    env.step(Introduce("impact", "impact", lk, "support")); im = _last(env.state)     # link -> impact
+    env.step(Introduce("vote aff", "ballot_directive", im, "support"))
+    spine = (adv, lk, uni, im)
+    env.step(EndSpeech())                    # 1AC done
+    env.step(EndSpeech())                    # 1NC concedes
+    for n in spine: env.step(Extend(n))      # 2AC
+    env.step(EndSpeech())
+    env.step(EndSpeech())                    # 2NC/1NR
+    for n in spine: env.step(Extend(n))      # 1AR
+    env.step(EndSpeech())
+    env.step(EndSpeech())                    # 2NR
+    for n in spine: env.step(Extend(n))      # 2AR
+    obs, r, done, info = env.step(EndSpeech())
+    assert done and info["winner"] == AFF and r == 1.0
+
+
+# --- chain-extension reward shaping (optional, off by default) ----------------
+
+def _full_aff_chain(env):
+    """Drive `env` to termination with a fully-extended, conceded AFF offense chain,
+    extended every AFF speech; AFF wins on the ballot. Topology is r27-style (the only
+    legal shape post-Ruling 4): advocacy -> link, uniqueness -> link, link -> impact -> BD.
+    The Advocacy attaches ONLY to the Link (never a bare Uniqueness); the Uniqueness
+    satellites the Link. Offense still routes through a real Link (Ruling 1)."""
+    env.step(Introduce("plan", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("link", "link", adv, "support")); lk = _last(env.state)      # advocacy -> link
+    env.step(Introduce("uq", "uniqueness", lk, "support")); uni = _last(env.state)   # uniqueness -> link
+    env.step(Introduce("impact", "impact", lk, "support")); im = _last(env.state)    # link -> impact
+    env.step(Introduce("vote aff", "ballot_directive", im, "support"))
+    spine = (adv, lk, uni, im)
+    env.step(EndSpeech()); env.step(EndSpeech())          # 1AC, 1NC (concede)
+    for n in spine: env.step(Extend(n))                   # 2AC
+    env.step(EndSpeech()); env.step(EndSpeech())          # -> 2NC/1NR (concede)
+    for n in spine: env.step(Extend(n))                   # 1AR
+    env.step(EndSpeech()); env.step(EndSpeech())          # -> 2NR (concede)
+    for n in spine: env.step(Extend(n))                   # 2AR
+    return env.step(EndSpeech())
+
+
+def test_reward_breakdown_shape_and_unshaped_terminal():
+    """A carried AFF chain yields the plain (UNSHAPED) ballot reward; reward_breakdown splits
+    into {ballot, inert_penalty} per side. The flat chain-extension bonus is RETIRED (no such
+    key). PBRS shaping is per-step in TRAINING, not in the env's terminal reward; Φ(terminal)=0."""
+    env = CDAFEnvironment(); env.reset()
+    obs, r, done, info = _full_aff_chain(env)
+    assert info["winner"] == AFF and r == 1.0
+    assert info["rewards"] == {AFF: 1.0, NEG: 0.0}
+    assert info["reward_breakdown"] == {
+        AFF: {"ballot": 1.0, "inert_penalty": -0.0},
+        NEG: {"ballot": 0.0, "inert_penalty": -0.0},
+    }
+    assert "chain_extension_bonus" not in info["reward_breakdown"][AFF]
+    assert info["phi"] == 0.0                             # Φ(terminal) = 0 (invariance boundary)
+
+
+def test_env_exposes_phi_and_it_tracks_a_carried_chain():
+    """The env exposes Φ(s) via info['phi'] each step (PBRS). A clean carried AFF chain gives
+    Φ > 0; a NEG offensive turn on the AFF link lowers Φ. Φ is a pure state function; training
+    forms the per-step shaping reward from it."""
+    env = CDAFEnvironment(); env.reset()
+    env.step(Introduce("plan", "advocacy", NEW)); adv = _last(env.state)
+    env.step(Introduce("lk", "link", adv, "support")); lk = _last(env.state)
+    env.step(Introduce("im", "impact", lk, "support"))
+    env.step(Introduce("vote", "ballot_directive", lk, "support"))
+    _o, _r, _d, info = env.step(EndSpeech())             # -> 1NC
+    assert "phi" in info and info["phi"] > 0.0           # carried AFF chain -> Φ > 0
+    _o, _r, _d, info2 = env.step(Introduce("turn", "impact", lk, "offensive_attack"))
+    assert info2["phi"] < info["phi"]                    # NEG turn on the AFF link lowers Φ

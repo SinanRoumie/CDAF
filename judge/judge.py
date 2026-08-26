@@ -1,0 +1,201 @@
+"""judge(round) -> (ballot, trace): the deterministic CDAF verdict.
+
+Runs the six passes in §9 order over a model.Round and returns a binary ballot
+(AFF / NEG) plus the ordered decision trace. Pure: imports only model/ and the
+judge package; never touches the app, filesystem, network, or clock; never
+raises on a well-typed Round (§0).
+"""
+
+from __future__ import annotations
+
+from typing import List, Tuple
+
+from model import Advocacy, BallotDirective, Impact
+
+from . import passes
+from . import trace as T
+from .config import AFF, NEG, EPSILON
+from .qpn import UNRESOLVED
+from .resolve import resolve
+
+
+def judge(rnd) -> Tuple[str, List]:
+    """Evaluate a finished argument graph. Returns (ballot, trace). Passes run in
+    §9 order: weighing towers resolve BEFORE clash resolution, so a determinate
+    weigh can decide a link/turn polarity clash without a dependency cycle."""
+    ctx = passes.build_context(rnd)        # Pass 1: discovery + uniqueness index
+    passes.pass2_drops(ctx)                # Pass 2: drop + extension
+    passes.pass_accrual(ctx)               # Pass 3-5a: node_accrual -> sigma + polarity
+    passes.pass5_chains(ctx)               # Pass 5b: chain sign/magnitude/delta
+    passes.pass6_framework(ctx)            # Pass 6: framework gate
+    winner = _ballot(ctx)                  # Pass 7: BD validation + net offense
+    return winner, ctx.trace
+
+
+def _favored_side(ctx: passes.Context, ch: dict):
+    """Which side an anchored argument resolves in favor of, or None if it
+    establishes no offense (unresolved sign, failed extension, out of scope, or
+    collapsed magnitude)."""
+    if ch["sign"] == UNRESOLVED or ch["unresolved"]:
+        return None
+    if not ch["extended"] or not ch.get("in_scope", True):
+        return None
+    if ch["mag"] <= EPSILON:
+        return None
+    return ch["side"] if ch["sign"] > 0 else passes._opposing(ch["side"])
+
+
+def _advocacy_reachable(ctx: passes.Context, chains: list) -> bool:
+    """§7 advocacy gate: is a live AFF Advocacy NODE reachable over undirected
+    `Support` edges from any member of an AFF-owned chain? AFF must tie the plan
+    to the offense it balloted. This is reachability-SCOPED, not global: the walk
+    starts at the AFF-owned chains' members and follows Support only (traversing a
+    cross-side fusion edge like adv->neg_uniqueness, never an OffensiveAttack, and
+    treating BDs as Support leaves), so a live advocacy with no Support path to the
+    balloted offense does NOT satisfy the gate. For an ordinary AFF win the
+    advocacy is itself a chain member and is found trivially."""
+    reach = set()
+    for ch in chains:
+        reach |= ch["members"]
+    stack = list(reach)
+    while stack:
+        cur = stack.pop()
+        for nbr, e in ctx.adj.get(cur, []):
+            if isinstance(e, passes.Support) and nbr not in reach:
+                reach.add(nbr)
+                stack.append(nbr)
+    return any(isinstance(ctx.nodes[m], Advocacy)
+               and passes.node_extension_ok(ctx.nodes[m])[0]
+               for m in reach)
+
+
+def _ballot(ctx: passes.Context) -> str:
+    """Pass 6 (§7): validate BDs, sum net offense with weighing preferences,
+    apply the asymmetric win condition, drain the indeterminate to presumption."""
+    valid = []          # chains that passed BD validation
+    valid_ids = set()
+    bds = [n for n in ctx.nodes.values()
+           if isinstance(n, BallotDirective) and n.id in ctx.reachable]
+
+    for bd in bds:
+        incident = {nbr for nbr, _e in ctx.adj.get(bd.id, [])}
+        # BD anchoring reads `anchor_members` (§7): a BD may anchor any node on the
+        # chain it directs the ballot toward, including a turning link that captured
+        # the chain (joined by an OffensiveAttack, so absent from `members`). Only BD
+        # incidence uses this superset; union-find and aggregation read `members`.
+        anchored = [ch for ch in ctx.chains if ch["anchor_members"] & incident]
+        if not anchored:
+            ctx.trace.append(T.BdValidate(bd_id=bd.id, result="fail",
+                                          reason="no anchored argument", side=bd.side))
+            continue
+        for ch in anchored:
+            fav = _favored_side(ctx, ch)
+            if fav is None:
+                result, reason = "fail", "anchored argument establishes no offense ('?')"
+            elif fav != bd.side:
+                result, reason = "fail", f"offense favors {fav}, BD claims {bd.side}"
+            else:
+                result, reason = "pass", f"resolves {bd.side}"
+                if ch["id"] not in valid_ids:
+                    valid.append(ch)
+                    valid_ids.add(ch["id"])
+            ctx.trace.append(T.BdValidate(bd_id=bd.id, result=result, reason=reason, side=bd.side))
+
+    excluded = passes.weighing_excluded(ctx, valid)
+
+    # Net offense N = sum(AFF deltas) - sum(NEG deltas), over validated chains,
+    # honoring won-weighing preferences. delta already carries any polarity flip.
+    contributed_ids = {ch["id"] for ch in valid if ch["id"] not in excluded}
+    aff_sum = neg_sum = 0.0
+    decomposition = []
+    for ch in ctx.chains:
+        contributed = ch["id"] in contributed_ids
+        d = 0.0 if ch["sign"] == UNRESOLVED else ch["sign"] * ch["mag"]
+        decomposition.append({"chain_id": ch["id"], "side": ch["side"],
+                              "delta": d, "contributed": contributed})
+        if contributed:
+            if ch["side"] == AFF:
+                aff_sum += d
+            else:
+                neg_sum += d
+    N = aff_sum - neg_sum
+
+    # AFF structural gates, read over AFF-OWNED offense (§7): a chain counts for
+    # AFF when the side its composed sign FAVORS is AFF (owner == AFF), which is
+    # the introducing side for an ordinary chain and the opponent for a captured
+    # (turned) chain. This lets AFF win on a NEG disad it turned (r4 mirror),
+    # exactly as NEG wins on a captured AFF chain. The N > eps floor (below) is
+    # unchanged -- it is what stops a bare or washed turn from winning.
+    aff_owned = [ch for ch in valid
+                 if _favored_side(ctx, ch) == AFF and ch["id"] not in excluded]
+    # advocacy_present reads a live AFF Advocacy NODE reachable (over Support) from
+    # the AFF-owned offense -- AFF must tie the plan to the offense it balloted, and
+    # may drop its own advantage yet still hold the plan. Bare presence of any
+    # advocacy anywhere does NOT satisfy it (reachability-scoped, not global).
+    advocacy_present = _advocacy_reachable(ctx, aff_owned)
+    complete_chain = any(ch["mag"] > EPSILON for ch in aff_owned)
+    inscope_impact = any(ch.get("in_scope", True) and ch["impacts"] for ch in aff_owned)
+
+    gates = []
+    if advocacy_present:
+        gates.append("advocacy")
+    if complete_chain:
+        gates.append("complete_chain")
+    if inscope_impact:
+        gates.append("in_scope_impact")
+    if N > EPSILON:
+        gates.append("N>eps")
+
+    aff_wins = advocacy_present and complete_chain and inscope_impact and N > EPSILON
+    winner = AFF if aff_wins else NEG     # everything indeterminate drains to NEG presumption
+    reason_class = _reason_class(ctx, winner, advocacy_present, complete_chain,
+                                 inscope_impact, N)
+    ctx.trace.append(T.Ballot(N=N, gates_passed=gates, winner=winner,
+                              reason_class=reason_class, aff_sum=aff_sum,
+                              neg_sum=neg_sum, decomposition=decomposition))
+    return winner
+
+
+def _reason_class(ctx, winner, advocacy_present, complete_chain, inscope_impact, N):
+    """Label the decision (descriptive only -- does not change the verdict).
+
+    "AFF structural failure" means AFF mounted a case that fell short of a gate;
+    a round with no AFF case at all (e.g. an empty graph) is "presumption", not
+    a structural failure.
+
+    "framework lock-out" is RESERVED for the case where NEG wins FOR WANT of AFF
+    offense (v6): a framework governs, AFF has no in-scope impact, AND NEG has no
+    offense of its own (N >= -EPSILON). When NEG carries in-scope offense
+    (N < -EPSILON) the reason is "NEG offense", even if a framework also shut AFF
+    out -- lock-out and NEG-offense are otherwise the same judged state (a
+    governing framework with AFF out of scope), and the tabula-rasa judge cannot
+    tell "AFF was locked out" from "NEG's offense won" except by whether NEG
+    actually has offense. This narrows the lock-out branch; it never widens it (a
+    wash, winning_framework is None, still never locks out)."""
+    if winner == AFF:
+        return "AFF offense"
+    if ctx.winning_framework is not None and not inscope_impact and N >= -EPSILON:
+        return "framework lock-out"
+    if N < -EPSILON:
+        return "NEG offense"
+    # AFF structural failure (§7, redrawn): AFF ESTABLISHED offense that then
+    # failed -- a COMPLETE, EXTENDED, still-AFF-favoring chain (sign +1, resolved)
+    # existed but was driven to zero magnitude or gated out of scope, so it reached
+    # the ballot contributing nothing. "advocacy present" is too coarse a proxy for
+    # "offense established" (it fires for a bare advocacy or an unresolved impact),
+    # so we test for the chain itself. A chain merely TURNED to the opponent (sign
+    # flipped) is NOT a structural failure: turned offense becomes the opponent's --
+    # scored if that side anchored a BD (r4), else orphaned to presumption (r10) --
+    # so a flip never collapses AFF's own offense. When such a chain exists AND is
+    # complete/in-scope but the round nets to a tie (|N| <= eps), that is presumption
+    # (offense reached the ballot; it just did not prevail), not structural failure.
+    aff_established = any(ch["side"] == AFF and ch["extended"]
+                         and not ch["unresolved"] and ch["sign"] == 1
+                         for ch in ctx.chains)
+    if aff_established and not (advocacy_present and complete_chain and inscope_impact):
+        return "AFF structural failure"
+    return "presumption"
+
+
+# `_weighing_excluded` moved to `passes.weighing_excluded` (one implementation, shared by
+# the judge ballot here and the mid-round Φ resolver). See judge/passes.py.

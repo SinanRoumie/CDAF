@@ -1,0 +1,122 @@
+{
+  "0": {
+    "k": 200,
+    "mean_nodes": 32.665,
+    "mean_edges": 48.2,
+    "mean_kinds": {
+      "advocacy": 1.005,
+      "ballot_directive": 2.83,
+      "framework": 1.65,
+      "impact": 7.31,
+      "link": 7.815,
+      "uniqueness": 4.7,
+      "weighing": 7.355
+    },
+    "frac_any_advocacy": 1.0,
+    "frac_aff_advocacy": 1.0,
+    "reason_class": {
+      "AFF structural failure": 38,
+      "AFF offense": 27,
+      "framework lock-out": 59,
+      "NEG offense": 22,
+      "presumption": 54
+    },
+    "aff_offense_rate": 0.135,
+    "neg_offense_rate": 0.11
+  },
+  "1": {
+    "k": 200,
+    "mean_nodes": 43.305,
+    "mean_edges": 50.19,
+    "mean_kinds": {
+      "advocacy": 1.33,
+      "ballot_directive": 14.395,
+      "framework": 0.82,
+      "impact": 11.025,
+      "link": 2.26,
+      "uniqueness": 6.26,
+      "weighing": 7.215
+    },
+    "frac_any_advocacy": 1.0,
+    "frac_aff_advocacy": 1.0,
+    "reason_class": {
+      "presumption": 194,
+      "framework lock-out": 6
+    },
+    "aff_offense_rate": 0.0,
+    "neg_offense_rate": 0.0
+  },
+  "2": {
+    "k": 200,
+    "mean_nodes": 35.305,
+    "mean_edges": 49.625,
+    "mean_kinds": {
+      "advocacy": 3.28,
+      "ballot_directive": 3.43,
+      "framework": 4.91,
+      "impact": 5.545,
+      "link": 4.535,
+      "uniqueness": 3.815,
+      "weighing": 9.79
+    },
+    "frac_any_advocacy": 1.0,
+    "frac_aff_advocacy": 1.0,
+    "reason_class": {
+      "presumption": 145,
+      "framework lock-out": 54,
+      "NEG offense": 1
+    },
+    "aff_offense_rate": 0.0,
+    "neg_offense_rate": 0.005
+  },
+  "3": {
+    "k": 200,
+    "mean_nodes": 29.975,
+    "mean_edges": 35.25,
+    "mean_kinds": {
+      "advocacy": 2.05,
+      "ballot_directive": 2.375,
+      "framework": 5.455,
+      "impact": 8.605,
+      "link": 8.655,
+      "uniqueness": 1.045,
+      "weighing": 1.79
+    },
+    "frac_any_advocacy": 1.0,
+    "frac_aff_advocacy": 1.0,
+    "reason_class": {
+      "presumption": 140,
+      "NEG offense": 20,
+      "framework lock-out": 32,
+      "AFF structural failure": 2,
+      "AFF offense": 6
+    },
+    "aff_offense_rate": 0.03,
+    "neg_offense_rate": 0.1
+  },
+  "4": {
+    "k": 200,
+    "mean_nodes": 27.62,
+    "mean_edges": 32.99,
+    "mean_kinds": {
+      "advocacy": 1.04,
+      "ballot_directive": 9.285,
+      "framework": 4.63,
+      "impact": 5.52,
+      "link": 4.425,
+      "uniqueness": 1.65,
+      "weighing": 1.07
+    },
+    "frac_any_advocacy": 1.0,
+    "frac_aff_advocacy": 1.0,
+    "reason_class": {
+      "presumption": 78,
+      "NEG offense": 33,
+      "framework lock-out": 48,
+      "AFF structural failure": 34,
+      "AFF offense": 7
+    },
+    "aff_offense_rate": 0.035,
+    "neg_offense_rate": 0.165
+  }
+}
