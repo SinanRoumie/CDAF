@@ -53,6 +53,9 @@ class Node(Element):
     speech: str
     position: Optional[Position] = None
     liveness: Optional[Dict[str, str]] = None
+    warrant: Optional[str] = None   # RS19 warrant (explanation of the claim); rendered
+                                    # content, ignored by the judge. Optional so
+                                    # topology-only rounds parse unchanged.
 
     ntype: ClassVar[str] = ""
 

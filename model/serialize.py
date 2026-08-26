@@ -39,6 +39,8 @@ def node_to_element(node: Node) -> dict:
                             for s in sorted(node.liveness, key=speech_index)}
     if getattr(node, "favors", None) is not None:   # Weighing preference pointer (§6.5)
         data["favors"] = node.favors
+    if getattr(node, "warrant", None):               # RS19 warrant (rendered content)
+        data["warrant"] = node.warrant
     element = {"data": data}
     if node.position is not None:
         element["position"] = {"x": node.position.x, "y": node.position.y}
@@ -78,6 +80,7 @@ def element_to_obj(element: dict):
     kwargs = dict(
         id=data["id"], label=data["label"], side=data["side"],
         speech=data["speech"], position=position, liveness=liveness,
+        warrant=data.get("warrant"),   # RS19 warrant; absent on topology-only rounds
     )
     if cls is Weighing and "favors" in data:     # preference pointer, Weighing only
         kwargs["favors"] = data["favors"]

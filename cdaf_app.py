@@ -824,6 +824,10 @@ node_editor = html.Div(id="node-editor", style=HIDDEN, children=[
                                  clearable=False)),
     labeled("Claim / label", dcc.Textarea(id="edit-node-label",
                                            style={"width": "100%", "height": "70px"})),
+    labeled("Warrant (generated · read-only)",
+            dcc.Textarea(id="edit-node-warrant", readOnly=True,
+                         style={"width": "100%", "height": "110px",
+                                "backgroundColor": "#f6f6f6", "fontSize": "12px"})),
     labeled("Speech (side is inferred)",
             dcc.Dropdown(id="edit-node-speech", options=speech_options, clearable=False)),
     html.Button("Save changes", id="edit-node-save", className="btn primary"),
@@ -1077,6 +1081,22 @@ def reflect_selection(sel, elements):
     # nothing selected -> blank inspector, no modals
     return (HIDDEN, HIDDEN, POPUP_HIDDEN, MODAL_HIDDEN, MODAL_HIDDEN,
             no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update)
+
+
+# Warrant is read-only and long, so it gets its own callback rather than another
+# output threaded through reflect_selection's many return paths (RS19 content).
+@app.callback(
+    Output("edit-node-warrant", "value"),
+    Input("selection-store", "data"),
+    State("cytoscape", "elements"),
+)
+def reflect_node_warrant(sel, elements):
+    nodes = (sel or EMPTY_SELECTION).get("nodes", [])
+    if len(nodes) == 1:
+        n = find(elements, nodes[0])
+        if n:
+            return n["data"].get("warrant") or ""
+    return ""
 
 
 # ---------------------------------------------------------------------------
